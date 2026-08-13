@@ -14,6 +14,7 @@ class MandatePreferences(private val context: Context) {
     companion object {
         val DAILY_CALORIE_TARGET = intPreferencesKey("daily_calorie_target")
         val ENFORCEMENT_ENABLED = booleanPreferencesKey("enforcement_enabled")
+        val IS_PERMANENTLY_LOCKED = booleanPreferencesKey("is_permanently_locked")
     }
 
     val calorieTargetFlow: Flow<Int> = context.dataStore.data.map { preferences ->
@@ -22,6 +23,10 @@ class MandatePreferences(private val context: Context) {
 
     val enforcementEnabledFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
         preferences[ENFORCEMENT_ENABLED] ?: true
+    }
+
+    val isPermanentlyLockedFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[IS_PERMANENTLY_LOCKED] ?: false
     }
 
     suspend fun updateCalorieTarget(target: Int) {
@@ -33,6 +38,12 @@ class MandatePreferences(private val context: Context) {
     suspend fun updateEnforcementEnabled(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[ENFORCEMENT_ENABLED] = enabled
+        }
+    }
+
+    suspend fun setPermanentLockdown(locked: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[IS_PERMANENTLY_LOCKED] = locked
         }
     }
 }

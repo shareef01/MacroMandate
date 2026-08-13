@@ -19,24 +19,34 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
 import com.sharek.macromandate.util.BiometricAuthenticator
+import com.sharek.macromandate.viewmodel.ComplianceStatus
 import com.sharek.macromandate.viewmodel.MainViewModel
+import com.sharek.macromandate.data.local.AuditEntity
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.*
+import androidx.compose.ui.unit.sp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ControlPanelScreen(viewModel: MainViewModel) {
     val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var isUnlocked by remember { mutableStateOf(false) }
 
     val calorieTarget by viewModel.calorieTarget.collectAsState()
     val enforcementEnabled by viewModel.enforcementEnabled.collectAsState()
+    val complianceStatus by viewModel.complianceStatus.collectAsState()
+    val recentAudits by viewModel.recentAudits.collectAsState()
 
     val createDocumentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/csv"),
@@ -62,44 +72,55 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                         imageVector = Icons.Default.Warning,
                         contentDescription = null,
                         modifier = Modifier.size(120.dp),
-                        tint = Color.DarkGray
+                        tint = if (complianceStatus == ComplianceStatus.SUBVERSIVE) Color.Red else Color.DarkGray
                     )
                     Spacer(modifier = Modifier.height(32.dp))
                     Text(
-                        text = "ACCESS RESTRICTED",
+                        text = if (complianceStatus == ComplianceStatus.SUBVERSIVE) "ACCESS DENIED" else "ACCESS RESTRICTED",
                         style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Black
+                        fontWeight = FontWeight.Black,
+                        color = if (complianceStatus == ComplianceStatus.SUBVERSIVE) Color.Red else Color.Unspecified
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "STATE CLEARANCE REQUIRED TO ALTER MANDATES.",
-                        style = MaterialTheme.typography.bodyMedium
+                        text = if (complianceStatus == ComplianceStatus.SUBVERSIVE) 
+                            "YOUR SUBVERSIVE STATUS HAS VOIDED ALL ACCESS PRIVILEGES." 
+                            else "STATE CLEARANCE REQUIRED TO ALTER MANDATES.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 32.dp)
                     )
                     Spacer(modifier = Modifier.height(48.dp))
-                    Button(
-                        onClick = {
-                            val authenticator = BiometricAuthenticator(context as FragmentActivity)
-                            authenticator.authenticate(
-                                onSuccess = { isUnlocked = true },
-                                onError = { _, err ->
-                                    scope.launch {
-                                        snackbarHostState.showSnackbar("ACCESS DENIED: ${err.toString().uppercase()}")
-                                    }
+                    if (complianceStatus != ComplianceStatus.SUBVERSIVE) {
+                        Button(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                val authenticator = BiometricAuthenticator(context as FragmentActivity)
+                                authenticator.authenticate(
+                                    onSuccess = { 
+                                    viewModel.logAudit("SECURITY", "BIOMETRIC CLEARANCE GRANTED.")
+                                    isUnlocked = true 
                                 },
-                                onFailed = {
-                                    scope.launch {
-                                        snackbarHostState.showSnackbar("AUTHENTICATION FAILED")
+                                    onError = { _, err ->
+                                        scope.launch {
+                                            snackbarHostState.showSnackbar("ACCESS DENIED: ${err.toString().uppercase()}")
+                                        }
+                                    },
+                                    onFailed = {
+                                        scope.launch {
+                                            snackbarHostState.showSnackbar("AUTHENTICATION FAILED")
+                                        }
                                     }
-                                }
+                                )
+                            },
+                            shape = RectangleShape,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = Color.Black
                             )
-                        },
-                        shape = RectangleShape,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = Color.Black
-                        )
-                    ) {
-                        Text("REQUEST CLEARANCE", fontWeight = FontWeight.Bold)
+                        ) {
+                            Text("REQUEST CLEARANCE", fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
@@ -122,14 +143,24 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                     icon = Icons.Default.Settings
                 ) {
                     Column {
+                        // Local value mirrors the persisted target; commit only when the
+                        // user releases the slider to avoid DataStore/audit/widget spam.
+                        var sliderValue by remember { mutableFloatStateOf(calorieTarget.toFloat()) }
+                        LaunchedEffect(calorieTarget) { sliderValue = calorieTarget.toFloat() }
                         Text(
-                            text = "$calorieTarget KCAL", 
+                            text = "${sliderValue.toInt()} KCAL",
                             style = MaterialTheme.typography.bodyLarge,
                             fontWeight = FontWeight.Black
                         )
                         Slider(
-                            value = calorieTarget.toFloat(),
-                            onValueChange = { viewModel.updateCalorieTarget(it.toInt()) },
+                            value = sliderValue,
+                            onValueChange = {
+                                sliderValue = it
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            },
+                            onValueChangeFinished = {
+                                viewModel.updateCalorieTarget(sliderValue.toInt())
+                            },
                             valueRange = 1200f..4000f,
                             steps = 28,
                             colors = SliderDefaults.colors(
@@ -140,25 +171,39 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                     }
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(48.dp))
 
                 SettingsCard(
                     title = "ENFORCEMENT PROTOCOL",
                     icon = Icons.Default.Notifications
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(text = "BACKGROUND SURVEILLANCE", fontWeight = FontWeight.Black)
-                        Switch(
-                            checked = enforcementEnabled,
-                            onCheckedChange = { viewModel.toggleEnforcement(it) },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = MaterialTheme.colorScheme.primary
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(text = "BACKGROUND SURVEILLANCE", fontWeight = FontWeight.Black)
+                            Switch(
+                                checked = enforcementEnabled,
+                                onCheckedChange = { 
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    viewModel.toggleEnforcement(it) 
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = MaterialTheme.colorScheme.primary
+                                )
                             )
-                        )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(text = "PERSISTENT SURVEILLANCE HUD", fontWeight = FontWeight.Black)
+                            Text(text = "ACTIVE", color = Color.Green, fontWeight = FontWeight.Black, style = MaterialTheme.typography.labelSmall)
+                        }
                     }
                 }
 
@@ -173,18 +218,37 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
 
                 Button(
                     onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         createDocumentLauncher.launch("MacroMandate_Dossier_${System.currentTimeMillis()}.csv")
                     },
                     modifier = Modifier.fillMaxWidth(),
+                    enabled = complianceStatus != ComplianceStatus.SUBVERSIVE,
                     shape = RectangleShape,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFFD500F9) // Harsh Neon Purple
+                        containerColor = if (complianceStatus == ComplianceStatus.SUBVERSIVE) Color.DarkGray else Color(0xFFD500F9), // Harsh Neon Purple
+                        disabledContainerColor = Color(0xFF1A1A1A)
                     )
                 ) {
                     Icon(Icons.Default.Description, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("EXFILTRATE DOSSIER (CSV)", fontWeight = FontWeight.Black)
+                    Text(
+                        text = if (complianceStatus == ComplianceStatus.SUBVERSIVE) "[ EXFILTRATION FORBIDDEN ]" else "EXFILTRATE DOSSIER (CSV)",
+                        fontWeight = FontWeight.Black
+                    )
                 }
+
+                Spacer(modifier = Modifier.height(48.dp))
+
+                Text(
+                    text = "SYSTEM BUFFER",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Black
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                AuditBufferHud(recentAudits)
+                
+                Spacer(modifier = Modifier.height(32.dp))
             }
         }
 
@@ -215,7 +279,7 @@ fun SettingsCard(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(text = title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
             }
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(16.dp))
             content()
         }
     }
@@ -232,3 +296,48 @@ private fun saveCsvToUri(context: Context, uri: Uri, viewModel: MainViewModel) {
         }
     }
 }
+
+@Composable
+fun AuditBufferHud(audits: List<AuditEntity>) {
+    val dateFormat = remember { SimpleDateFormat("HH:mm:ss", Locale.US) }
+    
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(250.dp),
+        shape = RectangleShape,
+        colors = CardDefaults.cardColors(containerColor = Color.Black),
+        border = BorderStroke(1.dp, Color.Gray.copy(alpha = 0.3f))
+    ) {
+        Column(modifier = Modifier.padding(8.dp)) {
+            if (audits.size >= 45) {
+                Text(
+                    "!! BUFFER WARNING: CAPACITY NEAR LIMIT !!", 
+                    color = Color.Yellow, 
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Black
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+            }
+            
+            androidx.compose.foundation.lazy.LazyColumn(reverseLayout = true) {
+                items(audits.size) { index ->
+                    val audit = audits[index]
+                    Text(
+                        text = "[${dateFormat.format(Date(audit.timestamp))}] ${audit.category}: ${audit.message}",
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            fontSize = 9.sp
+                        ),
+                        color = when(audit.category) {
+                            "SECURITY" -> Color.Red
+                            "MANDATE_SHIFT" -> Color.Cyan
+                            else -> Color.Gray
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+

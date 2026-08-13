@@ -20,7 +20,7 @@ object DossierExporter {
             val timestamp = dateFormat.format(Date(meal.timestamp))
             sb.append("${meal.id},")
             sb.append("$timestamp,")
-            sb.append("\"${meal.foodName}\",")
+            sb.append("\"${escapeCsvField(meal.foodName)}\",")
             sb.append("${meal.calories},")
             sb.append("${meal.proteinGrams},")
             sb.append("${meal.carbsGrams},")
@@ -29,4 +29,9 @@ object DossierExporter {
         }
         sb.toString()
     }
+
+    private fun escapeCsvField(field: String): String =
+        // LLM-generated food names can contain quotes and line breaks; quotes are
+        // doubled (RFC-4180) and newlines stripped so each record stays on one row.
+        field.replace("\r", " ").replace("\n", " ").replace("\"", "\"\"")
 }

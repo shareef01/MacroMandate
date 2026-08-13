@@ -48,6 +48,10 @@ class MealRepository(private val mealDao: MealDao) {
         mealDao.deleteById(id)
     }
 
+    suspend fun deleteAllMeals() {
+        mealDao.deleteAll()
+    }
+
     private fun MealEntity.toDomain() = MealEntry(
         id = id,
         timestamp = timestamp,
@@ -57,7 +61,12 @@ class MealRepository(private val mealDao: MealDao) {
         proteinGrams = proteinGrams,
         carbsGrams = carbsGrams,
         fatGrams = fatGrams,
-        isLiquid = isLiquid
+        isLiquid = isLiquid,
+        latitude = latitude,
+        longitude = longitude,
+        assessment = assessment,
+        isRestricted = isRestricted,
+        isNightRefueling = isNightRefueling
     )
 
     private fun MealEntry.toEntity() = MealEntity(
@@ -69,6 +78,11 @@ class MealRepository(private val mealDao: MealDao) {
         proteinGrams = proteinGrams,
         carbsGrams = carbsGrams,
         fatGrams = fatGrams,
-        isLiquid = isLiquid
+        isLiquid = isLiquid,
+        latitude = latitude,
+        longitude = longitude,
+        assessment = assessment,
+        isRestricted = isRestricted,
+        isNightRefueling = isNightRefueling
     )
 }

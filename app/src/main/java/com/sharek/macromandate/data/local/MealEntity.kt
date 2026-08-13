@@ -14,5 +14,10 @@ data class MealEntity(
     val proteinGrams: Float,
     val carbsGrams: Float,
     val fatGrams: Float,
-    val isLiquid: Boolean
+    val isLiquid: Boolean,
+    val latitude: Double?,
+    val longitude: Double?,
+    val assessment: String?,
+    val isRestricted: Boolean,
+    val isNightRefueling: Boolean
 )
