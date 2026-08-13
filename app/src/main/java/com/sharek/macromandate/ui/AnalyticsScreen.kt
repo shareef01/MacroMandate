@@ -2,13 +2,12 @@ package com.sharek.macromandate.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -16,11 +15,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sharek.macromandate.model.MealEntry
+import com.sharek.macromandate.viewmodel.ComplianceStatus
 import com.sharek.macromandate.viewmodel.MainViewModel
+import com.sharek.macromandate.viewmodel.UiState
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -30,46 +33,183 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
     val todayMeals by viewModel.todayMeals.collectAsState()
     val weeklyMeals by viewModel.weeklyMeals.collectAsState()
     val target by viewModel.calorieTarget.collectAsState()
+    val complianceStatus by viewModel.complianceStatus.collectAsState()
+    val dailyBriefing by viewModel.dailyBriefing.collectAsState()
+    val uiState by viewModel.uiState.collectAsState()
+    val haptic = LocalHapticFeedback.current
+    
+    var showMap by remember { mutableStateOf(false) }
 
     val totalCalories = todayMeals.sumOf { it.calories }
     val totalProtein = todayMeals.sumOf { it.proteinGrams.toDouble() }.toFloat()
     val totalCarbs = todayMeals.sumOf { it.carbsGrams.toDouble() }.toFloat()
     val totalFat = todayMeals.sumOf { it.fatGrams.toDouble() }.toFloat()
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
-            text = "DAILY COMPLIANCE",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Black
-        )
-        Spacer(modifier = Modifier.height(24.dp))
-        DailyComplianceChart(totalCalories, target)
-        Spacer(modifier = Modifier.height(48.dp))
-        
-        Text(
-            text = "MACRO BREAKDOWN",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Black,
-            modifier = Modifier.align(Alignment.Start)
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        MacroBars(totalProtein, totalCarbs, totalFat)
-        
-        Spacer(modifier = Modifier.height(48.dp))
-        Text(
-            text = "WEEKLY SURVEILLANCE",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Black,
-            modifier = Modifier.align(Alignment.Start)
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        WeeklyBarChart(weeklyMeals)
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (showMap) {
+            SurveillanceMap(todayMeals) { 
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                showMap = false 
+            }
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "DAILY COMPLIANCE",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Black
+                )
+                Spacer(modifier = Modifier.height(24.dp))
+                DailyComplianceChart(totalCalories, target)
+                Spacer(modifier = Modifier.height(48.dp))
+                
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { 
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            showMap = true 
+                        },
+                        modifier = Modifier.weight(1f),
+                        enabled = complianceStatus != ComplianceStatus.SUBVERSIVE,
+                        shape = RectangleShape,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color.DarkGray,
+                            disabledContainerColor = Color(0xFF1A1A1A)
+                        )
+                    ) {
+                        Text(
+                            text = if (complianceStatus == ComplianceStatus.SUBVERSIVE) "MAP DENIED" else "SURVEILLANCE MAP",
+                            fontWeight = FontWeight.Black,
+                            fontSize = 11.sp
+                        )
+                    }
+
+                    Button(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            viewModel.generateDailyBriefing()
+                        },
+                        modifier = Modifier.weight(1f),
+                        enabled = todayMeals.isNotEmpty() && complianceStatus != ComplianceStatus.SUBVERSIVE,
+                        shape = RectangleShape,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF0D47A1),
+                            disabledContainerColor = Color(0xFF1A1A1A)
+                        )
+                    ) {
+                        Text(
+                            "INTEL SYNTHESIS", 
+                            fontWeight = FontWeight.Black,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(32.dp))
+
+                Text(
+                    text = "MACRO BREAKDOWN",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Black,
+                    modifier = Modifier.align(Alignment.Start)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                MacroBars(totalProtein, totalCarbs, totalFat)
+                
+                Spacer(modifier = Modifier.height(48.dp))
+                Text(
+                    text = "WEEKLY SURVEILLANCE",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Black,
+                    modifier = Modifier.align(Alignment.Start)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                WeeklyBarChart(weeklyMeals)
+            }
+        }
+
+        if (complianceStatus == ComplianceStatus.SUBVERSIVE) {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = Color.Red.copy(alpha = 0.4f),
+                shape = RectangleShape
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = "[ ACCESS REVOKED: SUBVERSIVE BEHAVIOR DETECTED ]",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Black,
+                        color = Color.White,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.padding(32.dp)
+                    )
+                }
+            }
+        }
+
+        // Daily Briefing Overlay
+        dailyBriefing?.let { briefing ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.9f))
+                    .clickable { viewModel.dismissBriefing() }
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .hudFraming(Color(0xFF00E5FF), length = 40.dp, thickness = 4.dp)
+                        .background(Color(0xFF001A1A))
+                        .padding(24.dp)
+                ) {
+                    Text(
+                        "SOVEREIGN DAILY BRIEFING",
+                        color = Color(0xFF00E5FF),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Black
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    TerminalTypewriterText(
+                        text = briefing,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Text(
+                        "[ TAP ANYWHERE TO DISMISS ]",
+                        color = Color.Gray,
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.align(Alignment.CenterHorizontally)
+                    )
+                }
+            }
+        }
+
+        if (uiState is UiState.Loading) {
+            Surface(
+                color = Color.Black.copy(alpha = 0.8f),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(color = Color(0xFF00E5FF), strokeWidth = 4.dp)
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            "DECRYPTING INTEL...",
+                            color = Color(0xFF00E5FF),
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Black
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -189,7 +329,7 @@ fun WeeklyBarChart(meals: List<MealEntry>) {
             for (i in 0..gridCount) {
                 val y = size.height - (size.height / gridCount) * i
                 drawLine(
-                    color = Color.Gray.copy(alpha = 0.2f),
+                    color = Color.White.copy(alpha = 0.1f),
                     start = Offset(0f, y),
                     end = Offset(size.width, y),
                     strokeWidth = 1.dp.toPx()
@@ -214,6 +354,47 @@ fun WeeklyBarChart(meals: List<MealEntry>) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(text = day, style = MaterialTheme.typography.labelSmall, fontSize = 9.sp, fontWeight = FontWeight.Black)
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun SurveillanceMap(meals: List<MealEntry>, onBack: () -> Unit) {
+    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            // Draw grid
+            val step = 50.dp.toPx()
+            for (x in 0..(size.width / step).toInt()) {
+                drawLine(Color.DarkGray.copy(alpha = 0.3f), Offset(x * step, 0f), Offset(x * step, size.height))
+            }
+            for (y in 0..(size.height / step).toInt()) {
+                drawLine(Color.DarkGray.copy(alpha = 0.3f), Offset(0f, y * step), Offset(size.width, y * step))
+            }
+
+            // Plot meals
+            meals.forEach { meal ->
+                if (meal.latitude != null && meal.longitude != null) {
+                    // Simple relative projection for mock purpose
+                    val x = (size.width / 2) + (meal.longitude.toFloat() % 1f) * size.width * 2
+                    val y = (size.height / 2) - (meal.latitude.toFloat() % 1f) * size.height * 2
+                    
+                    val center = Offset(x.coerceIn(0f, size.width), y.coerceIn(0f, size.height))
+                    
+                    // Crosshair
+                    val crossSize = 10.dp.toPx()
+                    drawLine(Color(0xFF00FF00), Offset(center.x - crossSize, center.y), Offset(center.x + crossSize, center.y), 2.dp.toPx())
+                    drawLine(Color(0xFF00FF00), Offset(center.x, center.y - crossSize), Offset(center.x, center.y + crossSize), 2.dp.toPx())
+                    drawCircle(Color(0xFF00FF00), radius = 4.dp.toPx(), center = center, style = Stroke(1.dp.toPx()))
+                }
+            }
+        }
+        
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("TACTICAL DATA MAPPING", color = Color(0xFF00FF00), fontWeight = FontWeight.Black)
+            Spacer(modifier = Modifier.weight(1f))
+            Button(onClick = onBack, shape = RectangleShape, modifier = Modifier.fillMaxWidth()) {
+                Text("CLOSE OVERLAY")
             }
         }
     }

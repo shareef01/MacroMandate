@@ -32,7 +32,8 @@ android {
             buildConfigField("String", "HUGGINGFACE_API_KEY", "\"$hfKey\"")
         }
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -65,6 +66,13 @@ android {
     }
 }
 
+ksp {
+    // Export Room schemas (app/schemas) so that once the app ships, schema changes
+    // must ship explicit Migration objects. NOTE: AppDatabase still uses
+    // fallbackToDestructiveMigration() as a documented pre-release safeguard.
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
@@ -91,6 +99,9 @@ dependencies {
     implementation(libs.androidx.glance.appwidget)
     implementation(libs.androidx.glance.material3)
     implementation(libs.androidx.biometric)
+    implementation(libs.play.services.location)
+    implementation(libs.coil.compose)
+    implementation(libs.androidx.core.splashscreen)
     ksp(libs.androidx.room.compiler)
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)

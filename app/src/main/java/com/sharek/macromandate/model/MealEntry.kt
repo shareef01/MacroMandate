@@ -9,5 +9,10 @@ data class MealEntry(
     val proteinGrams: Float,
     val carbsGrams: Float,
     val fatGrams: Float,
-    val isLiquid: Boolean
+    val isLiquid: Boolean,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val assessment: String? = null,
+    val isRestricted: Boolean = false,
+    val isNightRefueling: Boolean = false
 )

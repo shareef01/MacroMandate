@@ -10,19 +10,32 @@ import com.sharek.macromandate.R
 
 object NotificationManagerHelper {
     const val CHANNEL_ID = "mandate_enforcement"
+    const val HUD_CHANNEL_ID = "mandate_surveillance_hud"
     private const val NOTIFICATION_ID = 1001
+    const val HUD_NOTIFICATION_ID = 1002
 
     fun createNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val name = "Mandate Enforcement"
-            val descriptionText = "Biological fuel log enforcement notifications"
-            val importance = NotificationManager.IMPORTANCE_HIGH
-            val channel = NotificationChannel(CHANNEL_ID, name, importance).apply {
-                description = descriptionText
+            val enforcementChannel = NotificationChannel(
+                CHANNEL_ID, 
+                "Mandate Enforcement", 
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Biological fuel log enforcement notifications"
             }
+            
+            val hudChannel = NotificationChannel(
+                HUD_CHANNEL_ID,
+                "Surveillance HUD",
+                NotificationManager.IMPORTANCE_LOW // Ongoing persistent info
+            ).apply {
+                description = "Real-time compliance surveillance"
+            }
+            
             val notificationManager: NotificationManager =
                 context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.createNotificationChannel(channel)
+            notificationManager.createNotificationChannel(enforcementChannel)
+            notificationManager.createNotificationChannel(hudChannel)
         }
     }
 
