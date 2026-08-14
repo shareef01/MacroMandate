@@ -21,6 +21,8 @@ import com.sharek.macromandate.network.HuggingFaceApi
 import com.sharek.macromandate.network.HuggingFaceRequest
 import com.sharek.macromandate.util.DossierExporter
 import com.sharek.macromandate.util.ComplianceEngine
+import com.sharek.macromandate.util.EvidenceStore
+import com.sharek.macromandate.util.LeniencyVerdict
 import com.sharek.macromandate.widget.MandateWidget
 import com.sharek.macromandate.util.ImageForensics
 import com.sharek.macromandate.worker.EnforcementScheduler
@@ -39,6 +41,8 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.Calendar
 import java.util.UUID
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import kotlin.math.abs
 
 sealed class UiState {
@@ -109,6 +113,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             initialValue = true
         )
 
+    val locationTrackingEnabled: StateFlow<Boolean> = preferences.locationTrackingEnabledFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = false
+        )
+
     val complianceScore: StateFlow<Int> = combine(weeklyMeals, calorieTarget) { meals, target ->
         calculateComplianceScore(meals, target)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 100)
@@ -133,17 +144,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         ComplianceEngine.statusFor(adjustedScore)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ComplianceStatus.EXEMPLARY)
 
-    private fun checkForbiddenSectors(lat: Double, lng: Double): Boolean {
-        // Mock Forbidden Sectors: Burger Corridor, Donut District
-        val forbiddenPoints = listOf(
-            Pair(52.5200, 13.4050), // Sector A
-            Pair(40.7128, -74.0060)  // Sector B
-        )
-        
-        return forbiddenPoints.any { (fLat, fLng) ->
+    /**
+     * Forbidden sectors are intentionally empty.
+     *
+     * This previously shipped mock coordinates for central Berlin and Manhattan.
+     * A real user eating at either location was flagged for a restricted-zone
+     * violation and given a 40-point compliance penalty — on its own enough to
+     * drop them into CRISIS, which replaces the whole app with the leniency
+     * screen. Until real sector data exists, nothing is restricted.
+     */
+    private val forbiddenSectors: List<Pair<Double, Double>> = emptyList()
+
+    private fun checkForbiddenSectors(lat: Double, lng: Double): Boolean =
+        forbiddenSectors.any { (fLat, fLng) ->
             abs(lat - fLat) < 0.005 && abs(lng - fLng) < 0.005 // Approx 500m
         }
-    }
 
     private fun calculateComplianceScore(meals: List<MealEntry>, dailyTarget: Int): Int =
         ComplianceEngine.calculateScore(meals, dailyTarget)
@@ -189,13 +204,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val responseText = response.body()?.firstOrNull()?.generatedText ?: ""
                     _dailyBriefing.value = responseText.substringAfter("Assistant:").trim()
                     logAudit("INTEL_SYNTHESIS", "DAILY BRIEFING GENERATED.")
+                    // Only the success path returns to Idle. A `finally` here would
+                    // overwrite the Error below before any collector could observe it
+                    // — StateFlow conflates, and there is no suspension point between.
+                    _uiState.value = UiState.Idle
                 } else {
                     _uiState.value = UiState.Error("UPLINK FAILURE: ${response.code()}")
                 }
             } catch (e: Exception) {
                 _uiState.value = UiState.Error("SYNTHESIS ERROR: ${e.localizedMessage?.uppercase()}")
-            } finally {
-                _uiState.value = UiState.Idle
             }
         }
     }
@@ -222,33 +239,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 if (response.isSuccessful) {
                     val responseText = response.body()?.firstOrNull()?.generatedText ?: ""
-                    val jsonStart = responseText.indexOf("{")
-                    val jsonEnd = responseText.lastIndexOf("}")
-                    
-                    if (jsonStart != -1 && jsonEnd != -1) {
-                        val json = JSONObject(responseText.substring(jsonStart, jsonEnd + 1))
-                        val decision = json.getString("decision")
-                        val msg = json.getString("response")
-                        
-                        if (decision == "GRANTED") {
+
+                    when (val verdict = LeniencyVerdict.parse(responseText)) {
+                        is LeniencyVerdict.Granted -> {
                             logAudit("SECURITY_JUDGMENT", "LENIENCY GRANTED. MANDATE RESET.")
                             repository.deleteAllMeals() // Wipe the shame
-                            _uiState.value = UiState.Success("LENIENCY GRANTED: $msg")
-                        } else {
+                            withContext(Dispatchers.IO) {
+                                EvidenceStore.deleteAll(getApplication())
+                            }
+                            updateWidget()
+                            _uiState.value = UiState.Success("LENIENCY GRANTED: ${verdict.message}")
+                        }
+
+                        is LeniencyVerdict.Denied -> {
                             logAudit("SECURITY_JUDGMENT", "LENIENCY DENIED. TERMINAL LOCKDOWN.")
                             preferences.setPermanentLockdown(true)
-                            _uiState.value = UiState.Error("LENIENCY DENIED: $msg")
+                            _uiState.value = UiState.Error("LENIENCY DENIED: ${verdict.message}")
                         }
-                    } else {
-                        _uiState.value = UiState.Error("JUDGMENT ERROR: UNPARSABLE VERDICT.")
+
+                        // Neither branch is reversible, so an unrecognized verdict must
+                        // not fall through into lockdown. Report and leave state intact.
+                        is LeniencyVerdict.Unparsable -> {
+                            _uiState.value = UiState.Error("JUDGMENT ERROR: ${verdict.reason}")
+                        }
                     }
                 } else {
                     _uiState.value = UiState.Error("JUDGMENT UPLINK FAILURE: ${response.code()}")
                 }
             } catch (e: Exception) {
                 _uiState.value = UiState.Error("JUDGMENT ERROR: ${e.localizedMessage?.uppercase()}")
-            } finally {
-                _uiState.value = UiState.Idle
             }
         }
     }
@@ -258,6 +277,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             preferences.updateCalorieTarget(target)
             logAudit("MANDATE_SHIFT", "TARGET ADJUSTED TO $target KCAL.")
             updateWidget()
+        }
+    }
+
+    fun toggleLocationTracking(enabled: Boolean) {
+        viewModelScope.launch {
+            preferences.updateLocationTrackingEnabled(enabled)
+            logAudit(
+                "PRIVACY",
+                "GEOSPATIAL TRACKING ${if (enabled) "AUTHORIZED BY SUBJECT" else "REVOKED BY SUBJECT"}."
+            )
+        }
+    }
+
+    /**
+     * Clears a permanent lockdown. The verdict that set it comes from a language
+     * model, so the subject keeps a way back to their own data.
+     */
+    fun requestReinstatement() {
+        viewModelScope.launch {
+            preferences.setPermanentLockdown(false)
+            logAudit("SECURITY_JUDGMENT", "REINSTATEMENT PETITION ACCEPTED. LOCKDOWN LIFTED.")
         }
     }
 
@@ -273,11 +313,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun exportData(onCsvReady: (String) -> Unit) {
+    /**
+     * Generates the dossier and writes it to [uri]. The write stays on the IO
+     * dispatcher: handing the CSV back to a main-thread callback made the caller
+     * do blocking SAF I/O on the UI thread.
+     */
+    fun exportDataTo(
+        context: android.content.Context,
+        uri: Uri,
+        onResult: (Boolean) -> Unit
+    ) {
         viewModelScope.launch {
-            val csv = DossierExporter.generateCsv(mealEntries.value)
-            logAudit("DATA_EXPORT", "DOSSIER EXFILTRATED.")
-            onCsvReady(csv)
+            val succeeded = withContext(Dispatchers.IO) {
+                try {
+                    val csv = DossierExporter.generateCsv(mealEntries.value)
+                    context.contentResolver.openOutputStream(uri)?.use { output ->
+                        output.write(csv.toByteArray())
+                        true
+                    } ?: false
+                } catch (e: Exception) {
+                    Log.e("MainViewModel", "Dossier export failed", e)
+                    false
+                }
+            }
+            if (succeeded) {
+                logAudit("DATA_EXPORT", "DOSSIER EXFILTRATED.")
+            } else {
+                logAudit("DATA_EXPORT", "DOSSIER EXFILTRATION FAILED.")
+            }
+            onResult(succeeded)
         }
     }
 
@@ -285,13 +349,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _uiState.value = UiState.Loading
             try {
-                // Tactical Location Acquisition
-                val location = withContext(Dispatchers.IO) {
+                // Tactical Location Acquisition — only with the subject's explicit
+                // opt-in, since these coordinates end up watermarked into the image
+                // that gets uploaded for analysis.
+                val location = if (!preferences.locationTrackingEnabledFlow.first()) {
+                    null
+                } else withContext(Dispatchers.IO) {
                     try {
                         val client = LocationServices.getFusedLocationProviderClient(context)
                         try {
-                            Tasks.await(client.lastLocation)
+                            // Bounded: an unqualified await blocks this IO thread
+                            // indefinitely if Play Services never settles the task.
+                            Tasks.await(client.lastLocation, 5, TimeUnit.SECONDS)
                         } catch (_: SecurityException) {
+                            null
+                        } catch (_: TimeoutException) {
                             null
                         }
                     } catch (_: Exception) {
@@ -301,13 +373,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 val currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
                 val isNightRefueling = currentHour in 23..23 || currentHour in 0..4
-                
+
+                // One id backs both the meal record and its stored evidence file.
+                val mealId = UUID.randomUUID().toString()
+
                 val base64Image = withContext(Dispatchers.IO) {
                     val watermarkedUri = if (location != null) {
                         ImageForensics.watermarkImage(
                             context = context,
                             uri = uri,
-                            id = UUID.randomUUID().toString(),
+                            id = mealId,
                             latitude = location.latitude,
                             longitude = location.longitude,
                             timestamp = System.currentTimeMillis()
@@ -361,10 +436,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             logAudit("SECURITY", "MANDATE VIOLATION: CIRCADIAN DISCIPLINE BREACH.")
                         }
 
+                        // Copy the frame somewhere durable before recording it. A
+                        // cacheDir path is evictable and a photo-picker grant dies
+                        // with the process; either leaves the archive image blank.
+                        val storedUri = withContext(Dispatchers.IO) {
+                            EvidenceStore.persist(context, uri, mealId)
+                        }
+
                         val newEntry = MealEntry(
-                            id = UUID.randomUUID().toString(),
+                            id = mealId,
                             timestamp = System.currentTimeMillis(),
-                            imageUri = uri.toString(),
+                            imageUri = (storedUri ?: uri).toString(),
                             foodName = jsonObject.getString("foodName"),
                             calories = jsonObject.getInt("calories"),
                             proteinGrams = jsonObject.optDouble("proteinGrams", 0.0).toFloat(),
@@ -447,7 +529,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun deleteMealEntry(id: String) {
         viewModelScope.launch {
+            // Capture the image path before the row disappears, so the stored file
+            // is removed too rather than orphaned in filesDir forever.
+            val imageUri = mealEntries.value.find { it.id == id }?.imageUri
             repository.deleteMeal(id)
+            withContext(Dispatchers.IO) {
+                EvidenceStore.delete(getApplication(), imageUri)
+            }
             logAudit("DATA_PURGE", "RECORD REMOVED: $id")
             updateWidget()
         }

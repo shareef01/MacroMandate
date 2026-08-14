@@ -30,7 +30,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import androidx.fragment.app.FragmentActivity
 import com.sharek.macromandate.model.MealEntry
 import com.sharek.macromandate.util.BiometricAuthenticator
 import com.sharek.macromandate.viewmodel.ComplianceStatus
@@ -53,14 +52,16 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
     val snackbarHostState = remember { SnackbarHostState() }
     val uiState by viewModel.uiState.collectAsState()
     val complianceStatus by viewModel.complianceStatus.collectAsState()
+    val locationTrackingEnabled by viewModel.locationTrackingEnabled.collectAsState()
     
     var screenState by remember { mutableStateOf(ScreenState.DASHBOARD) }
 
     val performIngestAction = { action: () -> Unit ->
-        if (complianceStatus == ComplianceStatus.EXEMPLARY) {
+        val activity = context.findFragmentActivity()
+        if (complianceStatus == ComplianceStatus.EXEMPLARY || activity == null) {
             action()
         } else {
-            val authenticator = BiometricAuthenticator(context as FragmentActivity)
+            val authenticator = BiometricAuthenticator(activity)
             authenticator.authenticate(
                 onSuccess = {
                     viewModel.logAudit("SECURITY", "INGEST VERIFIED: ${complianceStatus.name}")
@@ -113,7 +114,10 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
         when (screenState) {
             ScreenState.DASHBOARD -> {
                 val mealEntries by viewModel.mealEntries.collectAsState()
-                val totalCalories = mealEntries.sumOf { it.calories }
+                val todayMeals by viewModel.todayMeals.collectAsState()
+                // The card is labelled TOTAL DAILY CONSUMPTION, so it must sum today's
+                // meals — mealEntries is the full history and belongs to the log below.
+                val totalCalories = todayMeals.sumOf { it.calories }
                 val lastMealWasRestricted = mealEntries.firstOrNull()?.let { it.isRestricted && (System.currentTimeMillis() - it.timestamp) < 60 * 60 * 1000 } ?: false
 
                 Column(modifier = Modifier.fillMaxSize()) {
@@ -132,11 +136,16 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
                             onCaptureMeal = {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 performIngestAction {
-                                    val permissions = arrayOf(
-                                        Manifest.permission.CAMERA,
-                                        Manifest.permission.ACCESS_FINE_LOCATION,
-                                        Manifest.permission.ACCESS_COARSE_LOCATION
-                                    )
+                                    // Location is only requested once the subject has
+                                    // opted in from the Control Panel — bundling it
+                                    // with CAMERA gave no context for the request.
+                                    val permissions = buildList {
+                                        add(Manifest.permission.CAMERA)
+                                        if (locationTrackingEnabled) {
+                                            add(Manifest.permission.ACCESS_FINE_LOCATION)
+                                            add(Manifest.permission.ACCESS_COARSE_LOCATION)
+                                        }
+                                    }.toTypedArray()
                                     if (permissions.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }) {
                                         screenState = ScreenState.CAMERA
                                     } else {
@@ -190,7 +199,7 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
                         if (mealEntries.isEmpty()) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Text(
-                                    text = "[ NO BIOLOGICAL DATA LOGGED TODAY ]",
+                                    text = "[ NO BIOLOGICAL DATA LOGGED ]",
                                     style = MaterialTheme.typography.bodyLarge,
                                     color = Color.Gray,
                                     fontWeight = FontWeight.Bold

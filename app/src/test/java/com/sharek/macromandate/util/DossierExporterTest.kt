@@ -2,6 +2,7 @@ package com.sharek.macromandate.util
 
 import com.sharek.macromandate.model.MealEntry
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -44,5 +45,33 @@ class DossierExporterTest {
     fun csvIncludesAllRows() = runBlocking {
         val csv = DossierExporter.generateCsv(listOf(meal("Salad", 250), meal("Soup", 180)))
         assertTrue(csv.lines().count { it.isNotBlank() } == 3) // header + 2 rows
+    }
+
+    @Test
+    fun formulaTriggersArePrefixed() {
+        // foodName is model-generated, so a leading formula character must not reach
+        // a spreadsheet unescaped.
+        listOf("=1+1", "+SUM(A1)", "-2", "@import", "\tcmd").forEach { field ->
+            assertTrue(
+                "expected '$field' to be neutralized",
+                DossierExporter.escapeCsvField(field).startsWith("'")
+            )
+        }
+    }
+
+    @Test
+    fun ordinaryNamesAreNotPrefixed() {
+        assertEquals("Grilled Salmon", DossierExporter.escapeCsvField("Grilled Salmon"))
+    }
+
+    @Test
+    fun formulaEscapingSurvivesGeneratedCsv() = runBlocking {
+        val csv = DossierExporter.generateCsv(listOf(meal("=cmd|'/c calc'!A1")))
+        assertTrue(csv.contains("\"'=cmd"))
+    }
+
+    @Test
+    fun emptyFoodNameIsHandled() {
+        assertEquals("", DossierExporter.escapeCsvField(""))
     }
 }

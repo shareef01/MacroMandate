@@ -16,20 +16,23 @@ abstract class AppDatabase : RoomDatabase() {
 
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
-                val instance = Room.databaseBuilder(
+                // Re-check inside the lock. Two threads can both pass the outer null
+                // check, and building twice would leave two Room handles open on one
+                // SQLite file — the surveillance service, the widget's provideGlance,
+                // and the enforcement worker all call this independently.
+                INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "macro_mandate_db"
                 )
-                // PRE-RELEASE SAFEGUARD (versionCode 1, no users in the wild yet):
-                // schema versions 1-5 predate exportSchema and cannot be reconstructed,
-                // so destructive fallback is the only upgrade path today. Before the
-                // first public release this must be replaced with real Migration objects
-                // (schemas are now exported to app/schemas for exactly that).
-                .fallbackToDestructiveMigration()
+                    // PRE-RELEASE SAFEGUARD (versionCode 1, no users in the wild yet):
+                    // schema versions 1-5 predate exportSchema and cannot be reconstructed,
+                    // so destructive fallback is the only upgrade path today. Before the
+                    // first public release this must be replaced with real Migration objects
+                    // (schemas are now exported to app/schemas for exactly that).
+                    .fallbackToDestructiveMigration()
                     .build()
-                INSTANCE = instance
-                instance
+                    .also { INSTANCE = it }
             }
         }
     }

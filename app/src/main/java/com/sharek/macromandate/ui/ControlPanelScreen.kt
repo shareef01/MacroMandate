@@ -10,6 +10,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
@@ -24,7 +25,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.fragment.app.FragmentActivity
 import com.sharek.macromandate.util.BiometricAuthenticator
 import com.sharek.macromandate.viewmodel.ComplianceStatus
 import com.sharek.macromandate.viewmodel.MainViewModel
@@ -45,13 +45,22 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
 
     val calorieTarget by viewModel.calorieTarget.collectAsState()
     val enforcementEnabled by viewModel.enforcementEnabled.collectAsState()
+    val locationTrackingEnabled by viewModel.locationTrackingEnabled.collectAsState()
     val complianceStatus by viewModel.complianceStatus.collectAsState()
     val recentAudits by viewModel.recentAudits.collectAsState()
 
     val createDocumentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/csv"),
         onResult = { uri ->
-            uri?.let { saveCsvToUri(context, it, viewModel) }
+            uri?.let { target ->
+                viewModel.exportDataTo(context, target) { succeeded ->
+                    scope.launch {
+                        snackbarHostState.showSnackbar(
+                            if (succeeded) "DOSSIER EXFILTRATED." else "EXFILTRATION FAILED."
+                        )
+                    }
+                }
+            }
         }
     )
 
@@ -95,23 +104,29 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                         Button(
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                val authenticator = BiometricAuthenticator(context as FragmentActivity)
-                                authenticator.authenticate(
-                                    onSuccess = { 
-                                    viewModel.logAudit("SECURITY", "BIOMETRIC CLEARANCE GRANTED.")
-                                    isUnlocked = true 
-                                },
-                                    onError = { _, err ->
-                                        scope.launch {
-                                            snackbarHostState.showSnackbar("ACCESS DENIED: ${err.toString().uppercase()}")
-                                        }
-                                    },
-                                    onFailed = {
-                                        scope.launch {
-                                            snackbarHostState.showSnackbar("AUTHENTICATION FAILED")
-                                        }
+                                val activity = context.findFragmentActivity()
+                                if (activity == null) {
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar("ACCESS DENIED: NO CLEARANCE TERMINAL")
                                     }
-                                )
+                                } else {
+                                    BiometricAuthenticator(activity).authenticate(
+                                        onSuccess = {
+                                            viewModel.logAudit("SECURITY", "BIOMETRIC CLEARANCE GRANTED.")
+                                            isUnlocked = true
+                                        },
+                                        onError = { _, err ->
+                                            scope.launch {
+                                                snackbarHostState.showSnackbar("ACCESS DENIED: ${err.toString().uppercase()}")
+                                            }
+                                        },
+                                        onFailed = {
+                                            scope.launch {
+                                                snackbarHostState.showSnackbar("AUTHENTICATION FAILED")
+                                            }
+                                        }
+                                    )
+                                }
                             },
                             shape = RectangleShape,
                             colors = ButtonDefaults.buttonColors(
@@ -209,6 +224,42 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
 
                 Spacer(modifier = Modifier.height(48.dp))
 
+                SettingsCard(
+                    title = "GEOSPATIAL TRACKING",
+                    icon = Icons.Default.LocationOn
+                ) {
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(text = "TAG INTAKE WITH LOCATION", fontWeight = FontWeight.Black)
+                            Switch(
+                                checked = locationTrackingEnabled,
+                                onCheckedChange = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    viewModel.toggleLocationTracking(it)
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = MaterialTheme.colorScheme.primary
+                                )
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        // Prominent disclosure: coordinates do not stay on the device.
+                        Text(
+                            text = "WHEN ENABLED, YOUR PRECISE COORDINATES ARE RECORDED WITH EACH " +
+                                "MEAL, PRINTED ONTO THE EVIDENCE IMAGE, AND THAT IMAGE IS SENT TO " +
+                                "A THIRD-PARTY ANALYSIS SERVICE. DISABLED BY DEFAULT.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.Gray
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(48.dp))
+
                 Text(
                     text = "DATA EXFILTRATION",
                     style = MaterialTheme.typography.titleLarge,
@@ -281,18 +332,6 @@ fun SettingsCard(
             }
             Spacer(modifier = Modifier.height(16.dp))
             content()
-        }
-    }
-}
-
-private fun saveCsvToUri(context: Context, uri: Uri, viewModel: MainViewModel) {
-    viewModel.exportData { csv ->
-        try {
-            context.contentResolver.openOutputStream(uri)?.use { outputStream ->
-                outputStream.write(csv.toByteArray())
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
         }
     }
 }

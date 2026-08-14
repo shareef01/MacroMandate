@@ -20,6 +20,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.sharek.macromandate.data.repository.MealRepository
 import com.sharek.macromandate.model.MealEntry
 import com.sharek.macromandate.viewmodel.ComplianceStatus
 import com.sharek.macromandate.viewmodel.MainViewModel
@@ -37,8 +38,18 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
     val dailyBriefing by viewModel.dailyBriefing.collectAsState()
     val uiState by viewModel.uiState.collectAsState()
     val haptic = LocalHapticFeedback.current
-    
+    val snackbarHostState = remember { SnackbarHostState() }
+
     var showMap by remember { mutableStateOf(false) }
+
+    // Intel synthesis failures used to be discarded silently: the spinner vanished
+    // and nothing replaced it. Surface them and return the state to Idle.
+    LaunchedEffect(uiState) {
+        (uiState as? UiState.Error)?.let { error ->
+            snackbarHostState.showSnackbar(error.message.uppercase())
+            viewModel.resetUiState()
+        }
+    }
 
     val totalCalories = todayMeals.sumOf { it.calories }
     val totalProtein = todayMeals.sumOf { it.proteinGrams.toDouble() }.toFloat()
@@ -210,6 +221,11 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
                 }
             }
         }
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp)
+        )
     }
 }
 
@@ -307,7 +323,9 @@ fun TerminalProgressBar(label: String, amount: Float, progress: Float, color: Co
 
 @Composable
 fun WeeklyBarChart(meals: List<MealEntry>) {
-    val weeklyData = (6 downTo 0).map { daysAgo ->
+    // Same window the compliance score is computed over, so the bars account for
+    // exactly the days that move the score.
+    val weeklyData = ((MealRepository.WEEK_LENGTH_DAYS - 1) downTo 0).map { daysAgo ->
         val date = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -daysAgo) }
         val dayKey = SimpleDateFormat("EEE", Locale.US).format(date.time).uppercase()
         val dayOfYear = date.get(Calendar.DAY_OF_YEAR)
