@@ -48,9 +48,15 @@ android {
 
     buildTypes {
         val hfKey = localProperties.getProperty("HUGGINGFACE_API_KEY") ?: ""
+        // Overridable so the app can be pointed at a backend proxy that holds the
+        // credential, instead of shipping one inside the APK. Set
+        // MANDATE_API_BASE_URL in local.properties; must end with a trailing slash.
+        val apiBaseUrl = localProperties.getProperty("MANDATE_API_BASE_URL")
+            ?: "https://api-inference.huggingface.co/"
 
         debug {
             buildConfigField("String", "HUGGINGFACE_API_KEY", "\"$hfKey\"")
+            buildConfigField("String", "MANDATE_API_BASE_URL", "\"$apiBaseUrl\"")
         }
         release {
             isMinifyEnabled = true
@@ -60,6 +66,7 @@ android {
                 "proguard-rules.pro"
             )
             buildConfigField("String", "HUGGINGFACE_API_KEY", "\"$hfKey\"")
+            buildConfigField("String", "MANDATE_API_BASE_URL", "\"$apiBaseUrl\"")
             signingConfig = signingConfigs.getByName("release").takeIf { it.storeFile != null }
         }
     }
