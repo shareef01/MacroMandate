@@ -42,11 +42,11 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
 
     var showMap by remember { mutableStateOf(false) }
 
-    // Intel synthesis failures used to be discarded silently: the spinner vanished
-    // and nothing replaced it. Surface them and return the state to Idle.
+    // Summary failures used to be discarded silently: the spinner vanished and
+    // nothing replaced it. Surface them and return the state to Idle.
     LaunchedEffect(uiState) {
         (uiState as? UiState.Error)?.let { error ->
-            snackbarHostState.showSnackbar(error.message.uppercase())
+            snackbarHostState.showSnackbar(error.message)
             viewModel.resetUiState()
         }
     }
@@ -67,11 +67,13 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
+                    // Edge-to-edge: without this the heading sits under the status bar.
+                    .statusBarsPadding()
                     .padding(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = "DAILY COMPLIANCE",
+                    text = "Today's progress",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Black
                 )
@@ -94,9 +96,10 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
                         )
                     ) {
                         Text(
-                            text = if (complianceStatus == ComplianceStatus.SUBVERSIVE) "MAP DENIED" else "SURVEILLANCE MAP",
+                            text = if (complianceStatus == ComplianceStatus.SUBVERSIVE) "Map locked" else "Meal map",
                             fontWeight = FontWeight.Black,
-                            fontSize = 11.sp
+                            fontSize = 12.sp,
+                            maxLines = 1
                         )
                     }
 
@@ -114,9 +117,10 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
                         )
                     ) {
                         Text(
-                            "INTEL SYNTHESIS", 
+                            "Daily summary",
                             fontWeight = FontWeight.Black,
-                            fontSize = 11.sp
+                            fontSize = 12.sp,
+                            maxLines = 1
                         )
                     }
                 }
@@ -124,7 +128,7 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
                 Spacer(modifier = Modifier.height(32.dp))
 
                 Text(
-                    text = "MACRO BREAKDOWN",
+                    text = "Macros today",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Black,
                     modifier = Modifier.align(Alignment.Start)
@@ -134,13 +138,15 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
                 
                 Spacer(modifier = Modifier.height(48.dp))
                 Text(
-                    text = "WEEKLY SURVEILLANCE",
+                    text = "Last 7 days",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Black,
                     modifier = Modifier.align(Alignment.Start)
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 WeeklyBarChart(weeklyMeals)
+                // Clears the bottom navigation bar.
+                Spacer(modifier = Modifier.height(96.dp))
             }
         }
 
@@ -152,7 +158,7 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Text(
-                        text = "[ ACCESS REVOKED: SUBVERSIVE BEHAVIOR DETECTED ]",
+                        text = "Trends are locked while you're well off target.",
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Black,
                         color = Color.White,
@@ -181,7 +187,7 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
                         .padding(24.dp)
                 ) {
                     Text(
-                        "SOVEREIGN DAILY BRIEFING",
+                        "Daily summary",
                         color = Color(0xFF00E5FF),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Black
@@ -193,7 +199,7 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
                     )
                     Spacer(modifier = Modifier.height(24.dp))
                     Text(
-                        "[ TAP ANYWHERE TO DISMISS ]",
+                        "Tap anywhere to dismiss",
                         color = Color.Gray,
                         style = MaterialTheme.typography.labelSmall,
                         modifier = Modifier.align(Alignment.CenterHorizontally)
@@ -212,7 +218,7 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
                         CircularProgressIndicator(color = Color(0xFF00E5FF), strokeWidth = 4.dp)
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            "DECRYPTING INTEL...",
+                            "Writing your summary...",
                             color = Color(0xFF00E5FF),
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Black
@@ -224,7 +230,10 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
 
         SnackbarHost(
             hostState = snackbarHostState,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp)
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(16.dp)
         )
     }
 }
@@ -258,7 +267,7 @@ fun DailyComplianceChart(current: Int, target: Int) {
                 fontWeight = FontWeight.Black
             )
             Text(
-                text = "/ $target KCAL",
+                text = "of $target kcal",
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.Bold
             )
@@ -274,9 +283,9 @@ fun MacroBars(p: Float, c: Float, f: Float) {
     val fWeight = if (total > 0) f / total else 0f
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        TerminalProgressBar(label = "PROTEIN", amount = p, progress = pWeight, color = Color(0xFF00FF00))
-        TerminalProgressBar(label = "CARBS", amount = c, progress = cWeight, color = Color.White)
-        TerminalProgressBar(label = "FAT", amount = f, progress = fWeight, color = Color(0xFFFFEA00))
+        TerminalProgressBar(label = "Protein", amount = p, progress = pWeight, color = Color(0xFF00FF00))
+        TerminalProgressBar(label = "Carbs", amount = c, progress = cWeight, color = Color.White)
+        TerminalProgressBar(label = "Fat", amount = f, progress = fWeight, color = Color(0xFFFFEA00))
     }
 }
 
@@ -311,7 +320,7 @@ fun TerminalProgressBar(label: String, amount: Float, progress: Float, color: Co
                 horizontalArrangement = Arrangement.End
             ) {
                 Text(
-                    text = "${amount.toInt()}G",
+                    text = "${amount.toInt()}g",
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Black,
                     color = if (progress > 0.8f) Color.Black else color
@@ -409,10 +418,10 @@ fun SurveillanceMap(meals: List<MealEntry>, onBack: () -> Unit) {
         }
         
         Column(modifier = Modifier.padding(16.dp)) {
-            Text("TACTICAL DATA MAPPING", color = Color(0xFF00FF00), fontWeight = FontWeight.Black)
+            Text("Where you ate", color = Color(0xFF00FF00), fontWeight = FontWeight.Black)
             Spacer(modifier = Modifier.weight(1f))
             Button(onClick = onBack, shape = RectangleShape, modifier = Modifier.fillMaxWidth()) {
-                Text("CLOSE OVERLAY")
+                Text("Close map")
             }
         }
     }

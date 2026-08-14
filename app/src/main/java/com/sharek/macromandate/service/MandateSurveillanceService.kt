@@ -55,8 +55,8 @@ class MandateSurveillanceService : Service() {
 
     private fun createInitialNotification(): Notification {
         return NotificationCompat.Builder(this, NotificationManagerHelper.HUD_CHANNEL_ID)
-            .setContentTitle("MACROMANDATE // ACTIVE WATCH")
-            .setContentText("INITIALIZING SURVEILLANCE...")
+            .setContentTitle("MacroMandate")
+            .setContentText("Starting...")
             .setSmallIcon(android.R.drawable.ic_menu_compass)
             .setOngoing(true)
             .build()
@@ -89,16 +89,16 @@ class MandateSurveillanceService : Service() {
         )
 
         val statusText = when (status) {
-            ComplianceStatus.EXEMPLARY -> "STATUS: EXEMPLARY. THE STATE IS PLEASED."
-            ComplianceStatus.ACCEPTABLE -> "STATUS: ACCEPTABLE. OPTIMIZATION REQUIRED."
-            ComplianceStatus.SUBVERSIVE -> "STATUS: SUBVERSIVE. PRIVILEGES REVOKED."
-            ComplianceStatus.CRISIS -> "STATUS: CRISIS. PLEAD FOR LENIENCY."
-            ComplianceStatus.LOCKED -> "STATUS: LOCKED. ASSET SEIZED."
+            ComplianceStatus.EXEMPLARY -> "On target"
+            ComplianceStatus.ACCEPTABLE -> "Close to target"
+            ComplianceStatus.SUBVERSIVE -> "Well off target"
+            ComplianceStatus.CRISIS -> "Far off target"
+            ComplianceStatus.LOCKED -> "Account locked"
         }
 
         val notification = NotificationCompat.Builder(this, NotificationManagerHelper.HUD_CHANNEL_ID)
-            .setContentTitle("MACROMANDATE // SURVEILLANCE")
-            .setContentText("$current / $target KCAL | $statusText")
+            .setContentTitle("MacroMandate")
+            .setContentText("$current / $target kcal • $statusText")
             .setSmallIcon(android.R.drawable.ic_lock_idle_lock)
             .setOngoing(true)
             .setContentIntent(pendingIntent)

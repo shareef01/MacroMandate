@@ -121,6 +121,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             initialValue = false
         )
 
+    /** True when analysis can run — a key was entered in Settings or baked in at build time. */
+    val hasApiKey: StateFlow<Boolean> = preferences.apiKeyFlow
+        .map { it.isNotBlank() || ApiConfig.buildTimeKey.isNotBlank() }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = ApiConfig.buildTimeKey.isNotBlank()
+        )
+
+    /** Masked for display so the panel can confirm a key exists without revealing it. */
+    val apiKeyHint: StateFlow<String> = preferences.apiKeyFlow
+        .map { key -> if (key.isBlank()) "" else "•".repeat(8) + key.takeLast(4) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
+
+    fun updateApiKey(key: String) {
+        viewModelScope.launch {
+            preferences.updateApiKey(key)
+            logAudit("CONFIG", if (key.isBlank()) "API key cleared." else "API key saved.")
+        }
+    }
+
+    /** Key entered in Settings wins; the build-time value is only a dev fallback. */
+    private suspend fun resolveApiKey(): String =
+        preferences.apiKeyFlow.first().ifBlank { ApiConfig.buildTimeKey }
+
     val complianceScore: StateFlow<Int> = combine(weeklyMeals, calorieTarget) { meals, target ->
         calculateComplianceScore(meals, target)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 100)
@@ -177,7 +202,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.value = UiState.Error("NO DATA AVAILABLE FOR SYNTHESIS.")
                 return@launch
             }
-            if (!ApiConfig.isConfigured) {
+            val apiKey = resolveApiKey()
+            if (apiKey.isBlank()) {
                 _uiState.value = UiState.Error(ApiConfig.NOT_CONFIGURED_MESSAGE)
                 return@launch
             }
@@ -201,7 +227,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         "Return only the briefing text. No conversational filler."
 
                 val response = api.analyzeImage(
-                    token = ApiConfig.authHeader,
+                    token = ApiConfig.authHeader(apiKey),
                     request = HuggingFaceRequest(inputs = "User: $prompt\nAssistant:")
                 )
 
@@ -228,7 +254,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun submitLeniencyPlea(justification: String) {
         viewModelScope.launch {
-            if (!ApiConfig.isConfigured) {
+            val apiKey = resolveApiKey()
+            if (apiKey.isBlank()) {
                 _uiState.value = UiState.Error(ApiConfig.NOT_CONFIGURED_MESSAGE)
                 return@launch
             }
@@ -242,7 +269,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         "Return raw JSON only."
 
                 val response = api.analyzeImage(
-                    token = ApiConfig.authHeader,
+                    token = ApiConfig.authHeader(apiKey),
                     request = HuggingFaceRequest(inputs = "User: $prompt\nAssistant:")
                 )
 
@@ -356,7 +383,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun processImageForMacros(uri: Uri, context: android.content.Context) {
         viewModelScope.launch {
-            if (!ApiConfig.isConfigured) {
+            val apiKey = resolveApiKey()
+            if (apiKey.isBlank()) {
                 _uiState.value = UiState.Error(ApiConfig.NOT_CONFIGURED_MESSAGE)
                 return@launch
             }
@@ -425,7 +453,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val fullInputs = "User: $prompt <image> data:image/jpeg;base64,$base64Image\nAssistant:"
                 
                 val response = api.analyzeImage(
-                    token = ApiConfig.authHeader,
+                    token = ApiConfig.authHeader(apiKey),
                     request = HuggingFaceRequest(inputs = fullInputs)
                 )
 

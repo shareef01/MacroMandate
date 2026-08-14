@@ -17,6 +17,3 @@
 
 # 4. Room
 -dontwarn androidx.room.**
-
-# 5. Biometric API
--dontwarn androidx.biometric.**

@@ -79,11 +79,13 @@ class MainActivity : FragmentActivity() {
     }
 }
 
+// Nav labels are single words: three long labels overflowed their items and ran
+// into the screen edges on a 1080px display.
 sealed class Screen(val route: String, val title: String, val icon: ImageVector) {
-    object Dashboard : Screen("dashboard", "COMMAND CENTER", Icons.Default.Dashboard)
-    object Analytics : Screen("analytics", "INTELLIGENCE", Icons.Default.Analytics)
-    object ControlPanel : Screen("control_panel", "CONTROL PANEL", Icons.Default.Settings)
-    object MealDetail : Screen("meal_detail/{mealId}", "EVIDENCE ARCHIVE", Icons.Default.Settings) // Icon is placeholder
+    object Dashboard : Screen("dashboard", "Today", Icons.Default.Dashboard)
+    object Analytics : Screen("analytics", "Trends", Icons.Default.Analytics)
+    object ControlPanel : Screen("control_panel", "Settings", Icons.Default.Settings)
+    object MealDetail : Screen("meal_detail/{mealId}", "Meal", Icons.Default.Settings) // Icon is placeholder
 }
 
 @Composable
@@ -124,7 +126,13 @@ fun MacroMandateApp(viewModel: MainViewModel) {
                     items.forEach { screen ->
                         NavigationBarItem(
                             icon = { Icon(screen.icon, contentDescription = screen.title) },
-                            label = { Text(screen.title, style = MaterialTheme.typography.labelSmall) },
+                            label = {
+                                Text(
+                                    screen.title,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    maxLines = 1
+                                )
+                            },
                             selected = currentRoute == screen.route,
                             colors = NavigationBarItemDefaults.colors(
                                 selectedIconColor = Color.White,

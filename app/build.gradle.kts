@@ -121,7 +121,6 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.glance.appwidget)
     implementation(libs.androidx.glance.material3)
-    implementation(libs.androidx.biometric)
     implementation(libs.play.services.location)
     implementation(libs.coil.compose)
     implementation(libs.androidx.core.splashscreen)

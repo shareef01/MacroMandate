@@ -3,31 +3,25 @@ package com.sharek.macromandate.network
 import com.sharek.macromandate.BuildConfig
 
 /**
- * Where the intelligence uplink points and how it authenticates.
+ * Where the analysis service lives and how requests authenticate to it.
  *
- * A credential placed in HUGGINGFACE_API_KEY is compiled into BuildConfig as a
- * string constant, which means it ships inside the APK and is recoverable from
- * any installed copy — R8 does not obfuscate string literals. Treat that path as
- * development-only.
+ * The key is supplied by the user in Settings and kept in app-private storage.
+ * A key placed in local.properties still works as a build-time fallback for
+ * development, but it compiles into BuildConfig as a string constant and is
+ * recoverable from any installed copy, so it must not be used for a build you
+ * intend to distribute.
  *
- * For anything distributed, stand up a backend that holds the credential and set
- * MANDATE_API_BASE_URL in local.properties to point at it; the proxy supplies its
- * own upstream auth and this client sends nothing sensitive.
+ * For distribution, point [baseUrl] at a backend that holds the credential.
  */
 object ApiConfig {
 
     val baseUrl: String = BuildConfig.MANDATE_API_BASE_URL
 
-    /** False when no credential was provisioned at build time. */
-    val isConfigured: Boolean = BuildConfig.HUGGINGFACE_API_KEY.isNotBlank()
+    /** Build-time fallback; blank unless set in local.properties. */
+    val buildTimeKey: String = BuildConfig.HUGGINGFACE_API_KEY
 
-    val authHeader: String = "Bearer ${BuildConfig.HUGGINGFACE_API_KEY}"
+    fun authHeader(apiKey: String): String = "Bearer $apiKey"
 
-    /**
-     * Shown instead of letting an unauthenticated request fail as a bare 401,
-     * which reads as a server outage rather than a missing local setup step.
-     */
     const val NOT_CONFIGURED_MESSAGE: String =
-        "UPLINK OFFLINE: NO INTELLIGENCE CREDENTIAL PROVISIONED. " +
-            "SET HUGGINGFACE_API_KEY OR MANDATE_API_BASE_URL IN LOCAL.PROPERTIES."
+        "No API key set. Add one in Settings to enable meal analysis."
 }

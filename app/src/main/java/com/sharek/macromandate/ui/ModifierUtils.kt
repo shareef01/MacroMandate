@@ -1,7 +1,5 @@
 package com.sharek.macromandate.ui
 
-import android.content.Context
-import android.content.ContextWrapper
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -9,24 +7,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.fragment.app.FragmentActivity
 import com.sharek.macromandate.viewmodel.ComplianceStatus
-
-/**
- * Unwraps the hosting [FragmentActivity], which BiometricPrompt requires.
- *
- * A blind `context as FragmentActivity` throws whenever Compose hands down a
- * wrapped context (themed wrappers, previews, tests), so walk the wrapper chain
- * and let callers decide what to do when there is no activity.
- */
-fun Context.findFragmentActivity(): FragmentActivity? {
-    var current: Context? = this
-    while (current is ContextWrapper) {
-        if (current is FragmentActivity) return current
-        current = current.baseContext
-    }
-    return null
-}
 
 fun Modifier.hudFraming(
     color: Color,

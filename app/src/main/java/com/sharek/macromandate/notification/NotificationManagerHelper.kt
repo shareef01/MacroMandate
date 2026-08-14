@@ -18,18 +18,18 @@ object NotificationManagerHelper {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val enforcementChannel = NotificationChannel(
                 CHANNEL_ID, 
-                "Mandate Enforcement", 
+                "Meal reminders", 
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Biological fuel log enforcement notifications"
+                description = "Reminders when a meal has not been logged"
             }
             
             val hudChannel = NotificationChannel(
                 HUD_CHANNEL_ID,
-                "Surveillance HUD",
+                "Daily total",
                 NotificationManager.IMPORTANCE_LOW // Ongoing persistent info
             ).apply {
-                description = "Real-time compliance surveillance"
+                description = "Ongoing notification showing today's calories"
             }
             
             val notificationManager: NotificationManager =
@@ -42,8 +42,8 @@ object NotificationManagerHelper {
     fun postComplianceNotification(context: Context) {
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
-            .setContentTitle("Compliance Failure")
-            .setContentText("Biological fuel log is overdue. Report intake immediately.")
+            .setContentTitle("Meal overdue")
+            .setContentText("You haven't logged a meal in a while.")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
 

@@ -76,7 +76,7 @@ fun CameraCaptureScreen(
     )
 
     var tickerText by remember { mutableStateOf("") }
-    val fullTicker = "[ SCANNING BIOLOGICAL SIGNATURE... TARGET IDENTIFIED... ANALYZING MACRO-COMPOSITION... ]      "
+    val fullTicker = "Point the camera at your meal and tap the shutter.      "
     
     LaunchedEffect(Unit) {
         while(true) {
@@ -142,7 +142,8 @@ fun CameraCaptureScreen(
         }
 
         TopAppBar(
-            title = { Text("CAPTURE MEAL", fontWeight = FontWeight.Black) },
+            modifier = Modifier.statusBarsPadding(),
+            title = { Text("Take photo", fontWeight = FontWeight.Black) },
             navigationIcon = {
                 IconButton(onClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -189,7 +190,7 @@ fun CameraCaptureScreen(
                     onImageCaptured = onImageCaptured,
                     onCaptureError = { message ->
                         scope.launch {
-                            snackbarHostState.showSnackbar("CAPTURE FAILED: $message")
+                            snackbarHostState.showSnackbar("Couldn’t take the photo: $message")
                         }
                     }
                 )
