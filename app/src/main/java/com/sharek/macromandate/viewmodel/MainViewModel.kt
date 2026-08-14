@@ -18,8 +18,10 @@ import com.sharek.macromandate.data.repository.MealRepository
 import com.sharek.macromandate.model.MealEntry
 import com.sharek.macromandate.service.MandateSurveillanceService
 import com.sharek.macromandate.network.ApiConfig
+import com.sharek.macromandate.network.ChatMessage
+import com.sharek.macromandate.network.ChatRequest
+import com.sharek.macromandate.network.ContentPart
 import com.sharek.macromandate.network.HuggingFaceApi
-import com.sharek.macromandate.network.HuggingFaceRequest
 import com.sharek.macromandate.util.DossierExporter
 import com.sharek.macromandate.util.ComplianceEngine
 import com.sharek.macromandate.util.EvidenceStore
@@ -226,14 +228,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         "Data: $totals. Items: $mealNames. Judge the subject's biological efficiency and mandate compliance for the day. " +
                         "Return only the briefing text. No conversational filler."
 
-                val response = api.analyzeImage(
+                val response = api.chatCompletion(
                     token = ApiConfig.authHeader(apiKey),
-                    request = HuggingFaceRequest(inputs = "User: $prompt\nAssistant:")
+                    request = textRequest(prompt)
                 )
 
                 if (response.isSuccessful) {
-                    val responseText = response.body()?.firstOrNull()?.generatedText ?: ""
-                    _dailyBriefing.value = responseText.substringAfter("Assistant:").trim()
+                    _dailyBriefing.value = response.body()?.firstMessage().orEmpty().trim()
                     logAudit("INTEL_SYNTHESIS", "DAILY BRIEFING GENERATED.")
                     // Only the success path returns to Idle. A `finally` here would
                     // overwrite the Error below before any collector could observe it
@@ -268,13 +269,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         "If DENIED, return exactly: { 'decision': 'DENIED', 'response': 'Terminal Warning' }. " +
                         "Return raw JSON only."
 
-                val response = api.analyzeImage(
+                val response = api.chatCompletion(
                     token = ApiConfig.authHeader(apiKey),
-                    request = HuggingFaceRequest(inputs = "User: $prompt\nAssistant:")
+                    request = textRequest(prompt)
                 )
 
                 if (response.isSuccessful) {
-                    val responseText = response.body()?.firstOrNull()?.generatedText ?: ""
+                    val responseText = response.body()?.firstMessage().orEmpty()
 
                     when (val verdict = LeniencyVerdict.parse(responseText)) {
                         is LeniencyVerdict.Granted -> {
@@ -450,17 +451,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         (if (isNightRefueling) "This is an UNAUTHORIZED NIGHT REFUELING. Mention CIRCADIAN DISCIPLINE BREACH in the assessment." else "") +
                         "Do not include markdown, code blocks, or conversational text. Just raw JSON."
                 
-                val fullInputs = "User: $prompt <image> data:image/jpeg;base64,$base64Image\nAssistant:"
-                
-                val response = api.analyzeImage(
+                val response = api.chatCompletion(
                     token = ApiConfig.authHeader(apiKey),
-                    request = HuggingFaceRequest(inputs = fullInputs)
+                    request = imageRequest(prompt, base64Image)
                 )
 
                 if (response.isSuccessful) {
-                    val responseList = response.body()
-                    val responseText = responseList?.firstOrNull()?.generatedText ?: ""
-                    
+                    val responseText = response.body()?.firstMessage().orEmpty()
+
                     val jsonStart = responseText.indexOf("{")
                     val jsonEnd = responseText.lastIndexOf("}")
                     
@@ -598,10 +596,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun textRequest(prompt: String) = ChatRequest(
+        model = ApiConfig.model,
+        messages = listOf(ChatMessage(role = "user", content = listOf(ContentPart.text(prompt))))
+    )
+
+    private fun imageRequest(prompt: String, base64Image: String) = ChatRequest(
+        model = ApiConfig.model,
+        messages = listOf(
+            ChatMessage(
+                role = "user",
+                content = listOf(ContentPart.text(prompt), ContentPart.jpegImage(base64Image))
+            )
+        )
+    )
+
     private val api: HuggingFaceApi by lazy {
         val logging = HttpLoggingInterceptor().apply {
-            // Never log request/response bodies (which contain the auth token and image data) in release builds.
-            level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BODY else HttpLoggingInterceptor.Level.NONE
+            // HEADERS, not BODY: BODY wrote the bearer token and the whole base64
+            // image into logcat, where any process with log access could read the
+            // user's key. Response bodies are still logged explicitly on failure.
+            level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.HEADERS else HttpLoggingInterceptor.Level.NONE
+            redactHeader("Authorization")
         }
         val client = OkHttpClient.Builder()
             .addInterceptor(logging)
