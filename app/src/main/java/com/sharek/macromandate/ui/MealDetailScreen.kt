@@ -42,7 +42,7 @@ fun MealDetailScreen(
 
     if (meal == null) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("ERROR: RECORD CORRUPTED OR PURGED", color = Color.Red, fontWeight = FontWeight.Black)
+            Text("This meal is no longer available.", color = Color.Red, fontWeight = FontWeight.Black)
         }
         return
     }
@@ -52,9 +52,11 @@ fun MealDetailScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
+                // Edge-to-edge: the app bar would otherwise sit under the status bar.
+                .statusBarsPadding()
         ) {
             TopAppBar(
-                title = { Text("EVIDENCE ARCHIVE", fontWeight = FontWeight.Black) },
+                title = { Text("Meal", fontWeight = FontWeight.Black) },
                 navigationIcon = {
                     IconButton(onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -93,7 +95,7 @@ fun MealDetailScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            "RESTRICTED SECTOR VIOLATION",
+                            "Restricted zone",
                             color = Color.White,
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Black,
@@ -110,7 +112,7 @@ fun MealDetailScreen(
                         contentAlignment = Alignment.TopCenter
                     ) {
                         Text(
-                            "CIRCADIAN DISCIPLINE BREACH",
+                            "Late-night meal",
                             color = Color.Black,
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Black,
@@ -130,14 +132,14 @@ fun MealDetailScreen(
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Text(
-                                "STATE ASSESSMENT", 
+                                "Assessment", 
                                 color = Color(0xFF00E5FF), 
                                 style = MaterialTheme.typography.labelSmall, 
                                 fontWeight = FontWeight.Black
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                it.uppercase(), 
+                                it, 
                                 color = Color.White, 
                                 style = MaterialTheme.typography.bodyMedium, 
                                 fontWeight = FontWeight.Bold
@@ -155,13 +157,13 @@ fun MealDetailScreen(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "ID: ${meal.id.uppercase()}",
+                    text = "ID: ${meal.id.take(8)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.Gray,
                     fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
                 )
                 Text(
-                    text = "TIMESTAMP: ${dateFormat.format(Date(meal.timestamp)).uppercase()}",
+                    text = dateFormat.format(Date(meal.timestamp)),
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.Gray,
                     fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
@@ -172,28 +174,28 @@ fun MealDetailScreen(
                 Spacer(modifier = Modifier.height(24.dp))
 
                 // Macro Interrogation
-                Text("MACRO INTERROGATION", color = Color(0xFF00E5FF), fontWeight = FontWeight.Black)
+                Text("Nutrition", color = Color(0xFF00E5FF), fontWeight = FontWeight.Black)
                 Spacer(modifier = Modifier.height(16.dp))
                 
-                DetailRow("CALORIES", "${meal.calories} KCAL")
-                DetailRow("PROTEIN", "${meal.proteinGrams.toInt()}G")
-                DetailRow("CARBS", "${meal.carbsGrams.toInt()}G")
-                DetailRow("FAT", "${meal.fatGrams.toInt()}G")
+                DetailRow("Calories", "${meal.calories} kcal")
+                DetailRow("Protein", "${meal.proteinGrams.toInt()} g")
+                DetailRow("Carbs", "${meal.carbsGrams.toInt()} g")
+                DetailRow("Fat", "${meal.fatGrams.toInt()} g")
 
                 Spacer(modifier = Modifier.height(24.dp))
                 HorizontalDivider(thickness = 2.dp, color = Color.White.copy(alpha = 0.2f))
                 Spacer(modifier = Modifier.height(24.dp))
 
                 // Geospatial Intelligence
-                Text("GEOSPATIAL INTELLIGENCE", color = Color(0xFF00E5FF), fontWeight = FontWeight.Black)
+                Text("Location", color = Color(0xFF00E5FF), fontWeight = FontWeight.Black)
                 Spacer(modifier = Modifier.height(16.dp))
                 
                 val coordText = if (meal.latitude != null && meal.longitude != null) {
                     "${"%.6f".format(meal.latitude)}, ${"%.6f".format(meal.longitude)}"
                 } else {
-                    "UNKNOWN (SIGNAL JAMMED)"
+                    "Not recorded"
                 }
-                DetailRow("COORDINATES", coordText)
+                DetailRow("Coordinates", coordText)
 
                 Spacer(modifier = Modifier.height(48.dp))
 
@@ -209,7 +211,7 @@ fun MealDetailScreen(
                 ) {
                     Icon(Icons.Default.Delete, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("PURGE RECORD", fontWeight = FontWeight.Black)
+                    Text("Delete meal", fontWeight = FontWeight.Black)
                 }
                 
                 Spacer(modifier = Modifier.height(32.dp))
@@ -224,7 +226,7 @@ fun MealDetailScreen(
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Text(
-                        text = "[ EVIDENCE ACCESS REVOKED ]\nSUBVERSIVE BEHAVIOR DETECTED",
+                        text = "Meal details are locked while you’re well off target.",
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Black,
                         color = Color.White,

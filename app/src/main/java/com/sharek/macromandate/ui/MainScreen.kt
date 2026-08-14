@@ -13,7 +13,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -31,7 +30,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.sharek.macromandate.model.MealEntry
-import com.sharek.macromandate.util.BiometricAuthenticator
 import com.sharek.macromandate.viewmodel.ComplianceStatus
 import com.sharek.macromandate.viewmodel.MainViewModel
 import com.sharek.macromandate.viewmodel.UiState
@@ -53,29 +51,9 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
     val uiState by viewModel.uiState.collectAsState()
     val complianceStatus by viewModel.complianceStatus.collectAsState()
     val locationTrackingEnabled by viewModel.locationTrackingEnabled.collectAsState()
+    val hasApiKey by viewModel.hasApiKey.collectAsState()
     
     var screenState by remember { mutableStateOf(ScreenState.DASHBOARD) }
-
-    val performIngestAction = { action: () -> Unit ->
-        val activity = context.findFragmentActivity()
-        if (complianceStatus == ComplianceStatus.EXEMPLARY || activity == null) {
-            action()
-        } else {
-            val authenticator = BiometricAuthenticator(activity)
-            authenticator.authenticate(
-                onSuccess = {
-                    viewModel.logAudit("SECURITY", "INGEST VERIFIED: ${complianceStatus.name}")
-                    action()
-                },
-                onError = { _, err ->
-                    viewModel.logAudit("SECURITY", "INGEST FAILED: $err")
-                },
-                onFailed = {
-                    viewModel.logAudit("SECURITY", "INGEST AUTH FAILED")
-                }
-            )
-        }
-    }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
@@ -97,13 +75,13 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
     )
 
     LaunchedEffect(uiState) {
-        when (uiState) {
+        when (val state = uiState) {
             is UiState.Error -> {
-                snackbarHostState.showSnackbar("ERROR: ${(uiState as UiState.Error).message.uppercase()}")
+                snackbarHostState.showSnackbar(state.message)
                 viewModel.resetUiState()
             }
             is UiState.Success -> {
-                snackbarHostState.showSnackbar("LOGGED: ${(uiState as UiState.Success).mealName.uppercase()}")
+                snackbarHostState.showSnackbar("Logged: ${state.mealName}")
                 viewModel.resetUiState()
             }
             else -> {}
@@ -135,36 +113,31 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
                         ActionRow(
                             onCaptureMeal = {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                performIngestAction {
-                                    // Location is only requested once the subject has
-                                    // opted in from the Control Panel — bundling it
-                                    // with CAMERA gave no context for the request.
-                                    val permissions = buildList {
-                                        add(Manifest.permission.CAMERA)
-                                        if (locationTrackingEnabled) {
-                                            add(Manifest.permission.ACCESS_FINE_LOCATION)
-                                            add(Manifest.permission.ACCESS_COARSE_LOCATION)
-                                        }
-                                    }.toTypedArray()
-                                    if (permissions.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }) {
-                                        screenState = ScreenState.CAMERA
-                                    } else {
-                                        cameraPermissionLauncher.launch(permissions)
+                                // Location is only requested once the user has opted in
+                                // from Settings — bundling it with CAMERA gave no
+                                // context for the request.
+                                val permissions = buildList {
+                                    add(Manifest.permission.CAMERA)
+                                    if (locationTrackingEnabled) {
+                                        add(Manifest.permission.ACCESS_FINE_LOCATION)
+                                        add(Manifest.permission.ACCESS_COARSE_LOCATION)
                                     }
+                                }.toTypedArray()
+                                if (permissions.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }) {
+                                    screenState = ScreenState.CAMERA
+                                } else {
+                                    cameraPermissionLauncher.launch(permissions)
                                 }
                             },
                             onImportImage = {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 if (complianceStatus != ComplianceStatus.SUBVERSIVE) {
-                                    performIngestAction {
-                                        photoPickerLauncher.launch(
-                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                        )
-                                    }
+                                    photoPickerLauncher.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
                                 }
                             },
-                            importEnabled = complianceStatus != ComplianceStatus.SUBVERSIVE,
-                            requiresAuth = complianceStatus != ComplianceStatus.EXEMPLARY
+                            importEnabled = complianceStatus != ComplianceStatus.SUBVERSIVE
                         )
                         
                         Spacer(modifier = Modifier.height(32.dp))
@@ -177,32 +150,29 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
                         Spacer(modifier = Modifier.height(16.dp))
                         
                         Text(
-                            text = "> SURVEILLANCE LOG // RECENT",
+                            text = "Recent meals",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Black,
                             color = MaterialTheme.colorScheme.primary
                         )
                         
-                        Spacer(modifier = Modifier.height(12.dp))
-                        
-                        LinearProgressIndicator(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(2.dp)
-                                .background(Color.Black),
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
-                            trackColor = Color.Transparent
-                        )
-                        
+                        // An indeterminate LinearProgressIndicator used to sit here as
+                        // decoration; Material3 now draws those with a gap and a stop
+                        // indicator, so it rendered as two disconnected dashes.
                         Spacer(modifier = Modifier.height(12.dp))
                         
                         if (mealEntries.isEmpty()) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Text(
-                                    text = "[ NO BIOLOGICAL DATA LOGGED ]",
+                                    text = if (hasApiKey) {
+                                        "No meals logged yet.\nTake or choose a photo to start."
+                                    } else {
+                                        "Add an API key in Settings to start logging meals."
+                                    },
                                     style = MaterialTheme.typography.bodyLarge,
                                     color = Color.Gray,
-                                    fontWeight = FontWeight.Bold
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
                                 )
                             }
                         } else {
@@ -238,7 +208,7 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
                         CircularProgressIndicator(color = MaterialTheme.colorScheme.primary, strokeWidth = 4.dp)
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            "ANALYZING BIOLOGICAL DATA...",
+                            "Analyzing photo...",
                             color = MaterialTheme.colorScheme.primary,
                             style = MaterialTheme.typography.labelLarge
                         )
@@ -263,11 +233,13 @@ fun StateStatusBanner(status: ComplianceStatus, modifier: Modifier = Modifier, i
         status == ComplianceStatus.SUBVERSIVE -> Color(0xFFFF1744) // Sharp Red
         else -> Color.Gray
     }
+    // Flavour lives here, in the status line, where it costs nothing to understand.
+    // Buttons and settings stay plain so the app is still operable.
     val text = when {
-        isRestrictedViolation -> "WARNING: RESTRICTED ZONE INTAKE DETECTED."
-        status == ComplianceStatus.EXEMPLARY -> "STATUS: EXEMPLARY. THE STATE IS PLEASED."
-        status == ComplianceStatus.ACCEPTABLE -> "STATUS: ACCEPTABLE. OPTIMIZATION REQUIRED."
-        status == ComplianceStatus.SUBVERSIVE -> "STATUS: SUBVERSIVE. PRIVILEGES REVOKED."
+        isRestrictedViolation -> "Logged in a restricted zone."
+        status == ComplianceStatus.EXEMPLARY -> "On target. The State is pleased."
+        status == ComplianceStatus.ACCEPTABLE -> "Close to target. Room to improve."
+        status == ComplianceStatus.SUBVERSIVE -> "Well off target. Some features locked."
         else -> ""
     }
     
@@ -328,14 +300,15 @@ fun SummaryCard(totalCalories: Int) {
             modifier = Modifier.padding(20.dp)
         ) {
             Text(
-                text = "TOTAL DAILY CONSUMPTION",
+                text = "TODAY",
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.primary
             )
             Text(
-                text = "$totalCalories KCAL",
+                text = "$totalCalories kcal",
                 style = MaterialTheme.typography.displaySmall,
-                fontWeight = FontWeight.Black
+                fontWeight = FontWeight.Black,
+                maxLines = 1
             )
         }
     }
@@ -345,8 +318,7 @@ fun SummaryCard(totalCalories: Int) {
 fun ActionRow(
     onCaptureMeal: () -> Unit,
     onImportImage: () -> Unit,
-    importEnabled: Boolean = true,
-    requiresAuth: Boolean = false
+    importEnabled: Boolean = true
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -361,13 +333,7 @@ fun ActionRow(
                 contentColor = MaterialTheme.colorScheme.onPrimary
             )
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (requiresAuth) {
-                    Icon(Icons.Default.Fingerprint, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                }
-                Text("CAPTURE MEAL", fontWeight = FontWeight.Bold)
-            }
+            Text("Take photo", fontWeight = FontWeight.Bold, maxLines = 1)
         }
         OutlinedButton(
             onClick = onImportImage,
@@ -377,13 +343,12 @@ fun ActionRow(
             border = BorderStroke(1.dp, if (importEnabled) MaterialTheme.colorScheme.primary else Color.DarkGray)
         ) {
             if (importEnabled) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (requiresAuth) {
-                        Icon(Icons.Default.Fingerprint, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                    }
-                    Text("IMPORT IMAGE", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                }
+                Text(
+                    "Choose photo",
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1
+                )
             } else {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
@@ -393,7 +358,7 @@ fun ActionRow(
                         tint = Color.DarkGray
                     )
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("LOCKED", color = Color.DarkGray, fontWeight = FontWeight.Bold)
+                    Text("Locked", color = Color.DarkGray, fontWeight = FontWeight.Bold, maxLines = 1)
                 }
             }
         }
@@ -410,7 +375,8 @@ fun HistoryList(
 ) {
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(8.dp),
-        contentPadding = PaddingValues(bottom = 16.dp)
+        // Clears the bottom navigation bar so the last entry is fully readable.
+        contentPadding = PaddingValues(bottom = 96.dp)
     ) {
         items(mealEntries) { entry ->
             MealEntryItem(

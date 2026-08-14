@@ -33,11 +33,11 @@ fun LeniencyPleaScreen(viewModel: MainViewModel, onLeniencyGranted: () -> Unit) 
     LaunchedEffect(uiState) {
         when (val state = uiState) {
             is UiState.Error -> {
-                snackbarHostState.showSnackbar(state.message.uppercase())
+                snackbarHostState.showSnackbar(state.message)
                 viewModel.resetUiState()
             }
             is UiState.Success -> {
-                snackbarHostState.showSnackbar(state.mealName.uppercase())
+                snackbarHostState.showSnackbar(state.mealName)
                 viewModel.resetUiState()
             }
             else -> {}
@@ -53,7 +53,7 @@ fun LeniencyPleaScreen(viewModel: MainViewModel, onLeniencyGranted: () -> Unit) 
             verticalArrangement = Arrangement.Center
         ) {
             Text(
-                "!! TERMINAL CRISIS !!",
+                "Well off target",
                 color = Color.Red,
                 style = MaterialTheme.typography.displaySmall,
                 fontWeight = FontWeight.Black,
@@ -61,7 +61,7 @@ fun LeniencyPleaScreen(viewModel: MainViewModel, onLeniencyGranted: () -> Unit) 
             )
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                "CRITICAL MANDATE SUBVERSION DETECTED. ALL SYSTEM MODULES ARE OFFLINE. PLEAD FOR LENIENCY OR ACCEPT PERMANENT TERMINATION.",
+                "Your intake is far from target, so the app is paused. Explain what happened and the State will decide whether to reset your log.",
                 color = Color.Red,
                 style = MaterialTheme.typography.bodyMedium,
                 textAlign = TextAlign.Center
@@ -73,7 +73,7 @@ fun LeniencyPleaScreen(viewModel: MainViewModel, onLeniencyGranted: () -> Unit) 
                 value = pleaText,
                 onValueChange = { pleaText = it },
                 modifier = Modifier.fillMaxWidth().hudFraming(Color.Red),
-                label = { Text("JUSTIFICATION FOR SUBVERSION", color = Color.Red) },
+                label = { Text("What happened?", color = Color.Red) },
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedTextColor = Color.White,
                     unfocusedTextColor = Color.White,
@@ -96,14 +96,14 @@ fun LeniencyPleaScreen(viewModel: MainViewModel, onLeniencyGranted: () -> Unit) 
                 colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
                 enabled = pleaText.isNotBlank() && uiState !is UiState.Loading
             ) {
-                Text("SUBMIT PLEA", fontWeight = FontWeight.Black)
+                Text("Submit", fontWeight = FontWeight.Black)
             }
         }
 
         if (uiState is UiState.Loading) {
             Surface(color = Color.Red.copy(alpha = 0.5f), modifier = Modifier.fillMaxSize()) {
                 Box(contentAlignment = Alignment.Center) {
-                    Text("SYSTEM INTERROGATING PLEA...", color = Color.White, fontWeight = FontWeight.Black)
+                    Text("Reviewing...", color = Color.White, fontWeight = FontWeight.Black)
                 }
             }
         }
@@ -135,7 +135,7 @@ fun PermanentLockdownScreen(viewModel: MainViewModel) {
                 viewModel.exportDataTo(context, target) { succeeded ->
                     scope.launch {
                         snackbarHostState.showSnackbar(
-                            if (succeeded) "FINAL DOSSIER RELEASED." else "EXFILTRATION FAILED."
+                            if (succeeded) "Data exported." else "Export failed."
                         )
                     }
                 }
@@ -152,7 +152,7 @@ fun PermanentLockdownScreen(viewModel: MainViewModel) {
             modifier = Modifier.padding(32.dp)
         ) {
             Text(
-                "[ PROPERTY OF THE STATE ]",
+                "Account locked",
                 color = Color.White,
                 style = MaterialTheme.typography.displaySmall,
                 fontWeight = FontWeight.Black,
@@ -160,7 +160,7 @@ fun PermanentLockdownScreen(viewModel: MainViewModel) {
             )
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                "BIOLOGICAL ASSET SEIZED DUE TO TERMINAL SUBVERSION.",
+                "Your log is locked. You can still export your data or ask to be reinstated.",
                 color = Color.White,
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
@@ -181,7 +181,7 @@ fun PermanentLockdownScreen(viewModel: MainViewModel) {
                 shape = RectangleShape,
                 border = BorderStroke(1.dp, Color.White)
             ) {
-                Text("EXFILTRATE FINAL DOSSIER", color = Color.White, fontWeight = FontWeight.Black)
+                Text("Export my data", color = Color.White, fontWeight = FontWeight.Black)
             }
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -198,7 +198,7 @@ fun PermanentLockdownScreen(viewModel: MainViewModel) {
                     contentColor = Color.White
                 )
             ) {
-                Text("PETITION FOR REINSTATEMENT", fontWeight = FontWeight.Black)
+                Text("Unlock my account", fontWeight = FontWeight.Black)
             }
         }
 

@@ -48,7 +48,7 @@ class MandateWidget : GlanceAppWidget() {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = "MACROMANDATE // SURVEILLANCE",
+                text = "MACROMANDATE",
                 style = TextStyle(
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold
@@ -58,7 +58,7 @@ class MandateWidget : GlanceAppWidget() {
             Spacer(modifier = GlanceModifier.height(8.dp))
             
             Text(
-                text = "$current / $target KCAL",
+                text = "$current / $target kcal",
                 style = TextStyle(
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Medium
@@ -75,7 +75,7 @@ class MandateWidget : GlanceAppWidget() {
             Spacer(modifier = GlanceModifier.height(12.dp))
             
             Button(
-                text = "LOG FUEL",
+                text = "Log a meal",
                 onClick = actionStartActivity(ComponentName(context, MainActivity::class.java)),
                 modifier = GlanceModifier.fillMaxWidth()
             )
