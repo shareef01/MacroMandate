@@ -16,17 +16,31 @@ object ComplianceEngine {
      * Score starts at 100 and is reduced by the average absolute daily deviation
      * from the target. An empty log is considered a perfect score.
      */
-    fun calculateScore(meals: List<MealEntry>, dailyTarget: Int): Int {
+    fun calculateScore(
+        meals: List<MealEntry>,
+        dailyTarget: Int,
+        now: Long = System.currentTimeMillis()
+    ): Int {
         if (meals.isEmpty() || dailyTarget <= 0) return 100
 
-        val totalsByDay = meals.groupBy { dayOfYear(it.timestamp) }
+        val todayKey = dayKey(now)
+        val totalsByDay = meals.groupBy { dayKey(it.timestamp) }
             .mapValues { it.value.sumOf { meal -> meal.calories } }
 
         var totalDeviation = 0f
         val daysEvaluated = totalsByDay.size.coerceAtLeast(1)
 
-        totalsByDay.values.forEach { dailyTotal ->
-            val deviation = abs(dailyTotal - dailyTarget).toFloat() / dailyTarget
+        totalsByDay.forEach { (day, dailyTotal) ->
+            val difference = dailyTotal - dailyTarget
+            // Today is still in progress, so only exceeding the target counts
+            // against you. Scoring the shortfall would mean a single breakfast
+            // reads as an 80% deviation and drops the user straight into CRISIS
+            // — which replaces the whole app with the leniency screen.
+            val deviation = if (day == todayKey) {
+                maxOf(0, difference).toFloat() / dailyTarget
+            } else {
+                abs(difference).toFloat() / dailyTarget
+            }
             totalDeviation += deviation
         }
 
@@ -41,6 +55,8 @@ object ComplianceEngine {
         else -> ComplianceStatus.CRISIS
     }
 
-    private fun dayOfYear(timestamp: Long): Int =
-        Calendar.getInstance().apply { timeInMillis = timestamp }.get(Calendar.DAY_OF_YEAR)
+    /** Year-qualified so days exactly a year apart cannot collide. */
+    private fun dayKey(timestamp: Long): Int =
+        Calendar.getInstance().apply { timeInMillis = timestamp }
+            .let { it.get(Calendar.YEAR) * 1000 + it.get(Calendar.DAY_OF_YEAR) }
 }
