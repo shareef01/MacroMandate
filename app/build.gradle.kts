@@ -51,12 +51,18 @@ android {
         // Overridable so the app can be pointed at a backend proxy that holds the
         // credential, instead of shipping one inside the APK. Set
         // MANDATE_API_BASE_URL in local.properties; must end with a trailing slash.
+        // The legacy api-inference.huggingface.co host no longer resolves.
         val apiBaseUrl = localProperties.getProperty("MANDATE_API_BASE_URL")
-            ?: "https://api-inference.huggingface.co/"
+            ?: "https://router.huggingface.co/"
+        // Vision-capable and served by several providers. Override with
+        // MANDATE_MODEL_ID; see https://router.huggingface.co/v1/models
+        val modelId = localProperties.getProperty("MANDATE_MODEL_ID")
+            ?: "google/gemma-4-31B-it"
 
         debug {
             buildConfigField("String", "HUGGINGFACE_API_KEY", "\"$hfKey\"")
             buildConfigField("String", "MANDATE_API_BASE_URL", "\"$apiBaseUrl\"")
+            buildConfigField("String", "MANDATE_MODEL_ID", "\"$modelId\"")
         }
         release {
             isMinifyEnabled = true
@@ -67,6 +73,7 @@ android {
             )
             buildConfigField("String", "HUGGINGFACE_API_KEY", "\"$hfKey\"")
             buildConfigField("String", "MANDATE_API_BASE_URL", "\"$apiBaseUrl\"")
+            buildConfigField("String", "MANDATE_MODEL_ID", "\"$modelId\"")
             signingConfig = signingConfigs.getByName("release").takeIf { it.storeFile != null }
         }
     }

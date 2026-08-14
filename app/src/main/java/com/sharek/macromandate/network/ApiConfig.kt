@@ -17,6 +17,9 @@ object ApiConfig {
 
     val baseUrl: String = BuildConfig.MANDATE_API_BASE_URL
 
+    /** Must be vision-capable; see https://router.huggingface.co/v1/models */
+    val model: String = BuildConfig.MANDATE_MODEL_ID
+
     /** Build-time fallback; blank unless set in local.properties. */
     val buildTimeKey: String = BuildConfig.HUGGINGFACE_API_KEY
 
