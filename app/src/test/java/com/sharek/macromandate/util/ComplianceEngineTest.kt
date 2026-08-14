@@ -69,6 +69,46 @@ class ComplianceEngineTest {
     }
 
     @Test
+    fun partialDayTodayIsNotPenalised() {
+        // A single breakfast against a 2500 target used to read as an 80%
+        // shortfall, scoring 20 and forcing CRISIS on the user's first meal.
+        val now = System.currentTimeMillis()
+        assertEquals(100, ComplianceEngine.calculateScore(listOf(meal(500, now)), 2500, now))
+    }
+
+    @Test
+    fun exceedingTargetTodayStillCounts() {
+        val now = System.currentTimeMillis()
+        // 3000 vs 2500 = 20% over -> 80. Overage is a real failure even mid-day.
+        assertEquals(80, ComplianceEngine.calculateScore(listOf(meal(3000, now)), 2500, now))
+    }
+
+    @Test
+    fun pastDayShortfallStillCounts() {
+        val now = System.currentTimeMillis()
+        // Yesterday is complete, so an 80% shortfall is genuine.
+        assertEquals(20, ComplianceEngine.calculateScore(listOf(meal(500, baseTimestamp)), 2500, now))
+    }
+
+    @Test
+    fun todayIsExemptWhileEarlierDaysAreScored() {
+        val now = System.currentTimeMillis()
+        val meals = listOf(meal(500, now), meal(2000, baseTimestamp))
+        // Today contributes 0, the past day 20% -> average 10% -> 90.
+        assertEquals(90, ComplianceEngine.calculateScore(meals, 2500, now))
+    }
+
+    @Test
+    fun daysExactlyOneYearApartDoNotCollide() {
+        val now = System.currentTimeMillis()
+        // 2023-11-14 and 2024-11-13 share a DAY_OF_YEAR; they must stay separate.
+        val aYearLater = baseTimestamp + 365L * 24 * 60 * 60 * 1000
+        val meals = listOf(meal(2500, baseTimestamp), meal(5000, aYearLater))
+        // Two distinct days: 0% and 100% deviation -> average 50% -> 50.
+        assertEquals(50, ComplianceEngine.calculateScore(meals, 2500, now))
+    }
+
+    @Test
     fun statusMapping() {
         assertEquals(ComplianceStatus.EXEMPLARY, ComplianceEngine.statusFor(90))
         assertEquals(ComplianceStatus.EXEMPLARY, ComplianceEngine.statusFor(100))
