@@ -1,5 +1,14 @@
 import java.util.Properties
 
+// Loaded once and shared by the signing config and the BuildConfig fields below.
+// local.properties is gitignored, so nothing here reaches version control.
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) {
+        file.inputStream().use { load(it) }
+    }
+}
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -21,14 +30,26 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
-    buildTypes {
-        debug {
-            val properties = Properties()
-            val localPropertiesFile = project.rootProject.file("local.properties")
-            if (localPropertiesFile.exists()) {
-                properties.load(localPropertiesFile.inputStream())
+    // Populated from local.properties (RELEASE_STORE_FILE, RELEASE_STORE_PASSWORD,
+    // RELEASE_KEY_ALIAS, RELEASE_KEY_PASSWORD). Left unconfigured on machines that
+    // have no keystore, so assembleRelease still succeeds and simply emits an
+    // unsigned APK rather than failing the build.
+    signingConfigs {
+        create("release") {
+            val storePath = localProperties.getProperty("RELEASE_STORE_FILE")
+            if (!storePath.isNullOrBlank() && file(storePath).exists()) {
+                storeFile = file(storePath)
+                storePassword = localProperties.getProperty("RELEASE_STORE_PASSWORD")
+                keyAlias = localProperties.getProperty("RELEASE_KEY_ALIAS")
+                keyPassword = localProperties.getProperty("RELEASE_KEY_PASSWORD")
             }
-            val hfKey = properties.getProperty("HUGGINGFACE_API_KEY") ?: ""
+        }
+    }
+
+    buildTypes {
+        val hfKey = localProperties.getProperty("HUGGINGFACE_API_KEY") ?: ""
+
+        debug {
             buildConfigField("String", "HUGGINGFACE_API_KEY", "\"$hfKey\"")
         }
         release {
@@ -38,13 +59,8 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            val properties = Properties()
-            val localPropertiesFile = project.rootProject.file("local.properties")
-            if (localPropertiesFile.exists()) {
-                properties.load(localPropertiesFile.inputStream())
-            }
-            val hfKey = properties.getProperty("HUGGINGFACE_API_KEY") ?: ""
             buildConfigField("String", "HUGGINGFACE_API_KEY", "\"$hfKey\"")
+            signingConfig = signingConfigs.getByName("release").takeIf { it.storeFile != null }
         }
     }
     sourceSets {
@@ -109,6 +125,7 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     testImplementation(libs.junit)
+    testImplementation(libs.json)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)

@@ -1,8 +1,5 @@
 package com.sharek.macromandate.util
 
-import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import com.sharek.macromandate.model.MealEntry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -11,11 +8,14 @@ import java.util.*
 
 object DossierExporter {
 
+    // Excel/Sheets evaluate a cell as a formula when it opens with one of these.
+    private val FORMULA_TRIGGERS = charArrayOf('=', '+', '-', '@', '\t')
+
     suspend fun generateCsv(meals: List<MealEntry>): String = withContext(Dispatchers.IO) {
         val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
         val sb = StringBuilder()
         sb.append("ID,Timestamp,FoodName,Calories,Protein,Carbs,Fat,IsLiquid\n")
-        
+
         meals.forEach { meal ->
             val timestamp = dateFormat.format(Date(meal.timestamp))
             sb.append("${meal.id},")
@@ -30,8 +30,16 @@ object DossierExporter {
         sb.toString()
     }
 
-    private fun escapeCsvField(field: String): String =
+    internal fun escapeCsvField(field: String): String {
         // LLM-generated food names can contain quotes and line breaks; quotes are
         // doubled (RFC-4180) and newlines stripped so each record stays on one row.
-        field.replace("\r", " ").replace("\n", " ").replace("\"", "\"\"")
+        val flattened = field.replace("\r", " ").replace("\n", " ").replace("\"", "\"\"")
+        // foodName comes back from the model, so it is attacker-influencable via the
+        // photo. Neutralize spreadsheet formula injection with a leading apostrophe.
+        return if (flattened.isNotEmpty() && flattened[0] in FORMULA_TRIGGERS) {
+            "'$flattened"
+        } else {
+            flattened
+        }
+    }
 }

@@ -32,9 +32,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.sharek.macromandate.util.EvidenceStore
 import kotlinx.coroutines.delay
-import java.io.File
-import java.text.SimpleDateFormat
+import kotlinx.coroutines.launch
 import java.util.*
 import java.util.concurrent.Executor
 
@@ -50,6 +50,8 @@ fun CameraCaptureScreen(
     val previewView = remember { PreviewView(context) }
     val imageCapture: ImageCapture = remember { ImageCapture.Builder().build() }
     val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     val infiniteTransition = rememberInfiniteTransition(label = "HUD")
     
@@ -184,7 +186,12 @@ fun CameraCaptureScreen(
                     context = context,
                     imageCapture = imageCapture,
                     executor = ContextCompat.getMainExecutor(context),
-                    onImageCaptured = onImageCaptured
+                    onImageCaptured = onImageCaptured,
+                    onCaptureError = { message ->
+                        scope.launch {
+                            snackbarHostState.showSnackbar("CAPTURE FAILED: $message")
+                        }
+                    }
                 )
             },
             modifier = Modifier
@@ -202,6 +209,11 @@ fun CameraCaptureScreen(
                 modifier = Modifier.size(48.dp)
             )
         }
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp)
+        )
     }
 }
 
@@ -209,11 +221,12 @@ private fun takePhoto(
     context: Context,
     imageCapture: ImageCapture,
     executor: Executor,
-    onImageCaptured: (Uri) -> Unit
+    onImageCaptured: (Uri) -> Unit,
+    onCaptureError: (String) -> Unit
 ) {
-    val name = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss-SSS", Locale.US)
-        .format(System.currentTimeMillis())
-    val file = File(context.cacheDir, "$name.jpg")
+    // Written straight into EvidenceStore rather than cacheDir: the persisted meal
+    // record points at this path, and the OS may evict anything under cacheDir.
+    val file = EvidenceStore.newFile(context, UUID.randomUUID().toString())
 
     val outputOptions = ImageCapture.OutputFileOptions.Builder(file).build()
 
@@ -223,11 +236,12 @@ private fun takePhoto(
         object : ImageCapture.OnImageSavedCallback {
             override fun onError(exception: ImageCaptureException) {
                 Log.e("CameraCaptureScreen", "Photo capture failed: ${exception.message}", exception)
+                file.delete()
+                onCaptureError(exception.message?.uppercase() ?: "UNKNOWN CAPTURE FAILURE")
             }
 
             override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-                val savedUri = Uri.fromFile(file)
-                onImageCaptured(savedUri)
+                onImageCaptured(Uri.fromFile(file))
             }
         }
     )

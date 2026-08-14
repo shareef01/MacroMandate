@@ -1,5 +1,8 @@
 package com.sharek.macromandate.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -9,18 +12,37 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.sharek.macromandate.viewmodel.MainViewModel
 import com.sharek.macromandate.viewmodel.UiState
+import kotlinx.coroutines.launch
 
 @Composable
 fun LeniencyPleaScreen(viewModel: MainViewModel, onLeniencyGranted: () -> Unit) {
     var pleaText by remember { mutableStateOf("") }
     val haptic = LocalHapticFeedback.current
     val uiState by viewModel.uiState.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // The verdict is the entire point of this screen; previously it was discarded
+    // before any collector could see it, so the plea appeared to do nothing.
+    LaunchedEffect(uiState) {
+        when (val state = uiState) {
+            is UiState.Error -> {
+                snackbarHostState.showSnackbar(state.message.uppercase())
+                viewModel.resetUiState()
+            }
+            is UiState.Success -> {
+                snackbarHostState.showSnackbar(state.mealName.uppercase())
+                viewModel.resetUiState()
+            }
+            else -> {}
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         Column(
@@ -85,16 +107,50 @@ fun LeniencyPleaScreen(viewModel: MainViewModel, onLeniencyGranted: () -> Unit) 
                 }
             }
         }
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp)
+        )
     }
 }
 
+/**
+ * The lockdown flag is set by a language model's verdict, and `allowBackup` is
+ * false, so without a way out the only recovery is clearing app data — which
+ * destroys the log. The subject keeps two rights: retrieve their dossier, and
+ * petition for reinstatement.
+ */
 @Composable
-fun PermanentLockdownScreen() {
+fun PermanentLockdownScreen(viewModel: MainViewModel) {
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+
+    val createDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/csv"),
+        onResult = { uri ->
+            uri?.let { target ->
+                viewModel.exportDataTo(context, target) { succeeded ->
+                    scope.launch {
+                        snackbarHostState.showSnackbar(
+                            if (succeeded) "FINAL DOSSIER RELEASED." else "EXFILTRATION FAILED."
+                        )
+                    }
+                }
+            }
+        }
+    )
+
     Box(
         modifier = Modifier.fillMaxSize().background(Color.Red),
         contentAlignment = Alignment.Center
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(32.dp)
+        ) {
             Text(
                 "[ PROPERTY OF THE STATE ]",
                 color = Color.White,
@@ -111,6 +167,44 @@ fun PermanentLockdownScreen() {
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(24.dp)
             )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            OutlinedButton(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    createDocumentLauncher.launch(
+                        "MacroMandate_FinalDossier_${System.currentTimeMillis()}.csv"
+                    )
+                },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RectangleShape,
+                border = BorderStroke(1.dp, Color.White)
+            ) {
+                Text("EXFILTRATE FINAL DOSSIER", color = Color.White, fontWeight = FontWeight.Black)
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Button(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    viewModel.requestReinstatement()
+                },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RectangleShape,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color.Black,
+                    contentColor = Color.White
+                )
+            ) {
+                Text("PETITION FOR REINSTATEMENT", fontWeight = FontWeight.Black)
+            }
         }
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp)
+        )
     }
 }

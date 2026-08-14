@@ -94,7 +94,7 @@ fun MacroMandateApp(viewModel: MainViewModel) {
     val complianceStatus by viewModel.complianceStatus.collectAsState()
     
     if (complianceStatus == ComplianceStatus.LOCKED) {
-        PermanentLockdownScreen()
+        PermanentLockdownScreen(viewModel = viewModel)
         return
     }
 
