@@ -17,6 +17,7 @@ import com.sharek.macromandate.data.repository.AuditRepository
 import com.sharek.macromandate.data.repository.MealRepository
 import com.sharek.macromandate.model.MealEntry
 import com.sharek.macromandate.service.MandateSurveillanceService
+import com.sharek.macromandate.network.ApiConfig
 import com.sharek.macromandate.network.HuggingFaceApi
 import com.sharek.macromandate.network.HuggingFaceRequest
 import com.sharek.macromandate.util.DossierExporter
@@ -176,6 +177,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.value = UiState.Error("NO DATA AVAILABLE FOR SYNTHESIS.")
                 return@launch
             }
+            if (!ApiConfig.isConfigured) {
+                _uiState.value = UiState.Error(ApiConfig.NOT_CONFIGURED_MESSAGE)
+                return@launch
+            }
 
             _uiState.value = UiState.Loading
             try {
@@ -196,7 +201,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         "Return only the briefing text. No conversational filler."
 
                 val response = api.analyzeImage(
-                    token = "Bearer ${BuildConfig.HUGGINGFACE_API_KEY}",
+                    token = ApiConfig.authHeader,
                     request = HuggingFaceRequest(inputs = "User: $prompt\nAssistant:")
                 )
 
@@ -223,6 +228,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun submitLeniencyPlea(justification: String) {
         viewModelScope.launch {
+            if (!ApiConfig.isConfigured) {
+                _uiState.value = UiState.Error(ApiConfig.NOT_CONFIGURED_MESSAGE)
+                return@launch
+            }
             _uiState.value = UiState.Loading
             try {
                 val prompt = "The subject is pleading for leniency after extreme mandate subversion. " +
@@ -233,7 +242,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         "Return raw JSON only."
 
                 val response = api.analyzeImage(
-                    token = "Bearer ${BuildConfig.HUGGINGFACE_API_KEY}",
+                    token = ApiConfig.authHeader,
                     request = HuggingFaceRequest(inputs = "User: $prompt\nAssistant:")
                 )
 
@@ -347,6 +356,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun processImageForMacros(uri: Uri, context: android.content.Context) {
         viewModelScope.launch {
+            if (!ApiConfig.isConfigured) {
+                _uiState.value = UiState.Error(ApiConfig.NOT_CONFIGURED_MESSAGE)
+                return@launch
+            }
             _uiState.value = UiState.Loading
             try {
                 // Tactical Location Acquisition — only with the subject's explicit
@@ -412,7 +425,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val fullInputs = "User: $prompt <image> data:image/jpeg;base64,$base64Image\nAssistant:"
                 
                 val response = api.analyzeImage(
-                    token = "Bearer ${BuildConfig.HUGGINGFACE_API_KEY}",
+                    token = ApiConfig.authHeader,
                     request = HuggingFaceRequest(inputs = fullInputs)
                 )
 
@@ -567,7 +580,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .build()
 
         Retrofit.Builder()
-            .baseUrl("https://api-inference.huggingface.co/")
+            .baseUrl(ApiConfig.baseUrl)
             .addConverterFactory(GsonConverterFactory.create())
             .client(client)
             .build()
