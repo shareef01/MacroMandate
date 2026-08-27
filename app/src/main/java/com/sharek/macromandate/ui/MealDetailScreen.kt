@@ -7,8 +7,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -19,9 +20,13 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.sharek.macromandate.model.MealEntry
+import com.sharek.macromandate.ui.theme.NutritionColors
 import com.sharek.macromandate.viewmodel.ComplianceStatus
 import com.sharek.macromandate.viewmodel.MainViewModel
 import java.text.SimpleDateFormat
@@ -39,10 +44,12 @@ fun MealDetailScreen(
     val mealEntries by viewModel.mealEntries.collectAsState()
     val meal = mealEntries.find { it.id == mealId }
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm:ss 'UTC'", Locale.US) }
+    var showEditDialog by remember { mutableStateOf(false) }
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
     if (meal == null) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("This meal is no longer available.", color = Color.Red, fontWeight = FontWeight.Black)
+            Text("This meal is no longer available.", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Black)
         }
         return
     }
@@ -62,7 +69,7 @@ fun MealDetailScreen(
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onBack()
                     }) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -78,7 +85,7 @@ fun MealDetailScreen(
                     .fillMaxWidth()
                     .height(300.dp)
                     .padding(16.dp)
-                    .hudFraming(if (meal.isRestricted) Color.Red else Color(0xFF00E5FF), length = 40.dp, thickness = 4.dp)
+                    .hudFraming(if (meal.isRestricted) Color.Red else MaterialTheme.colorScheme.primary, length = 40.dp, thickness = 4.dp)
             ) {
                 AsyncImage(
                     model = meal.imageUri,
@@ -125,22 +132,22 @@ fun MealDetailScreen(
             Column(modifier = Modifier.padding(16.dp)) {
                 meal.assessment?.let {
                     Surface(
-                        color = Color(0xFF0D47A1), // Intense State Blue
+                        color = MaterialTheme.colorScheme.primaryContainer,
                         modifier = Modifier.fillMaxWidth(),
                         shape = RectangleShape,
-                        border = BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.5f))
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Text(
                                 "Assessment", 
-                                color = Color(0xFF00E5FF), 
+                                color = MaterialTheme.colorScheme.primary, 
                                 style = MaterialTheme.typography.labelSmall, 
                                 fontWeight = FontWeight.Black
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 it, 
-                                color = Color.White, 
+                                color = MaterialTheme.colorScheme.onPrimaryContainer, 
                                 style = MaterialTheme.typography.bodyMedium, 
                                 fontWeight = FontWeight.Bold
                             )
@@ -174,48 +181,126 @@ fun MealDetailScreen(
                 Spacer(modifier = Modifier.height(24.dp))
 
                 // Macro Interrogation
-                Text("Nutrition", color = Color(0xFF00E5FF), fontWeight = FontWeight.Black)
+                Text("Nutrition", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Black)
                 Spacer(modifier = Modifier.height(16.dp))
                 
-                DetailRow("Calories", "${meal.calories} kcal")
-                DetailRow("Protein", "${meal.proteinGrams.toInt()} g")
-                DetailRow("Carbs", "${meal.carbsGrams.toInt()} g")
-                DetailRow("Fat", "${meal.fatGrams.toInt()} g")
+                DetailRow("Calories", "${meal.calories} kcal", MaterialTheme.colorScheme.primary)
+                DetailRow("Protein", "${meal.proteinGrams.toInt()} g", NutritionColors.Protein)
+                DetailRow("Carbs", "${meal.carbsGrams.toInt()} g", NutritionColors.Carbs)
+                DetailRow("Fat", "${meal.fatGrams.toInt()} g", NutritionColors.Fat)
+                DetailRow("Type", if (meal.isLiquid) "Liquid Intake" else "Solid Food")
 
                 Spacer(modifier = Modifier.height(24.dp))
                 HorizontalDivider(thickness = 2.dp, color = Color.White.copy(alpha = 0.2f))
                 Spacer(modifier = Modifier.height(24.dp))
 
                 // Geospatial Intelligence
-                Text("Location", color = Color(0xFF00E5FF), fontWeight = FontWeight.Black)
+                Text("Location", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Black)
                 Spacer(modifier = Modifier.height(16.dp))
                 
                 val coordText = if (meal.latitude != null && meal.longitude != null) {
-                    "${"%.6f".format(meal.latitude)}, ${"%.6f".format(meal.longitude)}"
+                    "${"%.6f".format(meal.latitude)}, ${"%.6f".format(meal.longitude)} [GEOTAGGED]"
                 } else {
-                    "Not recorded"
+                    "NO COORDINATES RECORDED"
                 }
                 DetailRow("Coordinates", coordText)
 
-                Spacer(modifier = Modifier.height(48.dp))
+                Spacer(modifier = Modifier.height(40.dp))
 
-                Button(
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        viewModel.deleteMealEntry(meal.id)
-                        onBack()
-                    },
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RectangleShape,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(Icons.Default.Delete, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Delete meal", fontWeight = FontWeight.Black)
+                    Button(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            showEditDialog = true
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = RectangleShape,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        )
+                    ) {
+                        Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Edit meal", fontWeight = FontWeight.Black)
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            showDeleteConfirmDialog = true
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = RectangleShape,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error)
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Delete", fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.error)
+                    }
                 }
                 
                 Spacer(modifier = Modifier.height(32.dp))
             }
+        }
+
+        if (showEditDialog) {
+            EditMealDialog(
+                meal = meal,
+                onDismiss = { showEditDialog = false },
+                onSave = { updated ->
+                    showEditDialog = false
+                    viewModel.updateMealEntry(updated)
+                }
+            )
+        }
+
+        if (showDeleteConfirmDialog) {
+            AlertDialog(
+                onDismissRequest = { showDeleteConfirmDialog = false },
+                title = {
+                    Text(
+                        "DELETE DOSSIER RECORD?",
+                        fontWeight = FontWeight.Black,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                },
+                text = {
+                    Text(
+                        "This meal entry and its telemetry will be permanently expunged from the surveillance archive.",
+                        color = Color.White
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            showDeleteConfirmDialog = false
+                            viewModel.deleteMealEntry(meal.id)
+                            onBack()
+                        },
+                        shape = RectangleShape,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error,
+                            contentColor = MaterialTheme.colorScheme.onError
+                        )
+                    ) {
+                        Text("EXPUNGE RECORD", fontWeight = FontWeight.Black)
+                    }
+                },
+                dismissButton = {
+                    OutlinedButton(
+                        onClick = { showDeleteConfirmDialog = false },
+                        shape = RectangleShape
+                    ) {
+                        Text("CANCEL", color = Color.Gray)
+                    }
+                },
+                shape = RectangleShape,
+                containerColor = Color(0xFF181818)
+            )
         }
 
         if (complianceStatus == ComplianceStatus.SUBVERSIVE) {
@@ -239,12 +324,154 @@ fun MealDetailScreen(
 }
 
 @Composable
-fun DetailRow(label: String, value: String) {
+fun EditMealDialog(
+    meal: MealEntry,
+    onDismiss: () -> Unit,
+    onSave: (MealEntry) -> Unit
+) {
+    var foodName by remember { mutableStateOf(meal.foodName) }
+    var caloriesStr by remember { mutableStateOf(meal.calories.toString()) }
+    var proteinStr by remember { mutableStateOf(meal.proteinGrams.toString()) }
+    var carbsStr by remember { mutableStateOf(meal.carbsGrams.toString()) }
+    var fatStr by remember { mutableStateOf(meal.fatGrams.toString()) }
+    var isLiquid by remember { mutableStateOf(meal.isLiquid) }
+
+    val haptic = LocalHapticFeedback.current
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "CORRECT DOSSIER ENTRY",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Black,
+                color = MaterialTheme.colorScheme.primary
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedTextField(
+                    value = foodName,
+                    onValueChange = { foodName = it },
+                    label = { Text("Item Name") },
+                    singleLine = true,
+                    shape = RectangleShape,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = caloriesStr,
+                    onValueChange = { caloriesStr = it.filter { ch -> ch.isDigit() } },
+                    label = { Text("Calories (kcal)") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    shape = RectangleShape,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = proteinStr,
+                        onValueChange = { proteinStr = it.filter { ch -> ch.isDigit() || ch == '.' } },
+                        label = { Text("P (g)") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        shape = RectangleShape,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = carbsStr,
+                        onValueChange = { carbsStr = it.filter { ch -> ch.isDigit() || ch == '.' } },
+                        label = { Text("C (g)") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        shape = RectangleShape,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = fatStr,
+                        onValueChange = { fatStr = it.filter { ch -> ch.isDigit() || ch == '.' } },
+                        label = { Text("F (g)") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        shape = RectangleShape,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { isLiquid = !isLiquid }
+                        .padding(vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = isLiquid,
+                        onCheckedChange = { isLiquid = it },
+                        colors = CheckboxDefaults.colors(
+                            checkedColor = MaterialTheme.colorScheme.primary
+                        )
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Liquid consumption",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    val cal = caloriesStr.toIntOrNull() ?: meal.calories
+                    val p = proteinStr.toFloatOrNull() ?: meal.proteinGrams
+                    val c = carbsStr.toFloatOrNull() ?: meal.carbsGrams
+                    val f = fatStr.toFloatOrNull() ?: meal.fatGrams
+                    onSave(
+                        meal.copy(
+                            foodName = foodName.ifBlank { meal.foodName },
+                            calories = cal.coerceAtLeast(0),
+                            proteinGrams = p.coerceAtLeast(0f),
+                            carbsGrams = c.coerceAtLeast(0f),
+                            fatGrams = f.coerceAtLeast(0f),
+                            isLiquid = isLiquid
+                        )
+                    )
+                },
+                shape = RectangleShape,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                )
+            ) {
+                Text("SAVE CORRECTIONS", fontWeight = FontWeight.Black)
+            }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss, shape = RectangleShape) {
+                Text("CANCEL", color = Color.Gray)
+            }
+        },
+        shape = RectangleShape,
+        containerColor = Color(0xFF141414)
+    )
+}
+
+@Composable
+fun DetailRow(label: String, value: String, valueColor: Color = Color.White) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Text(label, color = Color.Gray, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-        Text(value, color = Color.White, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Black)
+        Text(value, color = valueColor, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Black)
     }
 }

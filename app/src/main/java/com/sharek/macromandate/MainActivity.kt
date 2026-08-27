@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
@@ -72,7 +73,8 @@ class MainActivity : FragmentActivity() {
         enableEdgeToEdge()
         maybeRequestNotificationPermission()
         setContent {
-            MacroMandateTheme {
+            val terminalTheme by viewModel.terminalTheme.collectAsState()
+            MacroMandateTheme(terminalTheme = terminalTheme) {
                 MacroMandateApp(viewModel = viewModel)
             }
         }
@@ -108,7 +110,7 @@ fun MacroMandateApp(viewModel: MainViewModel) {
         return
     }
 
-    val items = listOf(Screen.Dashboard, Screen.Analytics, Screen.ControlPanel)
+    val items = remember { listOf(Screen.Dashboard, Screen.Analytics, Screen.ControlPanel) }
 
     Scaffold(
         modifier = Modifier.terminalOverlay(complianceStatus),
@@ -135,11 +137,11 @@ fun MacroMandateApp(viewModel: MainViewModel) {
                             },
                             selected = currentRoute == screen.route,
                             colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = Color.White,
-                                selectedTextColor = Color.White,
+                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                selectedTextColor = MaterialTheme.colorScheme.primary,
                                 unselectedIconColor = Color.Gray,
                                 unselectedTextColor = Color.Gray,
-                                indicatorColor = Color.Transparent
+                                indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
                             ),
                             onClick = {
                                 navController.navigate(screen.route) {

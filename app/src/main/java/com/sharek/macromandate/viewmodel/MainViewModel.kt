@@ -23,6 +23,8 @@ import com.sharek.macromandate.network.ChatRequest
 import com.sharek.macromandate.network.ContentPart
 import com.sharek.macromandate.network.HuggingFaceApi
 import com.sharek.macromandate.util.DossierExporter
+import com.sharek.macromandate.util.DossierReportGenerator
+import com.sharek.macromandate.util.NutritionSanitizer
 import com.sharek.macromandate.util.ComplianceEngine
 import com.sharek.macromandate.util.EvidenceStore
 import com.sharek.macromandate.util.LeniencyVerdict
@@ -31,6 +33,7 @@ import com.sharek.macromandate.util.ImageForensics
 import com.sharek.macromandate.worker.EnforcementScheduler
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.tasks.Tasks
+import com.sharek.macromandate.ui.theme.TerminalTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -73,9 +76,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         
         logAudit("SYSTEM_BOOT", "SURVEILLANCE TERMINAL INITIALIZED.")
         
-        // Activate Omnipresent Surveillance
-        val serviceIntent = android.content.Intent(application, MandateSurveillanceService::class.java)
-        application.startForegroundService(serviceIntent)
+        // Activate Omnipresent Surveillance safely
+        try {
+            val serviceIntent = android.content.Intent(application, MandateSurveillanceService::class.java)
+            application.startForegroundService(serviceIntent)
+        } catch (e: Exception) {
+            Log.w("MainViewModel", "Could not start surveillance service on initialization", e)
+        }
     }
 
     val mealEntries: StateFlow<List<MealEntry>> = repository.getAllMeals()
@@ -137,6 +144,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         .map { key -> if (key.isBlank()) "" else "•".repeat(8) + key.takeLast(4) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
+    val terminalTheme: StateFlow<TerminalTheme> = preferences.terminalThemeFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = TerminalTheme.CYBER_CYAN
+        )
+
+    fun updateTerminalTheme(theme: TerminalTheme) {
+        viewModelScope.launch {
+            preferences.updateTerminalTheme(theme)
+            logAudit("CONFIG", "TERMINAL THEME SET TO ${theme.displayName}.")
+        }
+    }
+
     fun updateApiKey(key: String) {
         viewModelScope.launch {
             preferences.updateApiKey(key)
@@ -159,11 +180,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     ) { score, meals, isLocked ->
         if (isLocked) return@combine ComplianceStatus.LOCKED
 
+        val now = System.currentTimeMillis()
+        val oneDayAgo = now - 24 * 60 * 60 * 1000L
+
         var penalty = 0
-        if (meals.any { it.isRestricted && (System.currentTimeMillis() - it.timestamp) < 24 * 60 * 60 * 1000 }) {
+        if (meals.any { it.isRestricted && it.timestamp >= oneDayAgo }) {
             penalty += 40
         }
-        if (meals.any { it.isNightRefueling && (System.currentTimeMillis() - it.timestamp) < 24 * 60 * 60 * 1000 }) {
+        if (meals.any { it.isNightRefueling && it.timestamp >= oneDayAgo }) {
             penalty += 15
         }
         
@@ -382,6 +406,104 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun exportJsonBackupTo(
+        context: android.content.Context,
+        uri: Uri,
+        onResult: (Boolean) -> Unit
+    ) {
+        viewModelScope.launch {
+            val succeeded = withContext(Dispatchers.IO) {
+                try {
+                    val json = DossierExporter.generateJson(mealEntries.value)
+                    context.contentResolver.openOutputStream(uri)?.use { output ->
+                        output.write(json.toByteArray(Charsets.UTF_8))
+                        true
+                    } ?: false
+                } catch (e: Exception) {
+                    Log.e("MainViewModel", "JSON backup export failed", e)
+                    false
+                }
+            }
+            if (succeeded) {
+                logAudit("DATA_BACKUP", "FULL DATABASE BACKUP EXPORTED (${mealEntries.value.size} RECORDS).")
+            } else {
+                logAudit("DATA_BACKUP", "DATABASE BACKUP EXPORT FAILED.")
+            }
+            onResult(succeeded)
+        }
+    }
+
+    fun importJsonBackupFrom(
+        context: android.content.Context,
+        uri: Uri,
+        onResult: (Result<Int>) -> Unit
+    ) {
+        viewModelScope.launch {
+            val result: Result<Int> = withContext(Dispatchers.IO) {
+                try {
+                    val jsonString = context.contentResolver.openInputStream(uri)?.use { input ->
+                        input.bufferedReader(Charsets.UTF_8).readText()
+                    } ?: return@withContext Result.failure(Exception("Failed to read selected backup file."))
+
+                    val meals = DossierExporter.parseJsonBackup(jsonString)
+                        ?: return@withContext Result.failure(Exception("Invalid or corrupted backup JSON schema."))
+
+                    if (meals.isNotEmpty()) {
+                        repository.insertMeals(meals)
+                    }
+                    Result.success(meals.size)
+                } catch (e: Exception) {
+                    Log.e("MainViewModel", "JSON backup import failed", e)
+                    Result.failure(e)
+                }
+            }
+
+            if (result.isSuccess) {
+                val count = result.getOrNull() ?: 0
+                logAudit("DATA_RESTORE", "RESTORED $count MEAL RECORDS FROM BACKUP.")
+            } else {
+                logAudit("DATA_RESTORE", "DATABASE RESTORE FAILED: ${result.exceptionOrNull()?.message}")
+            }
+            onResult(result)
+        }
+    }
+
+    fun generateWeeklyReport(): String {
+        return DossierReportGenerator.generateWeeklyMarkdown(
+            meals = weeklyMeals.value,
+            calorieTarget = calorieTarget.value,
+            complianceScore = complianceScore.value,
+            complianceStatus = complianceStatus.value
+        )
+    }
+
+    fun exportReportTo(
+        context: android.content.Context,
+        uri: Uri,
+        reportText: String,
+        onResult: (Boolean) -> Unit
+    ) {
+        viewModelScope.launch {
+            val succeeded = withContext(Dispatchers.IO) {
+                try {
+                    context.contentResolver.openOutputStream(uri)?.use { output ->
+                        output.write(reportText.toByteArray(Charsets.UTF_8))
+                        true
+                    } ?: false
+                } catch (e: Exception) {
+                    Log.e("MainViewModel", "Weekly report export failed", e)
+                    false
+                }
+            }
+            if (succeeded) {
+                logAudit("DATA_EXPORT", "WEEKLY DEBRIEF EXPORTED.")
+            } else {
+                logAudit("DATA_EXPORT", "WEEKLY DEBRIEF EXPORT FAILED.")
+            }
+            onResult(succeeded)
+        }
+    }
+
     fun processImageForMacros(uri: Uri, context: android.content.Context) {
         viewModelScope.launch {
             val apiKey = resolveApiKey()
@@ -464,7 +586,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     
                     if (jsonStart != -1 && jsonEnd != -1 && jsonEnd > jsonStart) {
                         val cleanJson = responseText.substring(jsonStart, jsonEnd + 1)
-                        val jsonObject = JSONObject(cleanJson)
+                        val parsed = NutritionSanitizer.parseAndSanitize(cleanJson)
                         
                         val isRestricted = if (location != null) checkForbiddenSectors(location.latitude, location.longitude) else false
                         
@@ -486,15 +608,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             id = mealId,
                             timestamp = System.currentTimeMillis(),
                             imageUri = (storedUri ?: uri).toString(),
-                            foodName = jsonObject.getString("foodName"),
-                            calories = jsonObject.getInt("calories"),
-                            proteinGrams = jsonObject.optDouble("proteinGrams", 0.0).toFloat(),
-                            carbsGrams = jsonObject.optDouble("carbsGrams", 0.0).toFloat(),
-                            fatGrams = jsonObject.optDouble("fatGrams", 0.0).toFloat(),
-                            isLiquid = jsonObject.optBoolean("isLiquid", false),
+                            foodName = parsed.foodName,
+                            calories = parsed.calories,
+                            proteinGrams = parsed.proteinGrams,
+                            carbsGrams = parsed.carbsGrams,
+                            fatGrams = parsed.fatGrams,
+                            isLiquid = parsed.isLiquid,
                             latitude = location?.latitude,
                             longitude = location?.longitude,
-                            assessment = jsonObject.optString("assessment", "NO ASSESSMENT PROVIDED."),
+                            assessment = parsed.assessment,
                             isRestricted = isRestricted,
                             isNightRefueling = isNightRefueling
                         )
@@ -568,15 +690,64 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun deleteMealEntry(id: String) {
         viewModelScope.launch {
-            // Capture the image path before the row disappears, so the stored file
-            // is removed too rather than orphaned in filesDir forever.
-            val imageUri = mealEntries.value.find { it.id == id }?.imageUri
             repository.deleteMeal(id)
+            logAudit("DATA_PURGE", "RECORD EXPUNGED.")
             withContext(Dispatchers.IO) {
-                EvidenceStore.delete(getApplication(), imageUri)
+                EvidenceStore.delete(getApplication(), id)
             }
-            logAudit("DATA_PURGE", "RECORD REMOVED: $id")
             updateWidget()
+        }
+    }
+
+    fun updateMealEntry(updatedMeal: MealEntry) {
+        viewModelScope.launch {
+            repository.updateMeal(updatedMeal)
+            logAudit("DATA_CORRECTION", "RECORD ${updatedMeal.id.take(8).uppercase()} MODIFIED.")
+            updateWidget()
+        }
+    }
+
+    fun logManualMeal(
+        foodName: String,
+        calories: Int,
+        protein: Float,
+        carbs: Float,
+        fat: Float,
+        isLiquid: Boolean
+    ) {
+        viewModelScope.launch {
+            val mealId = UUID.randomUUID().toString()
+            val currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+            val isNightRefueling = currentHour in 23..23 || currentHour in 0..4
+
+            val entry = MealEntry(
+                id = mealId,
+                timestamp = System.currentTimeMillis(),
+                imageUri = null,
+                foodName = foodName.ifBlank { "MANUAL REFUELING" },
+                calories = calories.coerceAtLeast(0),
+                proteinGrams = protein.coerceAtLeast(0f),
+                carbsGrams = carbs.coerceAtLeast(0f),
+                fatGrams = fat.coerceAtLeast(0f),
+                isLiquid = isLiquid,
+                latitude = null,
+                longitude = null,
+                assessment = if (isNightRefueling) "MANUAL LOG: CIRCADIAN DISCIPLINE BREACH." else "MANUAL TELEMETRY LOGGED.",
+                isRestricted = false,
+                isNightRefueling = isNightRefueling
+            )
+
+            repository.insertMeal(entry)
+            logAudit("DATA_INGEST", "MANUAL RECORD LOGGED: ${entry.foodName.uppercase()}")
+            updateWidget()
+            _uiState.value = UiState.Success(entry.foodName)
+        }
+    }
+
+    fun clearActivityLog() {
+        viewModelScope.launch {
+            auditRepository.clearAllAudits()
+            logAudit("MAINTENANCE", "ACTIVITY LOG PURGED BY SUBJECT.")
         }
     }
 

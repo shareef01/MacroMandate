@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
+import com.sharek.macromandate.ui.theme.TerminalTheme
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -17,6 +18,7 @@ class MandatePreferences(private val context: Context) {
         val IS_PERMANENTLY_LOCKED = booleanPreferencesKey("is_permanently_locked")
         val LOCATION_TRACKING_ENABLED = booleanPreferencesKey("location_tracking_enabled")
         val API_KEY = stringPreferencesKey("api_key")
+        val TERMINAL_THEME = stringPreferencesKey("terminal_theme")
     }
 
     /**
@@ -54,9 +56,19 @@ class MandatePreferences(private val context: Context) {
         preferences[IS_PERMANENTLY_LOCKED] ?: false
     }
 
+    val terminalThemeFlow: Flow<TerminalTheme> = context.dataStore.data.map { preferences ->
+        TerminalTheme.fromId(preferences[TERMINAL_THEME])
+    }
+
     suspend fun updateCalorieTarget(target: Int) {
         context.dataStore.edit { preferences ->
             preferences[DAILY_CALORIE_TARGET] = target
+        }
+    }
+
+    suspend fun updateTerminalTheme(theme: TerminalTheme) {
+        context.dataStore.edit { preferences ->
+            preferences[TERMINAL_THEME] = theme.id
         }
     }
 

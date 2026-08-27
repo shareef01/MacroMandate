@@ -35,4 +35,8 @@ class AuditRepository(private val auditDao: AuditDao) {
             }
         }
     }
+
+    suspend fun clearAllAudits() {
+        auditDao.clearAllAudits()
+    }
 }

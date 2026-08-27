@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import com.sharek.macromandate.MainActivity
 import com.sharek.macromandate.data.local.AppDatabase
 import com.sharek.macromandate.data.pref.MandatePreferences
@@ -107,8 +108,13 @@ class MandateSurveillanceService : Service() {
             .setProgress(target, current, false)
             .build()
 
-        val notificationManager = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
-        notificationManager.notify(NotificationManagerHelper.HUD_NOTIFICATION_ID, notification)
+        try {
+            NotificationManagerCompat.from(this)
+                .notify(NotificationManagerHelper.HUD_NOTIFICATION_ID, notification)
+        } catch (e: SecurityException) {
+            // User may have revoked notification permission at runtime on Android 13+
+            android.util.Log.w("MandateSurveillanceService", "Notification dispatch blocked by permission", e)
+        }
     }
 
     override fun onDestroy() {

@@ -23,7 +23,7 @@ class MandateEnforcementWorker(
             return Result.success()
         }
 
-        val latestMeal = database.mealDao().getAllMeals().first().firstOrNull()
+        val latestMeal = database.mealDao().getLatestMeal()
 
         val currentTime = System.currentTimeMillis()
         val sixHoursInMillis = 6 * 60 * 60 * 1000L

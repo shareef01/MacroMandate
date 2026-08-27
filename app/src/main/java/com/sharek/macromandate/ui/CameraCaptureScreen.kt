@@ -15,7 +15,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Camera
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -53,6 +53,8 @@ fun CameraCaptureScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val onPrimaryColor = MaterialTheme.colorScheme.onPrimary
     val infiniteTransition = rememberInfiniteTransition(label = "HUD")
     
     val scanningY by infiniteTransition.animateFloat(
@@ -66,8 +68,8 @@ fun CameraCaptureScreen(
     )
 
     val pulsingColor by infiniteTransition.animateColor(
-        initialValue = Color(0xFF00E5FF),
-        targetValue = Color(0xFF00E5FF).copy(alpha = 0.4f),
+        initialValue = primaryColor,
+        targetValue = primaryColor.copy(alpha = 0.3f),
         animationSpec = infiniteRepeatable(
             animation = tween(1000),
             repeatMode = RepeatMode.Reverse
@@ -88,10 +90,8 @@ fun CameraCaptureScreen(
     }
 
     LaunchedEffect(Unit) {
-        while(true) {
-            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-            delay(1500) // Tactical pulse
-        }
+        // Initial tactical readiness pulse on viewfinder activation
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
     }
 
     LaunchedEffect(Unit) {
@@ -149,7 +149,7 @@ fun CameraCaptureScreen(
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     onBack()
                 }) {
-                    Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                 }
             },
             colors = TopAppBarDefaults.topAppBarColors(
@@ -200,8 +200,8 @@ fun CameraCaptureScreen(
                 .padding(bottom = 64.dp)
                 .size(80.dp),
             colors = IconButtonDefaults.iconButtonColors(
-                containerColor = Color(0xFF00E5FF),
-                contentColor = Color.Black
+                containerColor = primaryColor,
+                contentColor = onPrimaryColor
             )
         ) {
             Icon(
