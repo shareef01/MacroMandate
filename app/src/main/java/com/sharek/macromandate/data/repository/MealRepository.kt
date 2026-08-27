@@ -83,9 +83,19 @@ class MealRepository(private val mealDao: MealDao) {
         mealDao.insertMeal(meal.toEntity())
     }
 
+    suspend fun insertMeals(meals: List<MealEntry>) {
+        mealDao.insertMeals(meals.map { it.toEntity() })
+    }
+
+    suspend fun updateMeal(meal: MealEntry) {
+        mealDao.updateMeal(meal.toEntity())
+    }
+
     suspend fun deleteMeal(id: String) {
         mealDao.deleteById(id)
     }
+
+    suspend fun getLatestMeal(): MealEntry? = mealDao.getLatestMeal()?.toDomain()
 
     suspend fun deleteAllMeals() {
         mealDao.deleteAll()

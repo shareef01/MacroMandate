@@ -18,4 +18,7 @@ interface AuditDao {
 
     @Query("DELETE FROM audit_log WHERE id IN (SELECT id FROM audit_log ORDER BY timestamp ASC LIMIT :count)")
     suspend fun pruneOldAudits(count: Int)
+
+    @Query("DELETE FROM audit_log")
+    suspend fun clearAllAudits()
 }

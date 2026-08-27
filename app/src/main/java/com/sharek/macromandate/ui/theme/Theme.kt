@@ -1,6 +1,7 @@
 package com.sharek.macromandate.ui.theme
 
 import android.app.Activity
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
@@ -8,19 +9,19 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
-private val BrutalistColorScheme = darkColorScheme(
-    primary = StarkWhite,
+fun terminalColorScheme(theme: TerminalTheme): ColorScheme = darkColorScheme(
+    primary = theme.primaryColor,
     onPrimary = TerminalBlack,
-    primaryContainer = ColdSteel,
-    onPrimaryContainer = TerminalBlack,
-    secondary = ColdSteel,
+    primaryContainer = theme.containerColor,
+    onPrimaryContainer = theme.primaryColor,
+    secondary = theme.secondaryColor,
     onSecondary = TerminalBlack,
     background = TerminalBlack,
-    onBackground = StarkWhite,
-    surface = DeepCharcoal,
+    onBackground = theme.primaryColor,
+    surface = theme.surfaceColor,
     onSurface = StarkWhite,
     surfaceVariant = SurfaceGray,
-    onSurfaceVariant = ColdSteel,
+    onSurfaceVariant = theme.secondaryColor,
     error = SubversiveRed,
     onError = TerminalBlack,
     errorContainer = SubversiveRed,
@@ -29,10 +30,10 @@ private val BrutalistColorScheme = darkColorScheme(
 
 @Composable
 fun MacroMandateTheme(
+    terminalTheme: TerminalTheme = TerminalTheme.CYBER_CYAN,
     content: @Composable () -> Unit
 ) {
-    // Forcing Dark Theme for the Command Terminal aesthetic
-    val colorScheme = BrutalistColorScheme
+    val colorScheme = terminalColorScheme(terminalTheme)
     val view = LocalView.current
     
     val activity = view.context as? Activity

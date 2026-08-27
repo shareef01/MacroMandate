@@ -5,12 +5,19 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface MealDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMeal(meal: MealEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertMeals(meals: List<MealEntity>)
+
+    @Update
+    suspend fun updateMeal(meal: MealEntity)
 
     @Delete
     suspend fun deleteMeal(meal: MealEntity)
@@ -26,6 +33,9 @@ interface MealDao {
     
     @Query("DELETE FROM meal_entries WHERE id = :id")
     suspend fun deleteById(id: String)
+
+    @Query("SELECT * FROM meal_entries ORDER BY timestamp DESC LIMIT 1")
+    suspend fun getLatestMeal(): MealEntity?
 
     @Query("DELETE FROM meal_entries")
     suspend fun deleteAll()

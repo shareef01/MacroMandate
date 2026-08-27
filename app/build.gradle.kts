@@ -36,12 +36,21 @@ android {
     // unsigned APK rather than failing the build.
     signingConfigs {
         create("release") {
-            val storePath = localProperties.getProperty("RELEASE_STORE_FILE")
+            val storePath = System.getenv("RELEASE_STORE_FILE")
+                ?: localProperties.getProperty("RELEASE_STORE_FILE")
+                ?: project.findProperty("RELEASE_STORE_FILE") as? String
+
             if (!storePath.isNullOrBlank() && file(storePath).exists()) {
                 storeFile = file(storePath)
-                storePassword = localProperties.getProperty("RELEASE_STORE_PASSWORD")
-                keyAlias = localProperties.getProperty("RELEASE_KEY_ALIAS")
-                keyPassword = localProperties.getProperty("RELEASE_KEY_PASSWORD")
+                storePassword = System.getenv("RELEASE_STORE_PASSWORD")
+                    ?: localProperties.getProperty("RELEASE_STORE_PASSWORD")
+                    ?: project.findProperty("RELEASE_STORE_PASSWORD") as? String
+                keyAlias = System.getenv("RELEASE_KEY_ALIAS")
+                    ?: localProperties.getProperty("RELEASE_KEY_ALIAS")
+                    ?: project.findProperty("RELEASE_KEY_ALIAS") as? String
+                keyPassword = System.getenv("RELEASE_KEY_PASSWORD")
+                    ?: localProperties.getProperty("RELEASE_KEY_PASSWORD")
+                    ?: project.findProperty("RELEASE_KEY_PASSWORD") as? String
             }
         }
     }

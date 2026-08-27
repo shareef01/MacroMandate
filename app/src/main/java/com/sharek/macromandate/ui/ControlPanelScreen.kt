@@ -1,18 +1,27 @@
 package com.sharek.macromandate.ui
 
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
@@ -31,6 +40,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sharek.macromandate.data.local.AuditEntity
+import com.sharek.macromandate.ui.theme.TerminalTheme
 import com.sharek.macromandate.viewmodel.ComplianceStatus
 import com.sharek.macromandate.viewmodel.MainViewModel
 import kotlinx.coroutines.launch
@@ -50,15 +60,18 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
     val complianceStatus by viewModel.complianceStatus.collectAsState()
     val recentAudits by viewModel.recentAudits.collectAsState()
     val apiKeyHint by viewModel.apiKeyHint.collectAsState()
+    val terminalTheme by viewModel.terminalTheme.collectAsState()
 
-    val createDocumentLauncher = rememberLauncherForActivityResult(
+    var pendingRestoreUri by remember { mutableStateOf<Uri?>(null) }
+
+    val createCsvLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/csv"),
         onResult = { uri ->
             uri?.let { target ->
                 viewModel.exportDataTo(context, target) { succeeded ->
                     scope.launch {
                         snackbarHostState.showSnackbar(
-                            if (succeeded) "Data exported." else "Export failed."
+                            if (succeeded) "CSV dossier exported." else "Export failed."
                         )
                     }
                 }
@@ -66,34 +79,140 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
         }
     )
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                // The app draws edge to edge, so this screen has to inset itself or
-                // its first row sits under the status bar.
-                .statusBarsPadding()
-                .padding(horizontal = 16.dp)
-                .padding(top = 16.dp)
-        ) {
-            Text(
-                text = "Settings",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Black
-            )
-            Spacer(modifier = Modifier.height(24.dp))
-
-            ApiKeyCard(
-                keyHint = apiKeyHint,
-                onSave = { key ->
-                    viewModel.updateApiKey(key)
+    val createJsonLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json"),
+        onResult = { uri ->
+            uri?.let { target ->
+                viewModel.exportJsonBackupTo(context, target) { succeeded ->
                     scope.launch {
                         snackbarHostState.showSnackbar(
-                            if (key.isBlank()) "API key cleared." else "API key saved."
+                            if (succeeded) "JSON backup exported." else "JSON export failed."
                         )
                     }
                 }
+            }
+        }
+    )
+
+    val openJsonLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+        onResult = { uri ->
+            uri?.let {
+                pendingRestoreUri = it
+            }
+        }
+    )
+
+    if (pendingRestoreUri != null) {
+        AlertDialog(
+            onDismissRequest = { pendingRestoreUri = null },
+            title = {
+                Text(
+                    text = "RESTORE MEAL DATABASE?",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Black,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            },
+            text = {
+                Text(
+                    text = "This will parse the selected JSON backup and merge all records into your local database. Existing records with identical IDs will be updated.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val uri = pendingRestoreUri
+                        pendingRestoreUri = null
+                        if (uri != null) {
+                            viewModel.importJsonBackupFrom(context, uri) { result ->
+                                scope.launch {
+                                    result.fold(
+                                        onSuccess = { count ->
+                                            snackbarHostState.showSnackbar("Restored $count records successfully.")
+                                        },
+                                        onFailure = { error ->
+                                            snackbarHostState.showSnackbar("Restore failed: ${error.message}")
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    },
+                    shape = RectangleShape,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    )
+                ) {
+                    Text("RESTORE", fontWeight = FontWeight.Black)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { pendingRestoreUri = null },
+                    shape = RectangleShape
+                ) {
+                    Text("CANCEL", color = Color.Gray)
+                }
+            },
+            shape = RectangleShape,
+            containerColor = Color(0xFF141414)
+        )
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Pinned Tactical Top Bar (Prevents content scrolling under status bar)
+            Surface(
+                color = MaterialTheme.colorScheme.background,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Settings",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Black,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                }
+            }
+            HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+
+            // Scrollable Content
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp)
+                    .padding(top = 16.dp)
+            ) {
+                ApiKeyCard(
+                    keyHint = apiKeyHint,
+                    onSave = { key ->
+                        viewModel.updateApiKey(key)
+                        scope.launch {
+                            snackbarHostState.showSnackbar(
+                                if (key.isBlank()) "API key cleared." else "API key saved."
+                            )
+                        }
+                    }
+                )
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            TerminalThemeCard(
+                currentTheme = terminalTheme,
+                onSelectTheme = { viewModel.updateTerminalTheme(it) }
             )
 
             Spacer(modifier = Modifier.height(32.dp))
@@ -183,39 +302,114 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
             )
             Spacer(modifier = Modifier.height(16.dp))
 
-            Button(
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    createDocumentLauncher.launch("MacroMandate_Export_${System.currentTimeMillis()}.csv")
-                },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = complianceStatus != ComplianceStatus.SUBVERSIVE,
-                shape = RectangleShape,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                    disabledContainerColor = Color(0xFF1A1A1A)
-                )
-            ) {
-                Icon(Icons.Default.Description, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = if (complianceStatus == ComplianceStatus.SUBVERSIVE) {
-                        "Export locked"
-                    } else {
-                        "Export meals (CSV)"
-                    },
-                    fontWeight = FontWeight.Black
-                )
+            SettingsCard(title = "Data portability & backup", icon = Icons.Default.Storage) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "Export structured JSON archives for full database restoration, or CSV dossiers for external spreadsheet analysis.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.Gray
+                    )
+
+                    // Export JSON Button
+                    Button(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            createJsonLauncher.launch("MacroMandate_Backup_${System.currentTimeMillis()}.json")
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = complianceStatus != ComplianceStatus.SUBVERSIVE,
+                        shape = RectangleShape,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                            disabledContainerColor = Color(0xFF1A1A1A)
+                        )
+                    ) {
+                        Icon(Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (complianceStatus == ComplianceStatus.SUBVERSIVE) "Export locked" else "Export JSON Backup",
+                            fontWeight = FontWeight.Black
+                        )
+                    }
+
+                    // Import JSON Button
+                    OutlinedButton(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            openJsonLauncher.launch(arrayOf("application/json", "text/*", "*/*"))
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = complianceStatus != ComplianceStatus.SUBVERSIVE,
+                        shape = RectangleShape,
+                        border = BorderStroke(1.dp, if (complianceStatus == ComplianceStatus.SUBVERSIVE) Color.DarkGray else MaterialTheme.colorScheme.primary),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.primary,
+                            disabledContentColor = Color.DarkGray
+                        )
+                    ) {
+                        Icon(Icons.Default.FileUpload, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (complianceStatus == ComplianceStatus.SUBVERSIVE) "Restore locked" else "Restore JSON Backup",
+                            fontWeight = FontWeight.Black
+                        )
+                    }
+
+                    // Export CSV Button
+                    OutlinedButton(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            createCsvLauncher.launch("MacroMandate_Export_${System.currentTimeMillis()}.csv")
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = complianceStatus != ComplianceStatus.SUBVERSIVE,
+                        shape = RectangleShape,
+                        border = BorderStroke(1.dp, if (complianceStatus == ComplianceStatus.SUBVERSIVE) Color.DarkGray else Color.Gray),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = Color.White,
+                            disabledContentColor = Color.DarkGray
+                        )
+                    ) {
+                        Icon(Icons.Default.Description, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (complianceStatus == ComplianceStatus.SUBVERSIVE) "Export locked" else "Export CSV Spreadsheet",
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            Text(
-                text = "Activity log",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Black
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Activity log",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Black
+                )
+                if (recentAudits.isNotEmpty()) {
+                    TextButton(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            viewModel.clearActivityLog()
+                        },
+                        modifier = Modifier.defaultMinSize(minHeight = 44.dp)
+                    ) {
+                        Text(
+                            "CLEAR LOG",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Black,
+                            color = Color.Gray
+                        )
+                    }
+                }
+            }
             Spacer(modifier = Modifier.height(16.dp))
 
             AuditBufferHud(recentAudits)
@@ -223,6 +417,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
             // Clears the bottom navigation bar so the last card is fully reachable.
             Spacer(modifier = Modifier.height(96.dp))
         }
+    }
 
         SnackbarHost(
             hostState = snackbarHostState,
@@ -390,7 +585,7 @@ fun AuditBufferHud(audits: List<AuditEntity>) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .height(250.dp),
+            .heightIn(min = 120.dp, max = 220.dp),
         shape = RectangleShape,
         colors = CardDefaults.cardColors(containerColor = Color.Black),
         border = BorderStroke(1.dp, Color.Gray.copy(alpha = 0.3f))
@@ -412,9 +607,8 @@ fun AuditBufferHud(audits: List<AuditEntity>) {
                     val audit = audits[index]
                     Text(
                         text = "[${dateFormat.format(Date(audit.timestamp))}] ${audit.message}",
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                            fontSize = 9.sp
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 11.sp
                         ),
                         color = when (audit.category) {
                             "SECURITY", "SECURITY_JUDGMENT" -> Color.Red
@@ -422,6 +616,83 @@ fun AuditBufferHud(audits: List<AuditEntity>) {
                             else -> Color.Gray
                         }
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TerminalThemeCard(
+    currentTheme: TerminalTheme,
+    onSelectTheme: (TerminalTheme) -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+
+    SettingsCard(title = "Terminal theme", icon = Icons.Default.Palette) {
+        Column {
+            Text(
+                text = "Select tactical phosphor rendering and interface palette.",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.Gray
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                TerminalTheme.entries.forEach { theme ->
+                    val isSelected = theme == currentTheme
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onSelectTheme(theme)
+                            },
+                        shape = RectangleShape,
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isSelected) theme.surfaceColor else Color.Black
+                        ),
+                        border = BorderStroke(
+                            width = if (isSelected) 2.dp else 1.dp,
+                            color = if (isSelected) theme.primaryColor else Color.DarkGray
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(22.dp)
+                                    .background(theme.primaryColor, RectangleShape)
+                                    .border(1.dp, Color.Black, RectangleShape)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = theme.displayName,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Black,
+                                    color = if (isSelected) theme.primaryColor else Color.White
+                                )
+                                Text(
+                                    text = theme.tagline,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.Gray
+                                )
+                            }
+                            if (isSelected) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = "Active",
+                                    tint = theme.primaryColor,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

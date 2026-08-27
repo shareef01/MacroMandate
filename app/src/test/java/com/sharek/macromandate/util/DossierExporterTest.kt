@@ -74,4 +74,65 @@ class DossierExporterTest {
     fun emptyFoodNameIsHandled() {
         assertEquals("", DossierExporter.escapeCsvField(""))
     }
+
+    @Test
+    fun jsonBackupIncludesSchemaMetadataAndMeals() = runBlocking {
+        val meals = listOf(
+            meal("Ribeye Steak", 750),
+            meal("Protein Shake", 200).copy(isLiquid = true, proteinGrams = 40f)
+        )
+        val json = DossierExporter.generateJson(meals)
+        assertTrue(json.contains("\"version\": 1"))
+        assertTrue(json.contains("\"count\": 2"))
+        assertTrue(json.contains("Ribeye Steak"))
+        assertTrue(json.contains("Protein Shake"))
+    }
+
+    @Test
+    fun jsonBackupRoundTripRestoresIdenticalMeals() = runBlocking {
+        val originalMeals = listOf(
+            meal("Oatmeal", 350).copy(
+                latitude = 37.7749,
+                longitude = -122.4194,
+                assessment = "NOMINAL MORNING FUEL",
+                isRestricted = false,
+                isNightRefueling = false
+            ),
+            meal("Midnight Snack", 420).copy(
+                isLiquid = false,
+                isRestricted = true,
+                isNightRefueling = true
+            )
+        )
+
+        val json = DossierExporter.generateJson(originalMeals)
+        val parsedMeals = DossierExporter.parseJsonBackup(json)
+
+        org.junit.Assert.assertNotNull(parsedMeals)
+        assertEquals(2, parsedMeals!!.size)
+
+        val first = parsedMeals[0]
+        assertEquals("Oatmeal", first.foodName)
+        assertEquals(350, first.calories)
+        assertEquals(37.7749, first.latitude!!, 0.001)
+        assertEquals(-122.4194, first.longitude!!, 0.001)
+        assertEquals("NOMINAL MORNING FUEL", first.assessment)
+
+        val second = parsedMeals[1]
+        assertEquals("Midnight Snack", second.foodName)
+        assertTrue(second.isRestricted)
+        assertTrue(second.isNightRefueling)
+    }
+
+    @Test
+    fun parseJsonBackupReturnsNullOnMalformedInput() = runBlocking {
+        val result = DossierExporter.parseJsonBackup("INVALID JSON NOT A STRING")
+        org.junit.Assert.assertNull(result)
+    }
+
+    @Test
+    fun parseJsonBackupReturnsNullOnMissingVersion() = runBlocking {
+        val result = DossierExporter.parseJsonBackup("{\"meals\":[]}")
+        org.junit.Assert.assertNull(result)
+    }
 }
