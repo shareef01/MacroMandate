@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">MacroMandate</string>
+    <string name="widget_label">MacroMandate daily total</string>
+    <string name="widget_description">Today\'s calories against your target.</string>
 </resources>

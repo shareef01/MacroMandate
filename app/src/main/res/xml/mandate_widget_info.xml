@@ -1,9 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    targetCellWidth/Height and previewLayout are API 31+ and ignored below it,
+    which is the intended graceful degradation: minWidth/minHeight and
+    initialLayout cover API 29-30.
+-->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    tools:targetApi="31"
     android:initialLayout="@layout/glance_default_loading_layout"
+    android:description="@string/widget_description"
     android:minWidth="110dp"
     android:minHeight="110dp"
     android:minResizeWidth="110dp"
     android:minResizeHeight="110dp"
+    android:targetCellWidth="2"
+    android:targetCellHeight="2"
     android:resizeMode="horizontal|vertical"
-    android:widgetCategory="home_screen" />
+    android:widgetCategory="home_screen"
+    android:previewLayout="@layout/glance_default_loading_layout"
+    android:updatePeriodMillis="1800000" />

@@ -3,12 +3,15 @@ package com.sharek.macromandate.util
 import android.content.Context
 import android.graphics.*
 import android.net.Uri
+import android.util.Log
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.*
 
 object ImageForensics {
+
+    private const val TAG = "ImageForensics"
 
     /**
      * Computes a power-of-two [BitmapFactory.Options.inSampleSize] that keeps the
@@ -64,7 +67,10 @@ object ImageForensics {
                 setShadowLayer(2f, 1f, 1f, Color.BLACK)
             }
 
-            val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss 'UTC'", Locale.US)
+            // Was "... 'UTC'" formatted with the device's default zone, which
+            // burned a false timezone claim into the image permanently. Use a
+            // real offset so the watermark states what it actually shows.
+            val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ssXXX", Locale.US)
             val timeText = "TS: ${dateFormat.format(Date(timestamp))}"
             val idText = "ID: ${id.take(8).uppercase()}"
             val geoText = if (latitude != null && longitude != null) {
@@ -91,7 +97,7 @@ object ImageForensics {
 
             return Uri.fromFile(file)
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.w(TAG, "Could not watermark evidence image", e)
             return null
         }
     }

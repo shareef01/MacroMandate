@@ -37,9 +37,15 @@ class MandateWidget : GlanceAppWidget() {
 
     @Composable
     private fun MandateWidgetContent(current: Int, target: Int) {
-        val progress = (current.toFloat() / target).coerceIn(0f, 1f)
+        // A zero target produced Infinity (or NaN at 0/0), and coerceIn passes NaN
+        // straight through to the progress indicator.
+        val progress = if (target > 0) {
+            (current.toFloat() / target).coerceIn(0f, 1f)
+        } else {
+            0f
+        }
         val context = LocalContext.current
-        
+
         Column(
             modifier = GlanceModifier
                 .fillMaxSize()
@@ -54,26 +60,26 @@ class MandateWidget : GlanceAppWidget() {
                     fontWeight = FontWeight.Bold
                 )
             )
-            
+
             Spacer(modifier = GlanceModifier.height(8.dp))
-            
+
             Text(
-                text = "$current / $target kcal",
+                text = if (target > 0) "$current / $target kcal" else "$current kcal",
                 style = TextStyle(
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Medium
                 )
             )
-            
+
             Spacer(modifier = GlanceModifier.height(8.dp))
-            
+
             LinearProgressIndicator(
                 progress = progress,
                 modifier = GlanceModifier.fillMaxWidth().height(10.dp)
             )
-            
+
             Spacer(modifier = GlanceModifier.height(12.dp))
-            
+
             Button(
                 text = "Log a meal",
                 onClick = actionStartActivity(ComponentName(context, MainActivity::class.java)),

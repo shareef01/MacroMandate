@@ -8,8 +8,11 @@ import org.junit.Test
 
 class DossierExporterTest {
 
-    private fun meal(foodName: String, calories: Int = 100) = MealEntry(
-        id = "abc123",
+    // Distinct ids. Every fixture meal previously shared id "abc123", so the
+    // round-trip test asserted that two records survived a restore while Room's
+    // REPLACE conflict strategy would in fact have collapsed them into one.
+    private fun meal(foodName: String, calories: Int = 100, id: String = foodName.filter { it.isLetterOrDigit() }) = MealEntry(
+        id = id,
         timestamp = 1_700_000_000_000L,
         imageUri = null,
         foodName = foodName,
@@ -23,7 +26,8 @@ class DossierExporterTest {
     @Test
     fun csvHasHeaderRow() = runBlocking {
         val csv = DossierExporter.generateCsv(emptyList())
-        assertTrue(csv.startsWith("ID,Timestamp,FoodName,Calories,Protein,Carbs,Fat,IsLiquid"))
+        // Leading UTF-8 BOM so Excel on Windows does not mangle non-ASCII names.
+        assertTrue(csv.startsWith("﻿ID,Timestamp,FoodName,Calories,ProteinGrams,CarbsGrams,FatGrams,IsLiquid"))
     }
 
     @Test
@@ -106,10 +110,9 @@ class DossierExporterTest {
         )
 
         val json = DossierExporter.generateJson(originalMeals)
-        val parsedMeals = DossierExporter.parseJsonBackup(json)
+        val parsedMeals = DossierExporter.parseJsonBackup(json).getOrThrow()
 
-        org.junit.Assert.assertNotNull(parsedMeals)
-        assertEquals(2, parsedMeals!!.size)
+        assertEquals(2, parsedMeals.size)
 
         val first = parsedMeals[0]
         assertEquals("Oatmeal", first.foodName)
@@ -125,14 +128,14 @@ class DossierExporterTest {
     }
 
     @Test
-    fun parseJsonBackupReturnsNullOnMalformedInput() = runBlocking {
+    fun parseJsonBackupRejectsMalformedInput() = runBlocking {
         val result = DossierExporter.parseJsonBackup("INVALID JSON NOT A STRING")
-        org.junit.Assert.assertNull(result)
+        assertTrue(result.isFailure)
     }
 
     @Test
-    fun parseJsonBackupReturnsNullOnMissingVersion() = runBlocking {
+    fun parseJsonBackupRejectsMissingVersion() = runBlocking {
         val result = DossierExporter.parseJsonBackup("{\"meals\":[]}")
-        org.junit.Assert.assertNull(result)
+        assertTrue(result.isFailure)
     }
 }

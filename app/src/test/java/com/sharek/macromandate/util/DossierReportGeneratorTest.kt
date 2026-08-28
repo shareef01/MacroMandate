@@ -48,7 +48,10 @@ class DossierReportGeneratorTest {
         assertTrue(report.contains("DAILY CALORIE TARGET : 2000 kcal"))
         assertTrue(report.contains("TOTAL 7-DAY INTAKE   : 0 kcal across 0 meals"))
         assertTrue(report.contains("STATUS VERDICT      : EXEMPLARY (100/100)"))
-        assertTrue(report.contains("ZONE RESTRICTION INFRACTIONS : 0"))
+        assertTrue(report.contains("MEALS LOGGED 23:00-05:00     : 0"))
+        // An empty week must not report a fabricated average.
+        assertTrue(report.contains("DAYS WITH ENTRIES    : 1 of 7"))
+        assertTrue(report.contains("NOTE: Values from photo analysis are AI estimates, not measurements."))
         assertTrue(report.contains("COMMENDATION: Subject demonstrates strict metabolic discipline."))
     }
 
@@ -101,11 +104,11 @@ class DossierReportGeneratorTest {
             generatedTimestamp = 1_700_000_000_000L
         )
 
-        assertTrue(report.contains("ZONE RESTRICTION INFRACTIONS : 1"))
-        assertTrue(report.contains("NIGHT REFUELING VIOLATIONS   : 1"))
-        assertTrue(report.contains("TOTAL FLAGGED ANOMALIES      : 2"))
-        assertTrue(report.contains("Restricted Zone Pizza (900 kcal) => RESTRICTED ZONE"))
-        assertTrue(report.contains("Late Night Donuts (600 kcal) => NIGHT REFUELING"))
+        assertTrue(report.contains("MEALS LOGGED 23:00-05:00     : 1"))
+        assertTrue(report.contains("Late Night Donuts (600 kcal)"))
+        // "Restricted zone" was never a real feature - the sector list is empty -
+        // so the report no longer has a section implying it enforced one.
+        assertTrue(!report.contains("RESTRICTED ZONE"))
         assertTrue(report.contains("WARNING: Unsanctioned nutritional deviations detected."))
     }
 }

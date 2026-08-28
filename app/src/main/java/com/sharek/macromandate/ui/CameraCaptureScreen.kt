@@ -19,6 +19,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Camera
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -33,7 +34,6 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.sharek.macromandate.util.EvidenceStore
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.*
 import java.util.concurrent.Executor
@@ -56,7 +56,7 @@ fun CameraCaptureScreen(
     val primaryColor = MaterialTheme.colorScheme.primary
     val onPrimaryColor = MaterialTheme.colorScheme.onPrimary
     val infiniteTransition = rememberInfiniteTransition(label = "HUD")
-    
+
     val scanningY by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
@@ -77,24 +77,16 @@ fun CameraCaptureScreen(
         label = "Pulse"
     )
 
-    var tickerText by remember { mutableStateOf("") }
-    val fullTicker = "Point the camera at your meal and tap the shutter.      "
-    
-    LaunchedEffect(Unit) {
-        while(true) {
-            fullTicker.indices.forEach { i ->
-                tickerText = fullTicker.substring(i) + fullTicker.substring(0, i)
-                delay(100L)
-            }
-        }
-    }
-
     LaunchedEffect(Unit) {
         // Initial tactical readiness pulse on viewfinder activation
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
     }
 
-    LaunchedEffect(Unit) {
+    // DisposableEffect, not LaunchedEffect: use cases are bound to the *activity*
+    // lifecycle, so without an explicit unbind on the way out the camera stayed
+    // open — and the indicator lit — for as long as the app was foregrounded
+    // after a single visit to this screen.
+    DisposableEffect(lifecycleOwner) {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         cameraProviderFuture.addListener({
             val cameraProvider = cameraProviderFuture.get()
@@ -114,6 +106,11 @@ fun CameraCaptureScreen(
                 Log.e("CameraCaptureScreen", "Use case binding failed", e)
             }
         }, ContextCompat.getMainExecutor(context))
+
+        onDispose {
+            runCatching { ProcessCameraProvider.getInstance(context).get().unbindAll() }
+                .onFailure { Log.w("CameraCaptureScreen", "Could not release the camera", it) }
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
@@ -170,13 +167,16 @@ fun CameraCaptureScreen(
             shape = RectangleShape,
             border = androidx.compose.foundation.BorderStroke(1.dp, pulsingColor.copy(alpha = 0.3f))
         ) {
+            // Static. This was a marquee that rotated the string by one
+            // character every 100ms: unreadable, permanently recomposing, and a
+            // screen reader would re-announce it ten times a second.
             Text(
-                text = tickerText,
+                text = "Point the camera at your meal, then tap the shutter.",
                 style = MaterialTheme.typography.labelSmall,
-                color = pulsingColor,
+                color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
-                modifier = Modifier.padding(vertical = 4.dp, horizontal = 8.dp)
+                modifier = Modifier.padding(vertical = 6.dp, horizontal = 8.dp)
             )
         }
 

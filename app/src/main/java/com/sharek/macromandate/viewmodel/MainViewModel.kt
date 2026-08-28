@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Base64
 import android.util.Log
+import androidx.core.graphics.scale
 import androidx.glance.appwidget.updateAll
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -16,7 +17,7 @@ import com.sharek.macromandate.data.pref.MandatePreferences
 import com.sharek.macromandate.data.repository.AuditRepository
 import com.sharek.macromandate.data.repository.MealRepository
 import com.sharek.macromandate.model.MealEntry
-import com.sharek.macromandate.service.MandateSurveillanceService
+import com.sharek.macromandate.network.AnalysisError
 import com.sharek.macromandate.network.ApiConfig
 import com.sharek.macromandate.network.ChatMessage
 import com.sharek.macromandate.network.ChatRequest
@@ -24,23 +25,25 @@ import com.sharek.macromandate.network.ContentPart
 import com.sharek.macromandate.network.HuggingFaceApi
 import com.sharek.macromandate.util.DossierExporter
 import com.sharek.macromandate.util.DossierReportGenerator
+import com.sharek.macromandate.util.NutritionBounds
 import com.sharek.macromandate.util.NutritionSanitizer
+import com.sharek.macromandate.util.ParsedNutrition
 import com.sharek.macromandate.util.ComplianceEngine
 import com.sharek.macromandate.util.EvidenceStore
-import com.sharek.macromandate.util.LeniencyVerdict
 import com.sharek.macromandate.widget.MandateWidget
 import com.sharek.macromandate.util.ImageForensics
 import com.sharek.macromandate.worker.EnforcementScheduler
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.tasks.Tasks
 import com.sharek.macromandate.ui.theme.TerminalTheme
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
-import org.json.JSONObject
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.io.ByteArrayOutputStream
@@ -58,8 +61,19 @@ sealed class UiState {
     data class Error(val message: String) : UiState()
 }
 
+/**
+ * How today's intake sits against the configured target.
+ *
+ * This is a *label*, not a gate. An earlier design let these values disable the
+ * gallery picker, cover the meal detail screen, block CSV/JSON export, and — at
+ * the bottom of the scale — replace the entire app with a screen that asked a
+ * language model whether to erase the user's log. Distance from a calorie target
+ * is not grounds for withholding someone's own records, and a model verdict is
+ * not grounds for deleting them. The status now only ever changes what is
+ * *said*, never what is *reachable*.
+ */
 enum class ComplianceStatus {
-    EXEMPLARY, ACCEPTABLE, SUBVERSIVE, CRISIS, LOCKED
+    EXEMPLARY, ACCEPTABLE, SUBVERSIVE, CRISIS
 }
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -73,16 +87,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         repository = MealRepository(database.mealDao())
         auditRepository = AuditRepository(database.auditDao())
         preferences = MandatePreferences(application)
-        
+
         logAudit("SYSTEM_BOOT", "SURVEILLANCE TERMINAL INITIALIZED.")
-        
-        // Activate Omnipresent Surveillance safely
-        try {
-            val serviceIntent = android.content.Intent(application, MandateSurveillanceService::class.java)
-            application.startForegroundService(serviceIntent)
-        } catch (e: Exception) {
-            Log.w("MainViewModel", "Could not start surveillance service on initialization", e)
-        }
     }
 
     val mealEntries: StateFlow<List<MealEntry>> = repository.getAllMeals()
@@ -91,7 +97,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
         )
-    
+
     val recentAudits: StateFlow<List<AuditEntity>> = auditRepository.getRecentAudits()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -173,28 +179,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         calculateComplianceScore(meals, target)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 100)
 
-    val complianceStatus: StateFlow<ComplianceStatus> = combine(
-        complianceScore,
-        mealEntries,
-        preferences.isPermanentlyLockedFlow
-    ) { score, meals, isLocked ->
-        if (isLocked) return@combine ComplianceStatus.LOCKED
-
-        val now = System.currentTimeMillis()
-        val oneDayAgo = now - 24 * 60 * 60 * 1000L
-
-        var penalty = 0
-        if (meals.any { it.isRestricted && it.timestamp >= oneDayAgo }) {
-            penalty += 40
-        }
-        if (meals.any { it.isNightRefueling && it.timestamp >= oneDayAgo }) {
-            penalty += 15
-        }
-        
-        val adjustedScore = (score - penalty).coerceAtLeast(0)
-        
-        ComplianceEngine.statusFor(adjustedScore)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ComplianceStatus.EXEMPLARY)
+    /**
+     * The status shown in the dashboard banner.
+     *
+     * Previously this subtracted a 40-point penalty for a "restricted zone" meal
+     * and 15 for eating between 23:00 and 05:00 — either enough on its own to
+     * push someone into the state that used to lock the app. Eating late is not
+     * a defect, and the app has no evidence base for treating it as one, so the
+     * score now reflects only the thing the user actually configured: distance
+     * from their calorie target.
+     */
+    val complianceStatus: StateFlow<ComplianceStatus> = complianceScore
+        .map { ComplianceEngine.statusFor(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ComplianceStatus.EXEMPLARY)
 
     /**
      * Forbidden sectors are intentionally empty.
@@ -241,16 +238,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         "${meals.sumOf { it.carbsGrams.toDouble() }.toInt()}C, " +
                         "${meals.sumOf { it.fatGrams.toDouble() }.toInt()}F."
                 val mealNames = meals.joinToString(", ") { it.foodName }
-                
-                val tone = when (complianceStatus.value) {
-                    ComplianceStatus.SUBVERSIVE -> "EXTREME CORRECTION REQUIRED. AGGRESSIVE TONE."
-                    ComplianceStatus.CRISIS -> "TERMINAL WARNING. ABSOLUTE CONDEMNATION."
-                    else -> "COLD AND AUTHORITATIVE."
-                }
-                
-                val prompt = "Synthesize these refueling events into a single $tone State Intelligence Briefing. " +
-                        "Data: $totals. Items: $mealNames. Judge the subject's biological efficiency and mandate compliance for the day. " +
-                        "Return only the briefing text. No conversational filler."
+
+                // The tone no longer escalates with how far the user is from
+                // target. It previously asked the model for "EXTREME CORRECTION
+                // REQUIRED. AGGRESSIVE TONE." and, at the bottom of the scale,
+                // "TERMINAL WARNING. ABSOLUTE CONDEMNATION." — an open-ended
+                // instruction to a language model to condemn someone for what
+                // they ate, in an app that is not qualified to judge it. The
+                // clipped terminal register stays; the escalating hostility does
+                // not.
+                val prompt = "Summarize these meals as a short, factual daily briefing in a clipped, " +
+                        "cold, military-terminal register. Data: $totals. Items: $mealNames. " +
+                        "Describe what was logged and how the totals compare to nothing in particular. " +
+                        "Do not evaluate the person, moralize about the food, or give health, dietary or " +
+                        "medical advice. Two or three sentences. Return only the briefing text."
 
                 val response = api.chatCompletion(
                     token = ApiConfig.authHeader(apiKey),
@@ -277,62 +278,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _dailyBriefing.value = null
     }
 
-    fun submitLeniencyPlea(justification: String) {
-        viewModelScope.launch {
-            val apiKey = resolveApiKey()
-            if (apiKey.isBlank()) {
-                _uiState.value = UiState.Error(ApiConfig.NOT_CONFIGURED_MESSAGE)
-                return@launch
-            }
-            _uiState.value = UiState.Loading
-            try {
-                val prompt = "The subject is pleading for leniency after extreme mandate subversion. " +
-                        "Analyze their justification: '$justification'. Cross-reference with their status: ${complianceStatus.value}. " +
-                        "Decide if leniency is GRANTED or DENIED. " +
-                        "If GRANTED, return exactly: { 'decision': 'GRANTED', 'response': 'State Message' }. " +
-                        "If DENIED, return exactly: { 'decision': 'DENIED', 'response': 'Terminal Warning' }. " +
-                        "Return raw JSON only."
-
-                val response = api.chatCompletion(
-                    token = ApiConfig.authHeader(apiKey),
-                    request = textRequest(prompt)
-                )
-
-                if (response.isSuccessful) {
-                    val responseText = response.body()?.firstMessage().orEmpty()
-
-                    when (val verdict = LeniencyVerdict.parse(responseText)) {
-                        is LeniencyVerdict.Granted -> {
-                            logAudit("SECURITY_JUDGMENT", "LENIENCY GRANTED. MANDATE RESET.")
-                            repository.deleteAllMeals() // Wipe the shame
-                            withContext(Dispatchers.IO) {
-                                EvidenceStore.deleteAll(getApplication())
-                            }
-                            updateWidget()
-                            _uiState.value = UiState.Success("LENIENCY GRANTED: ${verdict.message}")
-                        }
-
-                        is LeniencyVerdict.Denied -> {
-                            logAudit("SECURITY_JUDGMENT", "LENIENCY DENIED. TERMINAL LOCKDOWN.")
-                            preferences.setPermanentLockdown(true)
-                            _uiState.value = UiState.Error("LENIENCY DENIED: ${verdict.message}")
-                        }
-
-                        // Neither branch is reversible, so an unrecognized verdict must
-                        // not fall through into lockdown. Report and leave state intact.
-                        is LeniencyVerdict.Unparsable -> {
-                            _uiState.value = UiState.Error("JUDGMENT ERROR: ${verdict.reason}")
-                        }
-                    }
-                } else {
-                    _uiState.value = UiState.Error("JUDGMENT UPLINK FAILURE: ${response.code()}")
-                }
-            } catch (e: Exception) {
-                _uiState.value = UiState.Error("JUDGMENT ERROR: ${e.localizedMessage?.uppercase()}")
-            }
-        }
-    }
-
     fun updateCalorieTarget(target: Int) {
         viewModelScope.launch {
             preferences.updateCalorieTarget(target)
@@ -348,17 +293,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 "PRIVACY",
                 "GEOSPATIAL TRACKING ${if (enabled) "AUTHORIZED BY SUBJECT" else "REVOKED BY SUBJECT"}."
             )
-        }
-    }
-
-    /**
-     * Clears a permanent lockdown. The verdict that set it comes from a language
-     * model, so the subject keeps a way back to their own data.
-     */
-    fun requestReinstatement() {
-        viewModelScope.launch {
-            preferences.setPermanentLockdown(false)
-            logAudit("SECURITY_JUDGMENT", "REINSTATEMENT PETITION ACCEPTED. LOCKDOWN LIFTED.")
         }
     }
 
@@ -445,16 +379,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         input.bufferedReader(Charsets.UTF_8).readText()
                     } ?: return@withContext Result.failure(Exception("Failed to read selected backup file."))
 
-                    val meals = DossierExporter.parseJsonBackup(jsonString)
-                        ?: return@withContext Result.failure(Exception("Invalid or corrupted backup JSON schema."))
+                    val meals = DossierExporter.parseJsonBackup(jsonString).getOrElse { failure ->
+                        return@withContext Result.failure(Exception(restoreMessage(failure)))
+                    }
 
                     if (meals.isNotEmpty()) {
+                        // Room wraps a list insert in a single transaction, so a
+                        // failure part-way leaves the log as it was rather than
+                        // half-restored.
                         repository.insertMeals(meals)
                     }
                     Result.success(meals.size)
+                } catch (e: OutOfMemoryError) {
+                    Result.failure(Exception("That backup file is too large to restore."))
                 } catch (e: Exception) {
-                    Log.e("MainViewModel", "JSON backup import failed", e)
-                    Result.failure(e)
+                    Log.w(TAG, "JSON backup import failed", e)
+                    Result.failure(Exception("That file could not be read as a MacroMandate backup."))
                 }
             }
 
@@ -504,145 +444,238 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private val _pendingAnalysis = MutableStateFlow<PendingAnalysis?>(null)
+
+    /** A model result awaiting the user's confirmation. Nothing is stored until they accept it. */
+    val pendingAnalysis: StateFlow<PendingAnalysis?> = _pendingAnalysis.asStateFlow()
+
+    private var analysisJob: Job? = null
+
+    /**
+     * The frame the running analysis is working on, so [cancelAnalysis] can
+     * delete it. Cleared once the result is confirmed or released.
+     */
+    private var inFlightCapture: Uri? = null
+
+    /**
+     * Sends one image for analysis and parks the result in [pendingAnalysis].
+     *
+     * Nothing is written to the meal log here, and the image is not copied into
+     * the evidence store yet: both happen in [confirmPendingAnalysis], so backing
+     * out of a bad result leaves nothing behind.
+     */
     fun processImageForMacros(uri: Uri, context: android.content.Context) {
-        viewModelScope.launch {
+        // A second capture supersedes the first rather than racing it into the log.
+        analysisJob?.cancel()
+        inFlightCapture?.takeIf { it != uri }?.let { releaseCapture(it) }
+        inFlightCapture = uri
+        analysisJob = viewModelScope.launch {
             val apiKey = resolveApiKey()
             if (apiKey.isBlank()) {
-                _uiState.value = UiState.Error(ApiConfig.NOT_CONFIGURED_MESSAGE)
+                _uiState.value = UiState.Error(AnalysisError.NoApiKey.message)
                 return@launch
             }
             _uiState.value = UiState.Loading
-            try {
-                // Tactical Location Acquisition — only with the subject's explicit
-                // opt-in, since these coordinates end up watermarked into the image
-                // that gets uploaded for analysis.
-                val location = if (!preferences.locationTrackingEnabledFlow.first()) {
-                    null
-                } else withContext(Dispatchers.IO) {
-                    try {
-                        val client = LocationServices.getFusedLocationProviderClient(context)
-                        try {
-                            // Bounded: an unqualified await blocks this IO thread
-                            // indefinitely if Play Services never settles the task.
-                            Tasks.await(client.lastLocation, 5, TimeUnit.SECONDS)
-                        } catch (_: SecurityException) {
-                            null
-                        } catch (_: TimeoutException) {
-                            null
-                        }
-                    } catch (_: Exception) {
-                        null
-                    }
-                }
 
-                val currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-                val isNightRefueling = currentHour in 23..23 || currentHour in 0..4
+            val capturedAt = System.currentTimeMillis()
 
-                // One id backs both the meal record and its stored evidence file.
-                val mealId = UUID.randomUUID().toString()
-
-                val base64Image = withContext(Dispatchers.IO) {
-                    val watermarkedUri = if (location != null) {
-                        ImageForensics.watermarkImage(
-                            context = context,
-                            uri = uri,
-                            id = mealId,
-                            latitude = location.latitude,
-                            longitude = location.longitude,
-                            timestamp = System.currentTimeMillis()
-                        )
-                    } else null
-                    try {
-                        uriToScaledBase64(watermarkedUri ?: uri, context)
-                    } finally {
-                        // The watermarked file is a transient analysis artifact; the
-                        // persisted record keeps the original URI. Delete it so the
-                        // cache does not grow unboundedly with each capture.
-                        watermarkedUri?.path?.let { path -> File(path).delete() }
-                    }
-                }
-
-                if (base64Image == null) {
-                    _uiState.value = UiState.Error("Could not process image")
-                    return@launch
-                }
-
-                val prompt = "Analyze this image of food or drink. " +
-                        "Return ONLY a valid JSON object with the following keys: 'foodName' (String), 'calories' (Int), 'proteinGrams' (Float), 'carbsGrams' (Float), 'fatGrams' (Float), 'isLiquid' (Boolean), 'assessment' (String). " +
-                        "The 'assessment' field must be a brief, cold, and authoritative state judgment on the nutritional compliance. " +
-                        (if (isNightRefueling) "This is an UNAUTHORIZED NIGHT REFUELING. Mention CIRCADIAN DISCIPLINE BREACH in the assessment." else "") +
-                        "Do not include markdown, code blocks, or conversational text. Just raw JSON."
-                
-                val response = api.chatCompletion(
-                    token = ApiConfig.authHeader(apiKey),
-                    request = imageRequest(prompt, base64Image)
-                )
-
-                if (response.isSuccessful) {
-                    val responseText = response.body()?.firstMessage().orEmpty()
-
-                    val jsonStart = responseText.indexOf("{")
-                    val jsonEnd = responseText.lastIndexOf("}")
-                    
-                    if (jsonStart != -1 && jsonEnd != -1 && jsonEnd > jsonStart) {
-                        val cleanJson = responseText.substring(jsonStart, jsonEnd + 1)
-                        val parsed = NutritionSanitizer.parseAndSanitize(cleanJson)
-                        
-                        val isRestricted = if (location != null) checkForbiddenSectors(location.latitude, location.longitude) else false
-                        
-                        if (isRestricted) {
-                            logAudit("SECURITY", "MANDATE VIOLATION: RESTRICTED ZONE INTAKE DETECTED.")
-                        }
-                        if (isNightRefueling) {
-                            logAudit("SECURITY", "MANDATE VIOLATION: CIRCADIAN DISCIPLINE BREACH.")
-                        }
-
-                        // Copy the frame somewhere durable before recording it. A
-                        // cacheDir path is evictable and a photo-picker grant dies
-                        // with the process; either leaves the archive image blank.
-                        val storedUri = withContext(Dispatchers.IO) {
-                            EvidenceStore.persist(context, uri, mealId)
-                        }
-
-                        val newEntry = MealEntry(
-                            id = mealId,
-                            timestamp = System.currentTimeMillis(),
-                            imageUri = (storedUri ?: uri).toString(),
-                            foodName = parsed.foodName,
-                            calories = parsed.calories,
-                            proteinGrams = parsed.proteinGrams,
-                            carbsGrams = parsed.carbsGrams,
-                            fatGrams = parsed.fatGrams,
-                            isLiquid = parsed.isLiquid,
-                            latitude = location?.latitude,
-                            longitude = location?.longitude,
-                            assessment = parsed.assessment,
-                            isRestricted = isRestricted,
-                            isNightRefueling = isNightRefueling
-                        )
-
-                        repository.insertMeal(newEntry)
-                        logAudit("DATA_INGEST", "RECORD LOGGED: ${newEntry.foodName.uppercase()}")
-                        updateWidget()
-                        _uiState.value = UiState.Success(newEntry.foodName)
-                    } else {
-                        Log.e("MainViewModel", "No JSON found in response: $responseText")
-                        val errorMsg = if (complianceStatus.value == ComplianceStatus.SUBVERSIVE) "[ MANDATE VIOLATION ] INVALID AI DATA" else "AI response was not in the expected format"
-                        _uiState.value = UiState.Error(errorMsg)
-                    }
-                } else {
-                    val errorBody = response.errorBody()?.string()
-                    Log.e("MainViewModel", "API Error: $errorBody")
-                    val errorMsg = if (complianceStatus.value == ComplianceStatus.SUBVERSIVE) "[ MANDATE VIOLATION ] SERVER EMBARGO" else "Server error: ${response.code()}"
-                    _uiState.value = UiState.Error(errorMsg)
-                }
-            } catch (e: Exception) {
-                Log.e("MainViewModel", "Error processing image", e)
-                val errorMsg = if (complianceStatus.value == ComplianceStatus.SUBVERSIVE) "[ MANDATE VIOLATION ] ${e.localizedMessage?.uppercase()}" else (e.localizedMessage ?: "Unknown error")
-                _uiState.value = UiState.Error(errorMsg)
+            // Coordinates are read only when the user has opted in. They are
+            // watermarked onto the frame that gets uploaded, so this is the point
+            // at which location leaves the device.
+            val location = if (!preferences.locationTrackingEnabledFlow.first()) {
+                null
+            } else {
+                lastKnownLocation(context)
             }
+
+            val base64Image = withContext(Dispatchers.IO) {
+                val watermarkedUri = if (location != null) {
+                    ImageForensics.watermarkImage(
+                        context = context,
+                        uri = uri,
+                        id = UUID.randomUUID().toString(),
+                        latitude = location.latitude,
+                        longitude = location.longitude,
+                        timestamp = capturedAt
+                    )
+                } else null
+                try {
+                    uriToScaledBase64(watermarkedUri ?: uri, context)
+                } finally {
+                    // Transient analysis artefact; the record keeps the original frame.
+                    watermarkedUri?.path?.let { path -> File(path).delete() }
+                }
+            }
+
+            if (base64Image == null) {
+                failAnalysis(uri, AnalysisError.ImageUnreadable)
+                return@launch
+            }
+
+            val parsed = try {
+                requestNutrition(apiKey, base64Image)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Analysis request failed", e)
+                failAnalysis(uri, AnalysisError.fromThrowable(e))
+                return@launch
+            }
+
+            parsed.fold(
+                onSuccess = { nutrition ->
+                    _pendingAnalysis.value = PendingAnalysis(
+                        sourceImage = uri,
+                        nutrition = nutrition,
+                        capturedAt = capturedAt,
+                        latitude = location?.latitude,
+                        longitude = location?.longitude
+                    )
+                    // Ownership passes to the pending result; discard/confirm
+                    // decides what happens to the file from here.
+                    inFlightCapture = null
+                    _uiState.value = UiState.Idle
+                },
+                onFailure = { error ->
+                    failAnalysis(uri, (error as? AnalysisFailure)?.error ?: AnalysisError.Unknown)
+                }
+            )
         }
     }
+
+    private class AnalysisFailure(val error: AnalysisError) : Exception(error.message)
+
+    /** Performs the request and extracts one nutrition object, or an [AnalysisError]. */
+    private suspend fun requestNutrition(apiKey: String, base64Image: String): Result<ParsedNutrition> {
+        val response = api.chatCompletion(
+            token = ApiConfig.authHeader(apiKey),
+            request = imageRequest(ANALYSIS_PROMPT, base64Image)
+        )
+
+        if (!response.isSuccessful) {
+            // The body can echo the request or carry a provider HTML page, so it
+            // is never shown to the user and never logged in a release build.
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "Provider returned ${response.code()}: ${response.errorBody()?.string()}")
+            }
+            return Result.failure(AnalysisFailure(AnalysisError.fromHttpStatus(response.code())))
+        }
+
+        val responseText = response.body()?.firstMessage().orEmpty()
+        val jsonStart = responseText.indexOf('{')
+        val jsonEnd = responseText.lastIndexOf('}')
+        if (jsonStart == -1 || jsonEnd <= jsonStart) {
+            // Prose, markdown fences and truncated replies all land here.
+            if (BuildConfig.DEBUG) Log.d(TAG, "No JSON object in reply: $responseText")
+            return Result.failure(AnalysisFailure(AnalysisError.UnreadableResult))
+        }
+
+        return try {
+            Result.success(
+                NutritionSanitizer.parseAndSanitize(responseText.substring(jsonStart, jsonEnd + 1))
+            )
+        } catch (e: Exception) {
+            if (BuildConfig.DEBUG) Log.d(TAG, "Unparsable nutrition object", e)
+            Result.failure(AnalysisFailure(AnalysisError.UnreadableResult))
+        }
+    }
+
+    /**
+     * Commits a reviewed analysis to the log, with whatever corrections the user
+     * made. The image is copied into internal storage at this point: a
+     * photo-picker grant does not survive process death.
+     */
+    fun confirmPendingAnalysis(corrected: ParsedNutrition) {
+        val pending = _pendingAnalysis.value ?: return
+        _pendingAnalysis.value = null
+        viewModelScope.launch {
+            val context = getApplication<Application>()
+            val mealId = UUID.randomUUID().toString()
+            val storedUri = withContext(Dispatchers.IO) {
+                EvidenceStore.persist(context, pending.sourceImage, mealId)
+            }
+
+            val entry = MealEntry(
+                id = mealId,
+                timestamp = pending.capturedAt,
+                imageUri = storedUri?.toString(),
+                foodName = NutritionBounds.clampName(corrected.foodName, DEFAULT_MEAL_NAME),
+                calories = NutritionBounds.clampCalories(corrected.calories),
+                proteinGrams = NutritionBounds.clampGrams(corrected.proteinGrams),
+                carbsGrams = NutritionBounds.clampGrams(corrected.carbsGrams),
+                fatGrams = NutritionBounds.clampGrams(corrected.fatGrams),
+                isLiquid = corrected.isLiquid,
+                latitude = pending.latitude,
+                longitude = pending.longitude,
+                assessment = NutritionBounds.clampAssessment(corrected.assessment),
+                isRestricted = false,
+                isNightRefueling = isLateNight(pending.capturedAt)
+            )
+
+            repository.insertMeal(entry)
+            logAudit("DATA_INGEST", "RECORD LOGGED: ${entry.foodName.uppercase()}")
+            updateWidget()
+            _uiState.value = UiState.Success(entry.foodName)
+        }
+    }
+
+    /**
+     * Drops a result without recording it, and deletes the frame it came from.
+     *
+     * A camera capture is written straight into the evidence store so that the
+     * meal record can point at durable storage. That means an analysis the user
+     * declines would otherwise leave its photograph on disk permanently, with no
+     * meal referencing it and no way to reach it from the UI — the app would
+     * accumulate pictures of food the user explicitly chose not to keep.
+     *
+     * Gallery selections are content URIs this app does not own, so nothing is
+     * deleted for them.
+     */
+    fun discardPendingAnalysis() {
+        val discarded = _pendingAnalysis.value
+        _pendingAnalysis.value = null
+        _uiState.value = UiState.Idle
+        discarded?.let { releaseCapture(it.sourceImage) }
+    }
+
+    /** Cancels an in-flight analysis; cancelling the coroutine cancels the HTTP call. */
+    fun cancelAnalysis() {
+        analysisJob?.cancel()
+        analysisJob = null
+        inFlightCapture?.let { releaseCapture(it) }
+        inFlightCapture = null
+        _uiState.value = UiState.Idle
+    }
+
+    /** Reports a failure and releases the frame that was being analysed. */
+    private fun failAnalysis(source: Uri, error: AnalysisError) {
+        _uiState.value = UiState.Error(error.message)
+        releaseCapture(source)
+    }
+
+    /** Deletes an unconfirmed capture, if this app owns the file. */
+    private fun releaseCapture(uri: Uri) {
+        inFlightCapture = null
+        viewModelScope.launch(Dispatchers.IO) {
+            EvidenceStore.delete(getApplication(), uri.toString())
+        }
+    }
+
+    private suspend fun lastKnownLocation(context: android.content.Context): android.location.Location? =
+        withContext(Dispatchers.IO) {
+            try {
+                val client = LocationServices.getFusedLocationProviderClient(context)
+                // Bounded: an unqualified await blocks this thread indefinitely if
+                // Play Services never settles the task.
+                Tasks.await(client.lastLocation, LOCATION_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            } catch (_: SecurityException) {
+                null
+            } catch (_: TimeoutException) {
+                null
+            } catch (_: Exception) {
+                null
+            }
+        }
 
     private fun uriToScaledBase64(uri: Uri, context: android.content.Context): String? {
         return try {
@@ -661,11 +694,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             val scale = 800f / Math.max(originalBitmap.width, originalBitmap.height).coerceAtLeast(1)
             val scaledBitmap = if (scale < 1f) {
-                Bitmap.createScaledBitmap(
-                    originalBitmap,
+                originalBitmap.scale(
                     (originalBitmap.width * scale).toInt(),
-                    (originalBitmap.height * scale).toInt(),
-                    true
+                    (originalBitmap.height * scale).toInt()
                 )
             } else {
                 originalBitmap
@@ -688,12 +719,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Deletes a meal and the photo stored for it.
+     *
+     * The image URI has to be read *before* the row goes away: this previously
+     * passed the meal id to [EvidenceStore.delete], which expects a URI, so the
+     * call silently matched nothing and every photo survived the deletion of its
+     * meal. The audit line said "RECORD EXPUNGED" while the picture stayed on
+     * disk indefinitely.
+     */
     fun deleteMealEntry(id: String) {
         viewModelScope.launch {
+            val imageUri = mealEntries.value.firstOrNull { it.id == id }?.imageUri
             repository.deleteMeal(id)
             logAudit("DATA_PURGE", "RECORD EXPUNGED.")
             withContext(Dispatchers.IO) {
-                EvidenceStore.delete(getApplication(), id)
+                EvidenceStore.delete(getApplication(), imageUri)
             }
             updateWidget()
         }
@@ -701,7 +742,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateMealEntry(updatedMeal: MealEntry) {
         viewModelScope.launch {
-            repository.updateMeal(updatedMeal)
+            repository.updateMeal(
+                updatedMeal.copy(
+                    foodName = NutritionBounds.clampName(updatedMeal.foodName, DEFAULT_MEAL_NAME),
+                    calories = NutritionBounds.clampCalories(updatedMeal.calories),
+                    proteinGrams = NutritionBounds.clampGrams(updatedMeal.proteinGrams),
+                    carbsGrams = NutritionBounds.clampGrams(updatedMeal.carbsGrams),
+                    fatGrams = NutritionBounds.clampGrams(updatedMeal.fatGrams)
+                )
+            )
             logAudit("DATA_CORRECTION", "RECORD ${updatedMeal.id.take(8).uppercase()} MODIFIED.")
             updateWidget()
         }
@@ -717,24 +766,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         viewModelScope.launch {
             val mealId = UUID.randomUUID().toString()
-            val currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-            val isNightRefueling = currentHour in 23..23 || currentHour in 0..4
+            val loggedAt = System.currentTimeMillis()
 
             val entry = MealEntry(
                 id = mealId,
-                timestamp = System.currentTimeMillis(),
+                timestamp = loggedAt,
                 imageUri = null,
-                foodName = foodName.ifBlank { "MANUAL REFUELING" },
-                calories = calories.coerceAtLeast(0),
-                proteinGrams = protein.coerceAtLeast(0f),
-                carbsGrams = carbs.coerceAtLeast(0f),
-                fatGrams = fat.coerceAtLeast(0f),
+                foodName = NutritionBounds.clampName(foodName, DEFAULT_MEAL_NAME),
+                calories = NutritionBounds.clampCalories(calories),
+                proteinGrams = NutritionBounds.clampGrams(protein),
+                carbsGrams = NutritionBounds.clampGrams(carbs),
+                fatGrams = NutritionBounds.clampGrams(fat),
                 isLiquid = isLiquid,
                 latitude = null,
                 longitude = null,
-                assessment = if (isNightRefueling) "MANUAL LOG: CIRCADIAN DISCIPLINE BREACH." else "MANUAL TELEMETRY LOGGED.",
+                // A meal the user typed in themselves needs no verdict attached to
+                // it. This used to record "CIRCADIAN DISCIPLINE BREACH" for
+                // anything logged after 23:00 — a judgement the app has no basis
+                // for making, stored permanently on the record.
+                assessment = null,
                 isRestricted = false,
-                isNightRefueling = isNightRefueling
+                isNightRefueling = isLateNight(loggedAt)
             )
 
             repository.insertMeal(entry)
@@ -754,7 +806,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun resetUiState() {
         _uiState.value = UiState.Idle
     }
-    
+
     fun logAudit(category: String, message: String) {
         viewModelScope.launch {
             auditRepository.log(category, message)
@@ -765,6 +817,47 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             MandateWidget().updateAll(getApplication<Application>())
         }
+    }
+
+    /**
+     * Between 23:00 and 05:00, recorded as a neutral fact about when the meal was
+     * logged. It is surfaced as a timing label and nothing more — it no longer
+     * affects the compliance score or the assessment text.
+     */
+    private fun isLateNight(timestamp: Long): Boolean {
+        val hour = Calendar.getInstance().apply { timeInMillis = timestamp }.get(Calendar.HOUR_OF_DAY)
+        return hour >= 23 || hour < 5
+    }
+
+    private fun restoreMessage(failure: Throwable): String =
+        when ((failure as? DossierExporter.RestoreException)?.error) {
+            is DossierExporter.RestoreError.TooLarge ->
+                "That backup file is too large to restore."
+            is DossierExporter.RestoreError.UnsupportedVersion ->
+                "That backup was written by a newer version of MacroMandate."
+            else ->
+                "That file could not be read as a MacroMandate backup."
+        }
+
+    private companion object {
+        const val TAG = "MainViewModel"
+        const val DEFAULT_MEAL_NAME = "Untitled meal"
+        const val LOCATION_TIMEOUT_SECONDS = 5L
+        const val CONNECT_TIMEOUT_SECONDS = 15L
+        const val WRITE_TIMEOUT_SECONDS = 30L
+        const val READ_TIMEOUT_SECONDS = 60L
+        const val CALL_TIMEOUT_SECONDS = 90L
+
+        /**
+         * Asks for a bare JSON object. The response is still treated as hostile
+         * text — [NutritionSanitizer] does not assume any of this was honoured.
+         */
+        const val ANALYSIS_PROMPT =
+            "Analyze this image of food or drink. Return ONLY a valid JSON object with these keys: " +
+                "'foodName' (String), 'calories' (Int), 'proteinGrams' (Float), 'carbsGrams' (Float), " +
+                "'fatGrams' (Float), 'isLiquid' (Boolean), 'assessment' (String). " +
+                "The 'assessment' field must be one short, factual sentence describing the item. " +
+                "Do not include markdown, code blocks, or conversational text. Just raw JSON."
     }
 
     private fun textRequest(prompt: String) = ChatRequest(
@@ -792,6 +885,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         val client = OkHttpClient.Builder()
             .addInterceptor(logging)
+            // Vision inference on a cold provider routinely takes 20-40s, which the
+            // 10s OkHttp default cut off as a socket timeout — the analysis path
+            // failed for reasons that had nothing to do with the image. The write
+            // timeout covers uploading a ~200KB base64 payload on a slow link.
+            .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .writeTimeout(WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .callTimeout(CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            // No automatic retry: a retried vision call is a second billable
+            // request, and a reply that arrives after a retry has already been
+            // issued is how the same meal gets logged twice.
+            .retryOnConnectionFailure(false)
             .build()
 
         Retrofit.Builder()

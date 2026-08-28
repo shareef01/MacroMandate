@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The Android 11-and-below counterpart to data_extraction_rules.xml.
+    allowBackup is false so neither runs today; both are declared so the
+    exclusion of the API token, the meal database and the evidence images is
+    explicit on every platform version rather than incidental.
+-->
+<full-backup-content>
+    <exclude domain="sharedpref" path="." />
+    <exclude domain="file" path="datastore" />
+    <exclude domain="file" path="evidence" />
+    <exclude domain="database" path="." />
+</full-backup-content>

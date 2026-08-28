@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -27,7 +28,6 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.sharek.macromandate.model.MealEntry
 import com.sharek.macromandate.ui.theme.NutritionColors
-import com.sharek.macromandate.viewmodel.ComplianceStatus
 import com.sharek.macromandate.viewmodel.MainViewModel
 import java.text.SimpleDateFormat
 import java.util.*
@@ -40,10 +40,11 @@ fun MealDetailScreen(
     onBack: () -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
-    val complianceStatus by viewModel.complianceStatus.collectAsState()
     val mealEntries by viewModel.mealEntries.collectAsState()
     val meal = mealEntries.find { it.id == mealId }
-    val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm:ss 'UTC'", Locale.US) }
+    // Local time, honestly labelled. The old format string appended a literal
+    // 'UTC' to a device-local timestamp.
+    val dateFormat = remember { SimpleDateFormat("EEEE d MMMM, HH:mm z", Locale.getDefault()) }
     var showEditDialog by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
@@ -93,7 +94,7 @@ fun MealDetailScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
                 )
-                
+
                 if (meal.isRestricted) {
                     Box(
                         modifier = Modifier
@@ -110,7 +111,7 @@ fun MealDetailScreen(
                         )
                     }
                 }
-                
+
                 if (meal.isNightRefueling) {
                     Box(
                         modifier = Modifier
@@ -139,16 +140,16 @@ fun MealDetailScreen(
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Text(
-                                "Assessment", 
-                                color = MaterialTheme.colorScheme.primary, 
-                                style = MaterialTheme.typography.labelSmall, 
+                                "Assessment",
+                                color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Black
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                it, 
-                                color = MaterialTheme.colorScheme.onPrimaryContainer, 
-                                style = MaterialTheme.typography.bodyMedium, 
+                                it,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Bold
                             )
                         }
@@ -183,11 +184,13 @@ fun MealDetailScreen(
                 // Macro Interrogation
                 Text("Nutrition", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Black)
                 Spacer(modifier = Modifier.height(16.dp))
-                
+
+                // .toInt() truncated: 12.7 g of protein displayed as "12 g", and
+                // every macro read low by up to a gram everywhere in the app.
                 DetailRow("Calories", "${meal.calories} kcal", MaterialTheme.colorScheme.primary)
-                DetailRow("Protein", "${meal.proteinGrams.toInt()} g", NutritionColors.Protein)
-                DetailRow("Carbs", "${meal.carbsGrams.toInt()} g", NutritionColors.Carbs)
-                DetailRow("Fat", "${meal.fatGrams.toInt()} g", NutritionColors.Fat)
+                DetailRow("Protein", formatGrams(meal.proteinGrams), NutritionColors.Protein)
+                DetailRow("Carbs", formatGrams(meal.carbsGrams), NutritionColors.Carbs)
+                DetailRow("Fat", formatGrams(meal.fatGrams), NutritionColors.Fat)
                 DetailRow("Type", if (meal.isLiquid) "Liquid Intake" else "Solid Food")
 
                 Spacer(modifier = Modifier.height(24.dp))
@@ -197,7 +200,7 @@ fun MealDetailScreen(
                 // Geospatial Intelligence
                 Text("Location", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Black)
                 Spacer(modifier = Modifier.height(16.dp))
-                
+
                 val coordText = if (meal.latitude != null && meal.longitude != null) {
                     "${"%.6f".format(meal.latitude)}, ${"%.6f".format(meal.longitude)} [GEOTAGGED]"
                 } else {
@@ -242,7 +245,7 @@ fun MealDetailScreen(
                         Text("Delete", fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.error)
                     }
                 }
-                
+
                 Spacer(modifier = Modifier.height(32.dp))
             }
         }
@@ -303,23 +306,6 @@ fun MealDetailScreen(
             )
         }
 
-        if (complianceStatus == ComplianceStatus.SUBVERSIVE) {
-            Surface(
-                modifier = Modifier.fillMaxSize(),
-                color = Color.Red.copy(alpha = 0.6f),
-                shape = RectangleShape
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = "Meal details are locked while you’re well off target.",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Black,
-                        color = Color.White,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                    )
-                }
-            }
-        }
     }
 }
 
@@ -329,12 +315,12 @@ fun EditMealDialog(
     onDismiss: () -> Unit,
     onSave: (MealEntry) -> Unit
 ) {
-    var foodName by remember { mutableStateOf(meal.foodName) }
-    var caloriesStr by remember { mutableStateOf(meal.calories.toString()) }
-    var proteinStr by remember { mutableStateOf(meal.proteinGrams.toString()) }
-    var carbsStr by remember { mutableStateOf(meal.carbsGrams.toString()) }
-    var fatStr by remember { mutableStateOf(meal.fatGrams.toString()) }
-    var isLiquid by remember { mutableStateOf(meal.isLiquid) }
+    var foodName by rememberSaveable { mutableStateOf(meal.foodName) }
+    var caloriesStr by rememberSaveable { mutableStateOf(meal.calories.toString()) }
+    var proteinStr by rememberSaveable { mutableStateOf(formatGramsValue(meal.proteinGrams)) }
+    var carbsStr by rememberSaveable { mutableStateOf(formatGramsValue(meal.carbsGrams)) }
+    var fatStr by rememberSaveable { mutableStateOf(formatGramsValue(meal.fatGrams)) }
+    var isLiquid by rememberSaveable { mutableStateOf(meal.isLiquid) }
 
     val haptic = LocalHapticFeedback.current
 
@@ -365,7 +351,7 @@ fun EditMealDialog(
                 )
                 OutlinedTextField(
                     value = caloriesStr,
-                    onValueChange = { caloriesStr = it.filter { ch -> ch.isDigit() } },
+                    onValueChange = { caloriesStr = it.filter { ch -> ch.isDigit() }.take(6) },
                     label = { Text("Calories (kcal)") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -378,7 +364,7 @@ fun EditMealDialog(
                 ) {
                     OutlinedTextField(
                         value = proteinStr,
-                        onValueChange = { proteinStr = it.filter { ch -> ch.isDigit() || ch == '.' } },
+                        onValueChange = { proteinStr = sanitizeDecimalInput(it) },
                         label = { Text("P (g)") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -387,7 +373,7 @@ fun EditMealDialog(
                     )
                     OutlinedTextField(
                         value = carbsStr,
-                        onValueChange = { carbsStr = it.filter { ch -> ch.isDigit() || ch == '.' } },
+                        onValueChange = { carbsStr = sanitizeDecimalInput(it) },
                         label = { Text("C (g)") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -396,7 +382,7 @@ fun EditMealDialog(
                     )
                     OutlinedTextField(
                         value = fatStr,
-                        onValueChange = { fatStr = it.filter { ch -> ch.isDigit() || ch == '.' } },
+                        onValueChange = { fatStr = sanitizeDecimalInput(it) },
                         label = { Text("F (g)") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -431,10 +417,10 @@ fun EditMealDialog(
             Button(
                 onClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    val cal = caloriesStr.toIntOrNull() ?: meal.calories
-                    val p = proteinStr.toFloatOrNull() ?: meal.proteinGrams
-                    val c = carbsStr.toFloatOrNull() ?: meal.carbsGrams
-                    val f = fatStr.toFloatOrNull() ?: meal.fatGrams
+                    val cal = parseCalories(caloriesStr) ?: meal.calories
+                    val p = parseGrams(proteinStr)
+                    val c = parseGrams(carbsStr)
+                    val f = parseGrams(fatStr)
                     onSave(
                         meal.copy(
                             foodName = foodName.ifBlank { meal.foodName },

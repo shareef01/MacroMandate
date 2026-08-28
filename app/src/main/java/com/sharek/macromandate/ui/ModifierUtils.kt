@@ -2,13 +2,22 @@ package com.sharek.macromandate.ui
 
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.sharek.macromandate.viewmodel.ComplianceStatus
 
+/**
+ * Four corner brackets, drawn behind the content they frame.
+ *
+ * The tactical framing device the app leans on. Cheap — eight solid rects — and
+ * it reads as instrumentation rather than decoration because it only ever
+ * appears around things that carry data.
+ */
 fun Modifier.hudFraming(
     color: Color,
     length: Dp = 20.dp,
@@ -36,38 +45,45 @@ fun Modifier.hudFraming(
     drawRect(color, topLeft = Offset(width - thick, height - len), size = Size(thick, len))
 }
 
-fun Modifier.terminalOverlay(status: ComplianceStatus): Modifier = this.drawBehind {
-    val scanlineColor = when (status) {
-        ComplianceStatus.CRISIS, ComplianceStatus.LOCKED -> Color.Red.copy(alpha = 0.3f)
-        ComplianceStatus.SUBVERSIVE -> Color.Red.copy(alpha = 0.15f)
-        else -> Color.White.copy(alpha = 0.05f)
-    }
-    
+/**
+ * The CRT scanline wash, laid over the whole app.
+ *
+ * Two things were wrong with the previous implementation. It used [drawBehind]
+ * on the `Scaffold`, whose own container colour is opaque — so every one of
+ * those ~300 `drawRect` calls per frame was painted and then completely covered.
+ * The effect the README advertises was not visible at all, and was costing GPU
+ * time to stay invisible.
+ *
+ * It also tinted the entire screen red in proportion to how far the user was
+ * from their calorie target, up to a 20% red wash over every pixel. Colour that
+ * strong is a persistent alarm, and it degraded contrast on the actual data
+ * underneath it.
+ *
+ * Now: drawn over the content so it is real, one repeating-gradient rect instead
+ * of a loop, and a fixed, very low alpha that never depends on how someone ate.
+ */
+fun Modifier.terminalOverlay(): Modifier = this.drawWithCache {
     val lineHeight = 2.dp.toPx()
     val spacing = 4.dp.toPx()
-    var y = 0f
-    while (y < size.height) {
-        drawRect(
-            color = scanlineColor,
-            topLeft = Offset(0f, y),
-            size = Size(size.width, lineHeight)
-        )
-        y += spacing
-    }
-    
-    if (status == ComplianceStatus.SUBVERSIVE) {
-        drawRect(
-            color = Color.Red.copy(alpha = 0.05f),
-            topLeft = Offset(0f, 0f),
-            size = size
-        )
-    }
-
-    if (status == ComplianceStatus.CRISIS || status == ComplianceStatus.LOCKED) {
-        drawRect(
-            color = Color.Red.copy(alpha = 0.2f),
-            topLeft = Offset(0f, 0f),
-            size = size
-        )
+    // One rect with a repeating gradient, rather than a drawRect per line.
+    val brush = Brush.verticalGradient(
+        0f to SCANLINE_COLOR,
+        (lineHeight / spacing) to SCANLINE_COLOR,
+        (lineHeight / spacing) to Color.Transparent,
+        1f to Color.Transparent,
+        startY = 0f,
+        endY = spacing,
+        tileMode = TileMode.Repeated
+    )
+    onDrawWithContent {
+        drawContent()
+        drawRect(brush = brush)
     }
 }
+
+/**
+ * Low enough to read as phosphor texture rather than a grille. Anything heavier
+ * competes with the text it sits on top of, which matters more here than usual:
+ * the primary content is small numbers.
+ */
+private val SCANLINE_COLOR = Color.White.copy(alpha = 0.03f)

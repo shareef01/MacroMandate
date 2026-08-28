@@ -57,6 +57,26 @@ android {
 
     buildTypes {
         val hfKey = localProperties.getProperty("HUGGINGFACE_API_KEY") ?: ""
+
+        // A string constant in BuildConfig is recoverable from any installed APK
+        // with `apktool`/`strings` in seconds — compiling a credential into a
+        // build you intend to hand to anyone else publishes it. The debug build
+        // keeps the convenience; the release build refuses.
+        //
+        // Override deliberately with -PallowEmbeddedKey=true if you are building
+        // a private release for yourself and accept that the key ships with it.
+        val allowEmbeddedKey = (project.findProperty("allowEmbeddedKey") as? String)?.toBoolean() == true
+        gradle.taskGraph.whenReady {
+            val buildingRelease = allTasks.any { it.name.contains("Release") }
+            if (buildingRelease && hfKey.isNotBlank() && !allowEmbeddedKey) {
+                throw GradleException(
+                    "HUGGINGFACE_API_KEY is set in local.properties and would be compiled into the " +
+                        "release APK, where it is trivially recoverable. Remove it and let users supply " +
+                        "their own key in Settings, or point MANDATE_API_BASE_URL at a backend that holds " +
+                        "the credential. To override: -PallowEmbeddedKey=true"
+                )
+            }
+        }
         // Overridable so the app can be pointed at a backend proxy that holds the
         // credential, instead of shipping one inside the APK. Set
         // MANDATE_API_BASE_URL in local.properties; must end with a trailing slash.
@@ -80,7 +100,12 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            buildConfigField("String", "HUGGINGFACE_API_KEY", "\"$hfKey\"")
+            // Always empty unless explicitly overridden: see the guard above.
+            buildConfigField(
+                "String",
+                "HUGGINGFACE_API_KEY",
+                "\"${if (allowEmbeddedKey) hfKey else ""}\""
+            )
             buildConfigField("String", "MANDATE_API_BASE_URL", "\"$apiBaseUrl\"")
             buildConfigField("String", "MANDATE_MODEL_ID", "\"$modelId\"")
             signingConfig = signingConfigs.getByName("release").takeIf { it.storeFile != null }
@@ -106,9 +131,8 @@ android {
 }
 
 ksp {
-    // Export Room schemas (app/schemas) so that once the app ships, schema changes
-    // must ship explicit Migration objects. NOTE: AppDatabase still uses
-    // fallbackToDestructiveMigration() as a documented pre-release safeguard.
+    // Exported schemas (app/schemas) are what MigrationTest reads to verify that
+    // every version upgrade preserves rows. Keep them in version control.
     arg("room.schemaLocation", "$projectDir/schemas")
 }
 
@@ -148,6 +172,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     testImplementation(libs.junit)
     testImplementation(libs.json)
+    androidTestImplementation(libs.androidx.room.testing)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)

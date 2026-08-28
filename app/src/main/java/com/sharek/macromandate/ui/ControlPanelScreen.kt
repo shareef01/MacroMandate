@@ -41,7 +41,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sharek.macromandate.data.local.AuditEntity
 import com.sharek.macromandate.ui.theme.TerminalTheme
-import com.sharek.macromandate.viewmodel.ComplianceStatus
 import com.sharek.macromandate.viewmodel.MainViewModel
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -57,7 +56,6 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
     val calorieTarget by viewModel.calorieTarget.collectAsState()
     val enforcementEnabled by viewModel.enforcementEnabled.collectAsState()
     val locationTrackingEnabled by viewModel.locationTrackingEnabled.collectAsState()
-    val complianceStatus by viewModel.complianceStatus.collectAsState()
     val recentAudits by viewModel.recentAudits.collectAsState()
     val apiKeyHint by viewModel.apiKeyHint.collectAsState()
     val terminalTheme by viewModel.terminalTheme.collectAsState()
@@ -230,10 +228,9 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                     )
                     Slider(
                         value = sliderValue,
-                        onValueChange = {
-                            sliderValue = it
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        },
+                        // Was firing a haptic pulse on every onValueChange, i.e.
+                        // continuously for the whole drag.
+                        onValueChange = { sliderValue = it },
                         onValueChangeFinished = {
                             viewModel.updateCalorieTarget(sliderValue.toInt())
                         },
@@ -317,20 +314,15 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                             createJsonLauncher.launch("MacroMandate_Backup_${System.currentTimeMillis()}.json")
                         },
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = complianceStatus != ComplianceStatus.SUBVERSIVE,
                         shape = RectangleShape,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary,
-                            disabledContainerColor = Color(0xFF1A1A1A)
+                            contentColor = MaterialTheme.colorScheme.onPrimary
                         )
                     ) {
                         Icon(Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = if (complianceStatus == ComplianceStatus.SUBVERSIVE) "Export locked" else "Export JSON Backup",
-                            fontWeight = FontWeight.Black
-                        )
+                        Text(text = "Export JSON Backup", fontWeight = FontWeight.Black)
                     }
 
                     // Import JSON Button
@@ -340,20 +332,15 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                             openJsonLauncher.launch(arrayOf("application/json", "text/*", "*/*"))
                         },
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = complianceStatus != ComplianceStatus.SUBVERSIVE,
                         shape = RectangleShape,
-                        border = BorderStroke(1.dp, if (complianceStatus == ComplianceStatus.SUBVERSIVE) Color.DarkGray else MaterialTheme.colorScheme.primary),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
                         colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = MaterialTheme.colorScheme.primary,
-                            disabledContentColor = Color.DarkGray
+                            contentColor = MaterialTheme.colorScheme.primary
                         )
                     ) {
                         Icon(Icons.Default.FileUpload, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = if (complianceStatus == ComplianceStatus.SUBVERSIVE) "Restore locked" else "Restore JSON Backup",
-                            fontWeight = FontWeight.Black
-                        )
+                        Text(text = "Restore JSON Backup", fontWeight = FontWeight.Black)
                     }
 
                     // Export CSV Button
@@ -363,20 +350,13 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                             createCsvLauncher.launch("MacroMandate_Export_${System.currentTimeMillis()}.csv")
                         },
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = complianceStatus != ComplianceStatus.SUBVERSIVE,
                         shape = RectangleShape,
-                        border = BorderStroke(1.dp, if (complianceStatus == ComplianceStatus.SUBVERSIVE) Color.DarkGray else Color.Gray),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = Color.White,
-                            disabledContentColor = Color.DarkGray
-                        )
+                        border = BorderStroke(1.dp, Color.Gray),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
                     ) {
                         Icon(Icons.Default.Description, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = if (complianceStatus == ComplianceStatus.SUBVERSIVE) "Export locked" else "Export CSV Spreadsheet",
-                            fontWeight = FontWeight.Bold
-                        )
+                        Text(text = "Export CSV Spreadsheet", fontWeight = FontWeight.Bold)
                     }
                 }
             }

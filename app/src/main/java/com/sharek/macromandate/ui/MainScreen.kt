@@ -21,11 +21,11 @@ import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.EditNote
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -33,6 +33,9 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -46,7 +49,6 @@ import com.sharek.macromandate.viewmodel.ComplianceStatus
 import com.sharek.macromandate.viewmodel.MainViewModel
 import com.sharek.macromandate.viewmodel.UiState
 import com.sharek.macromandate.ui.hudFraming
-import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -86,7 +88,8 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
     val locationTrackingEnabled by viewModel.locationTrackingEnabled.collectAsState()
     val hasApiKey by viewModel.hasApiKey.collectAsState()
     val target by viewModel.calorieTarget.collectAsState()
-    
+    val pendingAnalysis by viewModel.pendingAnalysis.collectAsState()
+
     var screenState by remember { mutableStateOf(ScreenState.DASHBOARD) }
     var showManualEntryDialog by remember { mutableStateOf(false) }
     var mealToDelete by remember { mutableStateOf<MealEntry?>(null) }
@@ -138,8 +141,6 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
                 val todayProtein = todayMeals.sumOf { it.proteinGrams.toDouble() }.toInt()
                 val todayCarbs = todayMeals.sumOf { it.carbsGrams.toDouble() }.toInt()
                 val todayFat = todayMeals.sumOf { it.fatGrams.toDouble() }.toInt()
-                val lastMealWasRestricted = mealEntries.firstOrNull()?.let { it.isRestricted && (System.currentTimeMillis() - it.timestamp) < 60 * 60 * 1000 } ?: false
-
                 val filteredMealEntries = remember(mealEntries, searchQuery, selectedFilter, sortOrder) {
                     val query = searchQuery.trim().lowercase()
                     val todayMidnight = Calendar.getInstance().apply {
@@ -187,8 +188,8 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
                 }
 
                 Column(modifier = Modifier.fillMaxSize()) {
-                    StateStatusBanner(complianceStatus, Modifier.statusBarsPadding(), lastMealWasRestricted)
-                    
+                    StateStatusBanner(complianceStatus, Modifier.statusBarsPadding())
+
                     Column(
                         modifier = Modifier
                             .padding(16.dp)
@@ -201,9 +202,9 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
                             carbs = todayCarbs,
                             fat = todayFat
                         )
-                        
+
                         Spacer(modifier = Modifier.height(24.dp))
-                        
+
                         ActionRow(
                             onCaptureMeal = {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -224,29 +225,26 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
                                 }
                             },
                             onImportImage = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                if (complianceStatus != ComplianceStatus.SUBVERSIVE) {
-                                    photoPickerLauncher.launch(
-                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                    )
-                                }
+                                haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                                photoPickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
                             },
                             onManualEntry = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
                                 showManualEntryDialog = true
-                            },
-                            importEnabled = complianceStatus != ComplianceStatus.SUBVERSIVE
+                            }
                         )
-                        
+
                         Spacer(modifier = Modifier.height(32.dp))
-                        
+
                         HorizontalDivider(
                             thickness = 2.dp,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                         )
-                        
+
                         Spacer(modifier = Modifier.height(16.dp))
-                        
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -267,16 +265,25 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
                                 )
                             }
                         }
-                        
+
                         Spacer(modifier = Modifier.height(12.dp))
 
                         if (mealEntries.isEmpty()) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                // The no-key branch used to read "Add an API key in
+                                // Settings to start logging meals", which is simply
+                                // untrue: manual entry needs no key and no network.
+                                // It told a user without a key that the app did not
+                                // work, in the one place they had nothing else to
+                                // read. An empty state has to say what happened, why,
+                                // and what they can do next.
                                 Text(
                                     text = if (hasApiKey) {
-                                        "No meals logged yet.\nTake or choose a photo to start."
+                                        "No meals logged yet.\n\nTake a photo, or log one by hand."
                                     } else {
-                                        "Add an API key in Settings to start logging meals."
+                                        "No meals logged yet.\n\nLog one by hand to start. " +
+                                            "Photo analysis also needs an API key, " +
+                                            "which you can add in Settings."
                                     },
                                     style = MaterialTheme.typography.bodyLarge,
                                     color = Color.Gray,
@@ -381,24 +388,20 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
         }
 
         if (uiState is UiState.Loading) {
-            Surface(
-                color = Color.Black.copy(alpha = 0.8f),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary, strokeWidth = 4.dp)
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            "Analyzing photo...",
-                            color = MaterialTheme.colorScheme.primary,
-                            style = MaterialTheme.typography.labelLarge
-                        )
-                    }
-                }
-            }
+            AnalysisLoadingOverlay(onCancel = { viewModel.cancelAnalysis() })
         }
-        
+
+        // Results are reviewed before they are recorded. Nothing has been written
+        // to the log at this point.
+        pendingAnalysis?.let { pending ->
+            AnalysisReviewSheet(
+                pending = pending,
+                onConfirm = { corrected -> viewModel.confirmPendingAnalysis(corrected) },
+                onDiscard = { viewModel.discardPendingAnalysis() }
+            )
+        }
+
+
         SnackbarHost(
             hostState = snackbarHostState,
             modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp)
@@ -406,64 +409,56 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
     }
 }
 
+/**
+ * The dashboard status line.
+ *
+ * This was a full-bleed saturated fill — the loudest element on the screen —
+ * carrying whatever the status happened to be, including "Close to target. Room
+ * to improve." on a bright yellow bar. Reserving the strongest signal for
+ * ordinary information leaves nothing left to say when something is actually
+ * wrong, so the fill is now a thin accent rule and a tinted surface, and the
+ * text carries the meaning.
+ *
+ * The colours come from the active terminal theme rather than four hardcoded
+ * literals, so switching theme no longer leaves this strip in the old palette.
+ */
 @Composable
-fun StateStatusBanner(status: ComplianceStatus, modifier: Modifier = Modifier, isRestrictedViolation: Boolean = false) {
-    val color = when {
-        isRestrictedViolation -> Color.Red
-        status == ComplianceStatus.EXEMPLARY -> Color(0xFF00E5FF) // Icy Cyan
-        status == ComplianceStatus.ACCEPTABLE -> Color(0xFFFFEA00) // Sharp Yellow
-        status == ComplianceStatus.SUBVERSIVE -> Color(0xFFFF1744) // Sharp Red
-        else -> Color.Gray
+fun StateStatusBanner(status: ComplianceStatus, modifier: Modifier = Modifier) {
+    val accent = when (status) {
+        ComplianceStatus.EXEMPLARY -> MaterialTheme.colorScheme.primary
+        ComplianceStatus.ACCEPTABLE -> MaterialTheme.colorScheme.secondary
+        ComplianceStatus.SUBVERSIVE, ComplianceStatus.CRISIS -> MaterialTheme.colorScheme.error
     }
-    // Flavour lives here, in the status line, where it costs nothing to understand.
-    // Buttons and settings stay plain so the app is still operable.
-    val text = when {
-        isRestrictedViolation -> "Logged in a restricted zone."
-        status == ComplianceStatus.EXEMPLARY -> "On target. The State is pleased."
-        status == ComplianceStatus.ACCEPTABLE -> "Close to target. Room to improve."
-        status == ComplianceStatus.SUBVERSIVE -> "Well off target. Some features locked."
-        else -> ""
+    // Flavour lives in the status line, where it costs nothing to understand.
+    // No status claims a feature is locked any more, because none is.
+    val text = when (status) {
+        ComplianceStatus.EXEMPLARY -> "On target. The State is pleased."
+        ComplianceStatus.ACCEPTABLE -> "Close to target."
+        ComplianceStatus.SUBVERSIVE -> "Well off target."
+        ComplianceStatus.CRISIS -> "Far from target."
     }
-    
+
     Surface(
-        color = color,
+        color = MaterialTheme.colorScheme.surface,
         modifier = modifier.fillMaxWidth(),
-        shape = RectangleShape,
-        border = BorderStroke(1.dp, Color.Black.copy(alpha = 0.25f))
+        shape = RectangleShape
     ) {
-        TerminalTypewriterText(
-            text = text,
-            modifier = Modifier.padding(vertical = 12.dp, horizontal = 16.dp)
-        )
-    }
-}
-
-@Composable
-fun TerminalTypewriterText(text: String, modifier: Modifier = Modifier) {
-    var displayedText by remember(text) { mutableStateOf("") }
-    var cursorVisible by remember { mutableStateOf(true) }
-
-    LaunchedEffect(text) {
-        text.forEachIndexed { index, _ ->
-            displayedText = text.substring(0, index + 1)
-            delay(30)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .height(40.dp)
+                    .background(accent)
+            )
+            Text(
+                text = text,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(vertical = 10.dp, horizontal = 12.dp)
+            )
         }
     }
-
-    LaunchedEffect(Unit) {
-        while (true) {
-            cursorVisible = !cursorVisible
-            delay(500)
-        }
-    }
-
-    Text(
-text = displayedText + if (cursorVisible) "█" else " ",
-        style = MaterialTheme.typography.labelLarge,
-        fontWeight = FontWeight.Black,
-        color = Color.Black,
-        modifier = modifier
-    )
 }
 
 @Composable
@@ -531,28 +526,23 @@ fun SummaryCard(
             Spacer(modifier = Modifier.height(8.dp))
             HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
             Spacer(modifier = Modifier.height(8.dp))
+            // The macros are primary data but were rendered at labelSmall (11sp),
+            // the smallest style in the app — the same size as the forensic
+            // metadata. They now read as a labelled column each, and the whole
+            // row is announced as one sentence instead of "P colon zero g".
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clearAndSetSemantics {
+                        contentDescription = macroContentDescription(
+                            protein.toFloat(), carbs.toFloat(), fat.toFloat()
+                        )
+                    },
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text(
-                    text = "P: ${protein}g",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Black,
-                    color = NutritionColors.Protein
-                )
-                Text(
-                    text = "C: ${carbs}g",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Black,
-                    color = NutritionColors.Carbs
-                )
-                Text(
-                    text = "F: ${fat}g",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Black,
-                    color = NutritionColors.Fat
-                )
+                MacroReadout("PROTEIN", protein, NutritionColors.Protein)
+                MacroReadout("CARBS", carbs, NutritionColors.Carbs)
+                MacroReadout("FAT", fat, NutritionColors.Fat)
             }
         }
     }
@@ -562,8 +552,7 @@ fun SummaryCard(
 fun ActionRow(
     onCaptureMeal: () -> Unit,
     onImportImage: () -> Unit,
-    onManualEntry: () -> Unit,
-    importEnabled: Boolean = true
+    onManualEntry: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
@@ -590,39 +579,36 @@ fun ActionRow(
             OutlinedButton(
                 onClick = onImportImage,
                 modifier = Modifier.weight(1f),
-                enabled = importEnabled,
                 shape = RectangleShape,
-                border = BorderStroke(1.dp, if (importEnabled) MaterialTheme.colorScheme.primary else Color.DarkGray)
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
             ) {
-                if (importEnabled) {
-                    Icon(
-                        imageVector = Icons.Default.PhotoLibrary,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        "Choose photo",
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        fontSize = 12.sp
-                    )
-                } else {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Lock,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                            tint = Color.DarkGray
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Locked", color = Color.DarkGray, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                    }
-                }
+                Icon(
+                    imageVector = Icons.Default.PhotoLibrary,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    "Choose photo",
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    fontSize = 12.sp
+                )
             }
         }
+
+        // The network boundary, stated where the decision is made rather than
+        // buried in Settings. A meal photo can incidentally contain faces, a
+        // room, or documents, and the user is entitled to know it leaves the
+        // device before they tap.
+        Text(
+            text = "Photos are sent to your configured analysis provider. Manual entry stays on this device.",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.Gray,
+            modifier = Modifier.padding(top = 2.dp)
+        )
 
         OutlinedButton(
             onClick = onManualEntry,
@@ -638,7 +624,7 @@ fun ActionRow(
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                "Manual Refueling Log",
+                "Log a meal manually",
                 color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.Black,
                 fontSize = 12.sp
@@ -652,12 +638,14 @@ fun ManualMealDialog(
     onDismiss: () -> Unit,
     onSave: (foodName: String, calories: Int, protein: Float, carbs: Float, fat: Float, isLiquid: Boolean) -> Unit
 ) {
-    var foodName by remember { mutableStateOf("") }
-    var caloriesStr by remember { mutableStateOf("") }
-    var proteinStr by remember { mutableStateOf("") }
-    var carbsStr by remember { mutableStateOf("") }
-    var fatStr by remember { mutableStateOf("") }
-    var isLiquid by remember { mutableStateOf(false) }
+    // rememberSaveable: a rotation while the dialog is open used to discard
+    // everything the user had typed.
+    var foodName by rememberSaveable { mutableStateOf("") }
+    var caloriesStr by rememberSaveable { mutableStateOf("") }
+    var proteinStr by rememberSaveable { mutableStateOf("") }
+    var carbsStr by rememberSaveable { mutableStateOf("") }
+    var fatStr by rememberSaveable { mutableStateOf("") }
+    var isLiquid by rememberSaveable { mutableStateOf(false) }
 
     val haptic = LocalHapticFeedback.current
 
@@ -688,7 +676,7 @@ fun ManualMealDialog(
                 )
                 OutlinedTextField(
                     value = caloriesStr,
-                    onValueChange = { caloriesStr = it.filter { ch -> ch.isDigit() } },
+                    onValueChange = { caloriesStr = it.filter { ch -> ch.isDigit() }.take(6) },
                     label = { Text("Calories (kcal)") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -701,7 +689,7 @@ fun ManualMealDialog(
                 ) {
                     OutlinedTextField(
                         value = proteinStr,
-                        onValueChange = { proteinStr = it.filter { ch -> ch.isDigit() || ch == '.' } },
+                        onValueChange = { proteinStr = sanitizeDecimalInput(it) },
                         label = { Text("P (g)") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -710,7 +698,7 @@ fun ManualMealDialog(
                     )
                     OutlinedTextField(
                         value = carbsStr,
-                        onValueChange = { carbsStr = it.filter { ch -> ch.isDigit() || ch == '.' } },
+                        onValueChange = { carbsStr = sanitizeDecimalInput(it) },
                         label = { Text("C (g)") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -719,7 +707,7 @@ fun ManualMealDialog(
                     )
                     OutlinedTextField(
                         value = fatStr,
-                        onValueChange = { fatStr = it.filter { ch -> ch.isDigit() || ch == '.' } },
+                        onValueChange = { fatStr = sanitizeDecimalInput(it) },
                         label = { Text("F (g)") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -754,10 +742,10 @@ fun ManualMealDialog(
             Button(
                 onClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    val cal = caloriesStr.toIntOrNull() ?: 0
-                    val p = proteinStr.toFloatOrNull() ?: 0f
-                    val c = carbsStr.toFloatOrNull() ?: 0f
-                    val f = fatStr.toFloatOrNull() ?: 0f
+                    val cal = parseCalories(caloriesStr) ?: 0
+                    val p = parseGrams(proteinStr)
+                    val c = parseGrams(carbsStr)
+                    val f = parseGrams(fatStr)
                     onSave(foodName.ifBlank { "MANUAL REFUELING" }, cal, p, c, f, isLiquid)
                 },
                 shape = RectangleShape,
@@ -790,7 +778,7 @@ fun HistoryList(
         // Clears the bottom navigation bar so the last entry is fully readable.
         contentPadding = PaddingValues(bottom = 96.dp)
     ) {
-        items(mealEntries) { entry ->
+        items(mealEntries, key = { it.id }) { entry ->
             MealEntryItem(
                 entry = entry,
                 onDelete = { onDeleteMeal(entry) },
@@ -806,9 +794,12 @@ fun MealEntryItem(
     onDelete: () -> Unit,
     onClick: () -> Unit
 ) {
-    val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm:ss 'UTC'", Locale.US) }
+    // Was "yyyy-MM-dd HH:mm:ss 'UTC'" with the default (device-local) timezone,
+    // so every card labelled a local time as UTC. Show local time, and say so
+    // with a real zone marker rather than a hardcoded literal.
+    val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm z", Locale.getDefault()) }
     val haptic = LocalHapticFeedback.current
-    
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -829,16 +820,26 @@ fun MealEntryItem(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = entry.foodName.uppercase(),
+                        // Was .uppercase(): all-caps is fine for system labels but
+                        // slows reading of arbitrary-length content, and it
+                        // mangles names the user typed themselves.
+                        text = entry.foodName,
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "${entry.proteinGrams.toInt()}P ${entry.carbsGrams.toInt()}C ${entry.fatGrams.toInt()}F",
+                        text = "${formatGramsValue(entry.proteinGrams)}P " +
+                            "${formatGramsValue(entry.carbsGrams)}C " +
+                            "${formatGramsValue(entry.fatGrams)}F",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clearAndSetSemantics {
+                            contentDescription = macroContentDescription(
+                                entry.proteinGrams, entry.carbsGrams, entry.fatGrams
+                            )
+                        }
                     )
                 }
                 Text(
@@ -848,40 +849,47 @@ fun MealEntryItem(
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(horizontal = 8.dp)
                 )
-                IconButton(onClick = onDelete) {
+                IconButton(
+                    onClick = onDelete,
+                    // Every row's delete button announced the bare word "DELETE",
+                    // giving no way to tell which meal was about to go.
+                    modifier = Modifier.semantics {
+                        contentDescription = "Delete ${entry.foodName}"
+                    }
+                ) {
                     Icon(
                         imageVector = Icons.Default.Delete,
-                        contentDescription = "DELETE",
+                        contentDescription = null,
                         tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
                         modifier = Modifier.size(20.dp)
                     )
                 }
             }
-            
+
             Spacer(modifier = Modifier.height(8.dp))
             HorizontalDivider(thickness = 1.dp, color = Color.DarkGray.copy(alpha = 0.4f))
             Spacer(modifier = Modifier.height(6.dp))
-            
-            Text(
-                text = "ID: ${entry.id.uppercase()}",
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.Gray
-            )
-            val coordText = if (entry.latitude != null && entry.longitude != null) {
-                "COORDS: ${"%.4f".format(entry.latitude)}, ${"%.4f".format(entry.longitude)}"
-            } else {
-                "COORDS: NOT RECORDED"
+
+            // The card used to carry the full record UUID and a "COORDS: NOT
+            // RECORDED" line on every row - level-4 forensic detail competing with
+            // the name and calorie figure for the same glance. The full id and the
+            // coordinates live on the detail screen; the card keeps the time, plus
+            // a geotag marker only when there is actually a geotag.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = dateFormat.format(Date(entry.timestamp)),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.Gray
+                )
+                if (entry.latitude != null && entry.longitude != null) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "· GEOTAGGED",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                    )
+                }
             }
-            Text(
-                text = coordText,
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.Gray
-            )
-            Text(
-                text = "TIMESTAMP: ${dateFormat.format(Date(entry.timestamp)).uppercase()}",
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.Gray
-            )
         }
     }
 }
@@ -1073,6 +1081,81 @@ fun EmptySearchResultView(
                     fontWeight = FontWeight.Black,
                     color = MaterialTheme.colorScheme.primary
                 )
+            }
+        }
+    }
+}
+
+
+/**
+ * One macro column in the Today card: a quiet label above a readable number.
+ *
+ * Kept deliberately flat rather than three progress rings — there is no
+ * meaningful per-macro target configured in the app, so a ring would imply a
+ * goal the user never set.
+ */
+@Composable
+private fun MacroReadout(label: String, grams: Int, accent: Color) {
+    Column(horizontalAlignment = Alignment.Start) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.Gray,
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            text = "${grams}g",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Black,
+            color = accent
+        )
+    }
+}
+
+/**
+ * The blocking overlay shown while an image is being analysed.
+ *
+ * Analysis can take the better part of a minute on a cold provider, so the
+ * overlay says what is happening and offers a way out. Without the cancel
+ * action a slow request left the user staring at a spinner with no route back
+ * to manual entry.
+ */
+@Composable
+private fun AnalysisLoadingOverlay(onCancel: () -> Unit) {
+    Surface(
+        color = Color.Black.copy(alpha = 0.85f),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(32.dp)
+            ) {
+                CircularProgressIndicator(
+                    color = MaterialTheme.colorScheme.primary,
+                    strokeWidth = 4.dp
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    "Analysing photo",
+                    color = MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Black
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    "This can take up to a minute.",
+                    color = Color.Gray,
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Spacer(modifier = Modifier.height(24.dp))
+                OutlinedButton(
+                    onClick = onCancel,
+                    shape = RectangleShape,
+                    border = BorderStroke(1.dp, Color.Gray)
+                ) {
+                    Text("Cancel", color = Color.Gray, fontWeight = FontWeight.Bold)
+                }
             }
         }
     }

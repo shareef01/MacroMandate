@@ -2,6 +2,7 @@ package com.sharek.macromandate.util
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -99,12 +100,15 @@ class NutritionSanitizerTest {
         val json = "{}"
 
         val parsed = NutritionSanitizer.parseAndSanitize(json)
-        assertEquals("Unidentified Item", parsed.foodName)
+        assertEquals("Unidentified item", parsed.foodName)
         assertEquals(0, parsed.calories)
         assertEquals(0f, parsed.proteinGrams, 0.01f)
         assertEquals(0f, parsed.carbsGrams, 0.01f)
         assertEquals(0f, parsed.fatGrams, 0.01f)
         assertFalse(parsed.isLiquid)
-        assertEquals("NOMINAL REFUELING REGISTERED.", parsed.assessment)
+        // A model that supplies no assessment gets no assessment. The parser
+        // used to invent "NOMINAL REFUELING REGISTERED." and store it on the
+        // record, which reads as a judgement the model never made.
+        assertNull(parsed.assessment)
     }
 }

@@ -33,13 +33,10 @@ import androidx.navigation.compose.rememberNavController
 import com.sharek.macromandate.notification.NotificationManagerHelper
 import com.sharek.macromandate.ui.AnalyticsScreen
 import com.sharek.macromandate.ui.ControlPanelScreen
-import com.sharek.macromandate.ui.LeniencyPleaScreen
-import com.sharek.macromandate.ui.PermanentLockdownScreen
 import com.sharek.macromandate.ui.MainScreen
 import com.sharek.macromandate.ui.MealDetailScreen
 import com.sharek.macromandate.ui.terminalOverlay
 import com.sharek.macromandate.ui.theme.MacroMandateTheme
-import com.sharek.macromandate.viewmodel.ComplianceStatus
 import com.sharek.macromandate.viewmodel.MainViewModel
 import androidx.fragment.app.FragmentActivity
 import androidx.compose.runtime.collectAsState
@@ -95,25 +92,17 @@ fun MacroMandateApp(viewModel: MainViewModel) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
+    // The compliance status no longer decides whether the app is usable. It
+    // previously short-circuited the whole nav graph: CRISIS replaced every
+    // screen with a plea form, and a model's answer to that form could wipe the
+    // meal log or lock the app permanently. Someone off their calorie target
+    // still gets to reach their own data.
     val complianceStatus by viewModel.complianceStatus.collectAsState()
-    
-    if (complianceStatus == ComplianceStatus.LOCKED) {
-        PermanentLockdownScreen(viewModel = viewModel)
-        return
-    }
-
-    if (complianceStatus == ComplianceStatus.CRISIS) {
-        LeniencyPleaScreen(
-            viewModel = viewModel,
-            onLeniencyGranted = { /* Handled by State observation */ }
-        )
-        return
-    }
 
     val items = remember { listOf(Screen.Dashboard, Screen.Analytics, Screen.ControlPanel) }
 
     Scaffold(
-        modifier = Modifier.terminalOverlay(complianceStatus),
+        modifier = Modifier.terminalOverlay(),
         contentWindowInsets = WindowInsets(0.dp), // Handle insets manually in screens
         bottomBar = {
             if (currentRoute != Screen.Dashboard.route && currentRoute != Screen.Analytics.route && currentRoute != Screen.ControlPanel.route) {

@@ -3,6 +3,7 @@ package com.sharek.macromandate.util
 import android.content.Context
 import android.net.Uri
 import android.util.Log
+import androidx.core.net.toUri
 import java.io.File
 
 /**
@@ -25,11 +26,25 @@ object EvidenceStore {
     /** Destination for a freshly captured frame, named after the meal it will back. */
     fun newFile(context: Context, id: String): File = File(directory(context), "$id.jpg")
 
-    /** True when [uri] already points at a file this store owns. */
+    /**
+     * True when [uri] already points at a file this store owns.
+     *
+     * Compares *canonical* paths. `getAbsolutePath` does not resolve `..`, so
+     * `.../files/evidence/../../databases/macro_mandate_db` passed the old
+     * prefix check — and [delete] would then have unlinked the meal database.
+     * A restored backup can name any path it likes, which made that reachable.
+     */
     fun isStored(context: Context, uri: Uri): Boolean {
         if (uri.scheme != "file") return false
         val path = uri.path ?: return false
-        return File(path).absolutePath.startsWith(directory(context).absolutePath)
+        return try {
+            val root = directory(context).canonicalFile
+            val candidate = File(path).canonicalFile
+            candidate != root && candidate.toPath().startsWith(root.toPath())
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not resolve evidence path", e)
+            false
+        }
     }
 
     /**
@@ -54,7 +69,7 @@ object EvidenceStore {
 
     /** Removes the backing file for a stored evidence URI, if this store owns it. */
     fun delete(context: Context, imageUri: String?) {
-        val uri = imageUri?.let { runCatching { Uri.parse(it) }.getOrNull() } ?: return
+        val uri = imageUri?.let { runCatching { it.toUri() }.getOrNull() } ?: return
         if (!isStored(context, uri)) return
         val path = uri.path ?: return
         runCatching { File(path).delete() }

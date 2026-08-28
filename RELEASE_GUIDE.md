@@ -53,6 +53,7 @@ Set the following environment variables in your CI workflow:
 ./gradlew assembleRelease
 ```
 Artifact location: `app/build/outputs/apk/release/app-release.apk`
+(or `app-release-unsigned.apk` when no keystore is configured)
 
 ### Build Production Android App Bundle (AAB for Google Play):
 ```bash
@@ -72,10 +73,58 @@ MacroMandate uses full code shrinking and resource optimization (`isMinifyEnable
 
 ---
 
-## 5. Release Pre-Flight Checklist
+## 5. Build-Time Credential Guard
 
-- [x] All 39 automated unit tests passing (`./gradlew test`).
-- [x] R8 release build compilation succeeds (`./gradlew assembleRelease`).
-- [x] Hugging Face API keys masked and zero credential leaks in logs or exports.
-- [x] JSON backup schema compatibility maintained.
-- [x] Location tracking opt-in confirmed (off by default).
+`assembleRelease` **fails** if `HUGGINGFACE_API_KEY` is present in
+`local.properties`:
+
+```
+HUGGINGFACE_API_KEY is set in local.properties and would be compiled into the
+release APK, where it is trivially recoverable.
+```
+
+This is not a precaution — it was verified by building an APK with a test key and
+recovering that key verbatim from `classes.dex` with a plain byte search. A
+`BuildConfig` string constant is not a secret.
+
+Two supported architectures:
+
+- **Bring-your-own-key** (current): the user pastes their own token in Settings.
+  Leave `HUGGINGFACE_API_KEY` unset.
+- **Backend proxy**: set `MANDATE_API_BASE_URL` to a service you run that holds
+  the credential.
+
+`-PallowEmbeddedKey=true` overrides the guard. Use it only for a private build
+for yourself, accepting that the key ships inside it.
+
+The debug build is unaffected.
+
+---
+
+## 6. Release Pre-Flight Checklist
+
+**Verified by the August 2026 audit** (`docs/AUDIT_2026.md`):
+
+- [x] 111 unit tests passing (`./gradlew test`)
+- [x] `lintDebug` and `lintVitalRelease` clean
+- [x] R8 release build succeeds (`./gradlew assembleRelease`)
+- [x] No credential in logs, exports or backups; release build refuses to embed one
+- [x] Location tracking opt-in, off by default
+- [x] Restore validates hostile input; every write path shares one validation gate
+
+**Not yet done — these block a release:**
+
+- [ ] `./gradlew connectedDebugAndroidTest` — **`MigrationTest` has never been
+      executed.** No device was available. Nothing ships before this passes
+- [ ] Signed build (this machine has no keystore; `assembleRelease` emits an
+      **unsigned** APK)
+- [ ] `./gradlew bundleRelease` — an AAB has never been built
+- [ ] Verify R8 did not break Gson or Room reflection **by running the release
+      build on a device**; keep rules are not proof
+- [ ] Manual device pass — see `docs/PLAY_RELEASE_CHECKLIST.md` §7
+- [ ] Privacy policy published
+
+> **Never ship a Room schema bump without a `Migration` and a passing
+> `MigrationTest`.** Destructive fallback is now debug-only, so a missing
+> migration fails the release build's database open rather than silently
+> deleting the user's meals — but a failed open is still a broken app.

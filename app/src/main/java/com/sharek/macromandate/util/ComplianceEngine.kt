@@ -12,9 +12,12 @@ import kotlin.math.abs
 object ComplianceEngine {
 
     /**
-     * Compliance score (0..100) for a set of meals against a daily calorie target.
-     * Score starts at 100 and is reduced by the average absolute daily deviation
-     * from the target. An empty log is considered a perfect score.
+     * A 0..100 closeness-to-target score for the days that have entries.
+     *
+     * Days with no meals logged are not counted: this measures how close logged
+     * days landed to the target, not how diligently someone logged. It is a
+     * dashboard label, not an assessment of the person — nothing in the app is
+     * gated on it.
      */
     fun calculateScore(
         meals: List<MealEntry>,
