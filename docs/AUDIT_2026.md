@@ -1200,13 +1200,148 @@ Re-run clean after every change in this audit:
 | Task | Result |
 |---|---|
 | `clean testDebugUnitTest lintDebug assembleDebug assembleRelease compileDebugAndroidTestKotlin` | **BUILD SUCCESSFUL** |
-| Unit tests | **111 run, 0 failures, 0 errors, 0 skipped** (was 44) |
+| Unit tests | **118 run, 0 failures, 0 errors, 0 skipped** (was 44) |
 | `lintDebug` | **21 results, 0 code findings** (was 32). All 21 are dependency-version advisories (`GradleDependency` ×15, `NewerVersionAvailable` ×5, `AndroidGradlePluginVersion` ×1). Every code, resource and manifest finding is resolved — `UnusedResources`, `DataExtractionRules`, `RedundantLabel`, `UnusedAttribute`, `UseKtx` and `ObsoleteSdkInt` are all cleared. Dependency bumps were deliberately left alone: upgrading libraries inside an audit change set mixes unrelated regression risk into it |
 | `lintVitalRelease` | passed |
 | Debug APK | 79.15 MB |
 | Release APK | 5.87 MB, R8 minified, **unsigned** (no keystore available) |
 | Release-key guard | **verified by execution** — release fails with a key present, debug succeeds (§4.1) |
 | `connectedDebugAndroidTest` | **STILL NOT RUN** — no device |
+
+---
+
+## 3c. Second pass — product and platform follow-ups
+
+Addressed after the correctness and privacy work, in a separate commit.
+
+### §17.3 — The calorie target was the least precise control in the app
+
+| | |
+|---|---|
+| **ID** | MM-041 · **P1** · **CONFIRMED** · `ControlPanelScreen` |
+
+`Slider(valueRange = 1200f..4000f, steps = 28)` — exactly **29 reachable
+values**, 100 kcal apart, and no other way to set it. A target of 1850, 4200, or
+900 under medical supervision was simply not expressible. This is the single
+number every screen in the app measures against.
+
+**Fix.** A numeric field (committing on IME-done and focus loss, so typing "2" en
+route to "2500" does not briefly set a 2 kcal target), ±50 stepper buttons at
+48 dp, and a slider over the common range. Storage bounds widened to
+500–10,000 and documented as sanity limits, not dietary advice — the app has no
+standing to tell someone their own target is wrong.
+
+### §18.2 — Half the type scale was accidentally Roboto
+
+| | |
+|---|---|
+| **ID** | MM-034 (from the first pass) · **P2** · **CONFIRMED** |
+
+`Typography` defined 7 of ~15 styles. `bodyMedium` (11 call sites), `labelMedium`
+(4) and `labelLarge` (2) — between them the navigation labels, the status banner,
+the settings descriptions and most dialog copy — fell through to Material's
+Roboto default. The app was already mixed-typeface; it was just not on purpose.
+
+**Fix.** The scale is complete, and the split is now a stated rule:
+
+- **Monospace** for anything that reads as instrumentation — every `label*`,
+  `title*`, `headline*` and `display*` style. Monospaced digits keep columns of
+  macros aligned down a list, which is the actual functional argument for the
+  face.
+- **The platform sans** for `body*` — settings descriptions, dialog copy,
+  disclosures, empty states, error messages. This is the audit brief's own
+  recommendation (§17.5): the terminal face strategically, a readable face for
+  the paragraphs. The identity survives because monospace still carries every
+  element the eye lands on first.
+
+Call sites where `bodyMedium` was carrying *data* rather than prose (the meal
+card's calorie figure, `DetailRow` values) were moved to `labelLarge` so the
+numbers stay monospaced. `labelSmall` went from 11 sp to 12 sp: it is the most
+used style in the app and it was carrying the macro readout at the smallest size
+on screen.
+
+### §25.2 — EXIF orientation was ignored on both image paths
+
+| | |
+|---|---|
+| **ID** | MM-042 · **P1** · **CONFIRMED** (code) / **HYPOTHESIS** (accuracy impact) · `ImageForensics`, `MainViewModel` |
+
+Phone cameras record the frame in the sensor's native orientation and describe
+the correction in an EXIF tag rather than rotating pixels. Neither the analysis
+path nor the watermark path read that tag, so **a photo taken in portrait was
+sent to the vision model on its side** — and the coordinate watermark was drawn
+sideways along with it.
+
+Coil applies EXIF when rendering, so this was invisible inside the app. It showed
+up only as worse estimates: the failure mode that is hardest to notice and most
+expensive to have in the feature the product is built around.
+
+Marked HYPOTHESIS on magnitude because the accuracy delta was not measured
+against a live endpoint — that needs a device and a provider key.
+
+**Fix.** `ImageForensics.decodeUpright` — one shared, downsampled, EXIF-corrected
+decode used by both paths. Also fixed here: the analysis path allocated two
+bitmaps and never recycled the intermediate, so every capture left a full-size
+bitmap for the collector; and `calculateInSampleSize` had two `var`s that were
+never reassigned. **Guard:** `ImageForensicsTest` (7 tests) covers power-of-two
+sizing, 12 MP and 50 MP frames, panoramas, aspect ratio, and the degenerate
+`0 × 0` case that an unreadable stream produces.
+
+### §10.2 — POST_NOTIFICATIONS was requested on first launch
+
+| | |
+|---|---|
+| **ID** | MM-043 · **P2** · **CONFIRMED** · `MainActivity`, `ControlPanelScreen` |
+
+Requested unconditionally in `onCreate` — a system permission dialog as the very
+first thing a new user saw, before they knew the app had reminders. A permission
+asked for out of context is a permission that gets denied, and on Android 13+ a
+second denial is permanent.
+
+**Fix.** Moved to the reminders toggle in Settings, fired at the moment the user
+turns the feature on. The toggle also now detects the blocked state — checking
+both the runtime permission *and* `areNotificationsEnabled()`, since the
+permission can be granted while notifications are off for the app and reminders
+are silently discarded — re-checking on `ON_RESUME` because the user can revoke
+it from system settings while the app is backgrounded, and saying plainly where
+to turn it back on.
+
+### §9.4 — There was no way to delete everything
+
+| | |
+|---|---|
+| **ID** | MM-044 · **P2** · **CONFIRMED** · `MainViewModel`, `ControlPanelScreen` |
+
+Meals deleted one at a time, the activity log cleared separately, and the
+photographs stayed on disk regardless (§6.1). Someone who wanted their food and
+location history gone had to uninstall and trust that it worked.
+
+**Fix.** `deleteAllData` — meals, every stored photo, and the audit log, behind a
+confirmation dialog that names what goes and states it cannot be undone.
+Settings and the API key are deliberately left alone: this is a data erase, not a
+factory reset, and silently clearing a pasted credential would be its own
+surprise.
+
+### §37.1 — Empty states that misinformed
+
+| | |
+|---|---|
+| **ID** | MM-045 · **P2** · **CONFIRMED** · `MainScreen`, `AnalyticsScreen` |
+
+The dashboard's no-key empty state read *"Add an API key in Settings to start
+logging meals."* This is **untrue** — manual entry needs no key and no network.
+In the one place a new user with no key had nothing else to read, the app told
+them it did not work.
+
+The map's empty state was two lines of all-caps (*"NO GEOTAGGED DOSSIER ENTRIES
+(ENABLE LOCATION IN SETTINGS TO TRACK)"*) reached by opening a full-screen
+tactical grid to announce there was nothing to draw — the audit brief's
+hypothesis §17.9, confirmed.
+
+**Fix.** Both rewritten in sentence case, saying what happened and what to do
+next. The map button is now disabled when there is nothing to plot and shows the
+pin count when there is, so the expensive empty screen is unreachable rather than
+merely reworded.
 
 ---
 
@@ -1223,12 +1358,13 @@ Re-run clean after every change in this audit:
 
 | | Before | After |
 |---|---|---|
-| Unit tests | 44 | **111** |
+| Unit tests | 44 | **118** |
 | Instrumentation tests | 1 (asserts the package name) | 5 (+4 migration, unexecuted) |
 
 New suites: `NutritionBoundsTest` (19), `HostileAnalysisResponseTest` (20),
 `BackupRestoreHostileInputTest` (16), `NutritionFormatTest` (12),
-`AnalysisErrorTest` (10), `MigrationTest` (4, **not executed**).
+`AnalysisErrorTest` (10), `ImageForensicsTest` (7), `MigrationTest`
+(4, **not executed**).
 
 ---
 
@@ -1240,12 +1376,16 @@ New suites: `NutritionBoundsTest` (19), `HostileAnalysisResponseTest` (20),
 2. **Device verification pass** — TalkBack traversal, font scale to 2.0, touch
    target bounds, rotation through every dialog, the widget on a real launcher,
    startup and jank measurement.
-3. **Extract strings to resources** (§22.1).
+3. **Extract strings to resources** (§22.1). Still the largest outstanding
+   item: every user-visible string is a Kotlin literal.
 4. **Decompose `MainViewModel`** into screen-scoped ViewModels with injected
    dependencies, primarily to make the analysis pipeline testable.
-5. **Complete the typography scale** (§18.1 / MM-034).
-6. Timezone-change receiver (MM-037); EXIF orientation; `java.time` migration;
-   POST_NOTIFICATIONS rationale; paging for the history list.
+5. Timezone-change receiver (MM-037); `java.time` migration; paging for the
+   history list; a `networkSecurityConfig` forbidding cleartext outside debug.
+
+Done in the second pass: the typography scale (MM-034), EXIF orientation
+(MM-042), the POST_NOTIFICATIONS rationale (MM-043), the calorie target control
+(MM-041), erase-all (MM-044), and the empty states (MM-045).
 
 ---
 

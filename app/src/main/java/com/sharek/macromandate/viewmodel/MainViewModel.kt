@@ -2,7 +2,6 @@ package com.sharek.macromandate.viewmodel
 
 import android.app.Application
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Base64
 import android.util.Log
@@ -677,38 +676,46 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
+    /**
+     * Decodes, uprights, downscales and JPEG-encodes an image for analysis.
+     *
+     * Sized for what a vision model actually uses: an 800 px long edge at quality
+     * 80 is roughly 100-200 KB, where the original frame is 3-12 MB. Sending the
+     * full sensor image would cost the user's data and the provider's latency for
+     * detail the model discards.
+     */
     private fun uriToScaledBase64(uri: Uri, context: android.content.Context): String? {
+        var decoded: Bitmap? = null
+        var scaled: Bitmap? = null
         return try {
-            // Decode bounds first so a full-resolution camera frame is never materialized
-            // (avoids OutOfMemoryError on large images).
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                BitmapFactory.decodeStream(input, null, bounds)
-            }
+            // Decoded with inSampleSize so a full-resolution frame is never
+            // materialized, and rotated upright so the model is not shown a
+            // sideways plate.
+            decoded = ImageForensics.decodeUpright(context, uri, maxDimension = 1600) ?: return null
 
-            val originalBitmap = context.contentResolver.openInputStream(uri)?.use { input ->
-                BitmapFactory.decodeStream(input, null, BitmapFactory.Options().apply {
-                    inSampleSize = ImageForensics.calculateInSampleSize(bounds.outWidth, bounds.outHeight, maxDimension = 1600)
-                })
-            } ?: return null
-
-            val scale = 800f / Math.max(originalBitmap.width, originalBitmap.height).coerceAtLeast(1)
-            val scaledBitmap = if (scale < 1f) {
-                originalBitmap.scale(
-                    (originalBitmap.width * scale).toInt(),
-                    (originalBitmap.height * scale).toInt()
-                )
+            val longestEdge = maxOf(decoded.width, decoded.height).coerceAtLeast(1)
+            val scale = ANALYSIS_MAX_EDGE_PX.toFloat() / longestEdge
+            scaled = if (scale < 1f) {
+                decoded.scale((decoded.width * scale).toInt(), (decoded.height * scale).toInt())
             } else {
-                originalBitmap
+                decoded
             }
 
-            val outputStream = ByteArrayOutputStream()
-            scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 80, outputStream)
-            val bytes = outputStream.toByteArray()
-            Base64.encodeToString(bytes, Base64.NO_WRAP)
+            ByteArrayOutputStream().use { output ->
+                scaled.compress(Bitmap.CompressFormat.JPEG, ANALYSIS_JPEG_QUALITY, output)
+                Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
+            }
         } catch (e: Exception) {
-            Log.e("MainViewModel", "Error converting URI to Base64", e)
+            Log.w(TAG, "Could not prepare the image for analysis", e)
             null
+        } catch (e: OutOfMemoryError) {
+            Log.w(TAG, "Out of memory preparing the image for analysis")
+            null
+        } finally {
+            // The intermediate was never released, so each capture left a
+            // full-size bitmap for the collector to find.
+            if (scaled !== decoded) scaled?.recycle()
+            decoded?.recycle()
         }
     }
 
@@ -796,6 +803,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Erases every meal, every stored photo, and the activity log.
+     *
+     * There was previously no way to do this short of uninstalling: meals deleted
+     * one at a time, the activity log cleared separately, and the photographs
+     * stayed on disk regardless (see [deleteMealEntry]). Someone who wants their
+     * food and location history gone should not have to trust that deleting rows
+     * one by one got all of it.
+     *
+     * Settings (target, theme, reminders, location) and the API key are left
+     * alone: this is a data erase, not a factory reset, and silently clearing a
+     * pasted credential would be its own surprise.
+     */
+    fun deleteAllData(onComplete: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            val succeeded = runCatching {
+                repository.deleteAllMeals()
+                withContext(Dispatchers.IO) {
+                    EvidenceStore.deleteAll(getApplication())
+                }
+                auditRepository.clearAllAudits()
+            }.isSuccess
+
+            // Logged after the purge so the entry survives it, and deliberately
+            // recorded rather than left silent: an erase is worth a trace.
+            logAudit("DATA_PURGE", if (succeeded) "ALL RECORDS ERASED BY SUBJECT." else "ERASE FAILED.")
+            updateWidget()
+            onComplete(succeeded)
+        }
+    }
+
     fun clearActivityLog() {
         viewModelScope.launch {
             auditRepository.clearAllAudits()
@@ -843,6 +881,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         const val TAG = "MainViewModel"
         const val DEFAULT_MEAL_NAME = "Untitled meal"
         const val LOCATION_TIMEOUT_SECONDS = 5L
+
+        /** Long edge of the image sent for analysis. See [uriToScaledBase64]. */
+        const val ANALYSIS_MAX_EDGE_PX = 800
+        const val ANALYSIS_JPEG_QUALITY = 80
         const val CONNECT_TIMEOUT_SECONDS = 15L
         const val WRITE_TIMEOUT_SECONDS = 30L
         const val READ_TIMEOUT_SECONDS = 60L

@@ -37,7 +37,6 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -844,7 +843,7 @@ fun MealEntryItem(
                 }
                 Text(
                     text = "${entry.calories} KCAL",
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Black,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(horizontal = 8.dp)
@@ -948,9 +947,7 @@ fun MealSearchBar(
             focusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
             unfocusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.3f)
         ),
-        textStyle = MaterialTheme.typography.bodyMedium.copy(
-            fontFamily = FontFamily.Monospace
-        )
+        textStyle = MaterialTheme.typography.bodyMedium
     )
 }
 
@@ -1053,16 +1050,16 @@ fun EmptySearchResultView(
                 .padding(16.dp)
         ) {
             Text(
-                text = "NO DOSSIER ENTRIES MATCH FILTER",
-                style = MaterialTheme.typography.labelMedium,
+                text = "No meals match this filter",
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Black,
                 color = MaterialTheme.colorScheme.error,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "Try adjusting your search terms or filter selection.",
-                style = MaterialTheme.typography.labelSmall,
+                text = "Try a different search term, or clear the filters to see everything.",
+                style = MaterialTheme.typography.bodySmall,
                 color = Color.Gray,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
@@ -1077,7 +1074,7 @@ fun EmptySearchResultView(
             ) {
                 Text(
                     text = "CLEAR FILTERS",
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Black,
                     color = MaterialTheme.colorScheme.primary
                 )

@@ -61,7 +61,7 @@ the audit; do not let them return without a reason.
 |---|---|---|
 | `INTERNET` | AI analysis only | Install-time |
 | `CAMERA` | Photographing a meal | At capture, in context |
-| `POST_NOTIFICATIONS` | Meal reminders | ⚠️ At first launch with **no rationale** — see §7 |
+| `POST_NOTIFICATIONS` | Meal reminders | From the reminders toggle in Settings, when the user turns it on |
 | `ACCESS_FINE_LOCATION` | Optional meal geotagging; the coordinate is shown at 6 dp and mapped, so fine is what the feature delivers | At capture, only when tagging is on |
 | `ACCESS_COARSE_LOCATION` | Companion to the above | Same |
 | ~~`FOREGROUND_SERVICE`~~ | **Removed** — the service did no data sync | — |
@@ -145,6 +145,9 @@ unverified and must be walked manually.
 - ☐ Edit a meal → totals update
 - ☐ Delete a meal → **its photo is gone from `filesDir/evidence/`**
 - ☐ Export CSV, export JSON, restore JSON, restore the same file twice
+- ☐ Settings → Erase everything → meals, photos and the log are all gone
+- ☐ Set a calorie target by typing, by stepper, and by slider
+- ☐ Photograph something in portrait → confirm the estimate is not degraded by rotation
 - ☐ Restore a hand-corrupted backup → refused with a readable message
 - ☐ Airplane mode → analysis fails with a readable error → manual entry works
 - ☐ Invalid API key → "The analysis service rejected your API key"
@@ -158,6 +161,7 @@ unverified and must be walked manually.
 
 **Accessibility**
 - ☐ TalkBack over the whole app. Confirm macros read as *"Protein 40 grams…"*, not *"P colon 40 g"*
+- ☐ Confirm the monospace/sans split reads as deliberate on a real display
 - ☐ Delete buttons announce which meal
 - ☐ Font scale 1.0 / 1.15 / 1.3 / 1.5 / **2.0** — check the summary card, nav labels, dialogs, chart
 - ☐ Touch targets ≥48 dp — measure, do not assume

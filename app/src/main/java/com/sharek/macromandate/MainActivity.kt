@@ -1,10 +1,6 @@
 package com.sharek.macromandate
 
-import android.Manifest
-import android.content.pm.PackageManager
-import android.os.Build
 import android.os.Bundle
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -30,7 +26,6 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import com.sharek.macromandate.notification.NotificationManagerHelper
 import com.sharek.macromandate.ui.AnalyticsScreen
 import com.sharek.macromandate.ui.ControlPanelScreen
 import com.sharek.macromandate.ui.MainScreen
@@ -46,29 +41,18 @@ import androidx.navigation.navArgument
 class MainActivity : FragmentActivity() {
     private val viewModel: MainViewModel by viewModels()
 
-    // POST_NOTIFICATIONS is required on Android 13+ for the enforcement and HUD
-    // notifications to be visible at all; request it once at launch.
-    private val notificationPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) {
-                NotificationManagerHelper.createNotificationChannel(this)
-            }
-        }
-
-    private fun maybeRequestNotificationPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
-    }
-
+    // POST_NOTIFICATIONS is not requested here.
+    //
+    // It used to be asked for in onCreate, on first launch, before the user had
+    // seen the app or knew it had reminders at all — a system dialog as the first
+    // thing they were shown, for a feature they had not asked for. A permission
+    // asked for out of context is a permission that gets denied, and on Android
+    // 13+ a second denial is permanent. It is now requested from the reminders
+    // toggle in Settings, at the moment the user turns the feature on.
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
-        NotificationManagerHelper.createNotificationChannel(this)
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        maybeRequestNotificationPermission()
         setContent {
             val terminalTheme by viewModel.terminalTheme.collectAsState()
             MacroMandateTheme(terminalTheme = terminalTheme) {

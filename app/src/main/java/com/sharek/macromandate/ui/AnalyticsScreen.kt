@@ -716,10 +716,16 @@ fun SurveillanceMap(meals: List<MealEntry>, onBack: () -> Unit) {
                 modifier = Modifier.fillMaxSize().padding(32.dp),
                 contentAlignment = Alignment.Center
             ) {
+                // Sentence case, and it says what to do next. All-caps suits a
+                // short status label; a two-line instruction set in it is slower
+                // to read for no gain. This state is now also unreachable from the
+                // Trends tab - the button that opens the map is disabled when there
+                // is nothing to plot, rather than opening a full-screen tactical
+                // grid to announce that there is no data.
                 Text(
-                    text = "NO GEOTAGGED DOSSIER ENTRIES\n(ENABLE LOCATION IN SETTINGS TO TRACK)",
+                    text = "No meals mapped yet.\n\nTurn on \"Tag meals with location\" in " +
+                        "Settings, then photograph a meal to place it here.",
                     style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Bold,
                     color = Color.Gray,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center
                 )

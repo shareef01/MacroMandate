@@ -33,7 +33,8 @@ where it should be hedged, and always yours to correct.
   says so.
 - 🎨 **Four terminal themes** — Cyber Cyan, Phosphor Green, Amber CRT, Stark Mono.
 - 💾 **Your data, portable** — JSON backup and restore, CSV export for
-  spreadsheets. No account, no sync, no lock-in.
+  spreadsheets, and a one-tap erase of everything. No account, no sync, no
+  lock-in.
 - 🔔 **Reminders** — an optional nudge when nothing has been logged for a while.
 - 📟 **Home-screen widget** — today's total at a glance.
 
@@ -154,7 +155,7 @@ Face access token. The app is fully usable without one.
 ## 🧪 Tests
 
 ```bash
-./gradlew test                        # 111 unit tests
+./gradlew test                        # 118 unit tests
 ./gradlew connectedDebugAndroidTest   # requires a device — includes MigrationTest
 ```
 
@@ -165,6 +166,7 @@ Face access token. The app is fully usable without one.
 | `BackupRestoreHostileInputTest` | Restore as a hostile boundary — future versions, oversized files, impossible values, bad timestamps, foreign image URIs, duplicate ids |
 | `NutritionFormatTest` | Rounding, screen-reader descriptions, comma decimal separators, numeric overflow |
 | `AnalysisErrorTest` | HTTP status and transport exceptions → readable domain errors |
+| `ImageForensicsTest` | Downsample sizing across 12 MP, 50 MP, panorama and degenerate frames |
 | `NutritionSanitizerTest` | Model-response parsing |
 | `DossierExporterTest` | CSV escaping, formula-injection mitigation, JSON round trip |
 | `DossierReportGeneratorTest` | Weekly summary arithmetic |

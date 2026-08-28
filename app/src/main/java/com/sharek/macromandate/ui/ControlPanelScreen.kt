@@ -1,6 +1,8 @@
 package com.sharek.macromandate.ui
 
 import android.net.Uri
+import android.content.pm.PackageManager
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -9,10 +11,12 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
@@ -32,13 +36,22 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.Lifecycle
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import com.sharek.macromandate.data.local.AuditEntity
 import com.sharek.macromandate.ui.theme.TerminalTheme
 import com.sharek.macromandate.viewmodel.MainViewModel
@@ -61,6 +74,27 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
     val terminalTheme by viewModel.terminalTheme.collectAsState()
 
     var pendingRestoreUri by remember { mutableStateOf<Uri?>(null) }
+    var showEraseConfirm by remember { mutableStateOf(false) }
+
+    // Reflects whether reminders can actually be delivered, so the toggle cannot
+    // sit there claiming to be on while the OS silently drops every notification.
+    var notificationsBlocked by remember { mutableStateOf(!canPostNotifications(context)) }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted -> notificationsBlocked = !granted }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        // Permission can be revoked from system settings while the app is
+        // backgrounded; re-check on the way back rather than trusting a cached value.
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                notificationsBlocked = !canPostNotifications(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     val createCsvLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/csv"),
@@ -161,6 +195,58 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
         )
     }
 
+    if (showEraseConfirm) {
+        AlertDialog(
+            onDismissRequest = { showEraseConfirm = false },
+            title = {
+                Text(
+                    text = "Delete everything?",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Black,
+                    color = MaterialTheme.colorScheme.error
+                )
+            },
+            text = {
+                Text(
+                    text = "Every meal, every saved photo and the activity log will be " +
+                        "permanently deleted from this device. This cannot be undone.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showEraseConfirm = false
+                        viewModel.deleteAllData { succeeded ->
+                            scope.launch {
+                                snackbarHostState.showSnackbar(
+                                    if (succeeded) "All data deleted." else "Could not delete everything."
+                                )
+                            }
+                        }
+                    },
+                    shape = RectangleShape,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    )
+                ) {
+                    Text("Delete everything", fontWeight = FontWeight.Black)
+                }
+            },
+            dismissButton = {
+                // Cancel first in reading order and visually plainer than confirm:
+                // the safe choice should be the easy one on a destructive dialog.
+                OutlinedButton(onClick = { showEraseConfirm = false }, shape = RectangleShape) {
+                    Text("Cancel", color = Color.Gray)
+                }
+            },
+            shape = RectangleShape,
+            containerColor = MaterialTheme.colorScheme.surface
+        )
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
             // Pinned Tactical Top Bar (Prevents content scrolling under status bar)
@@ -216,32 +302,10 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
             Spacer(modifier = Modifier.height(32.dp))
 
             SettingsCard(title = "Daily calorie target", icon = Icons.Default.Settings) {
-                Column {
-                    // Local value mirrors the persisted target; commit only when the
-                    // user releases the slider to avoid DataStore/audit/widget spam.
-                    var sliderValue by remember { mutableFloatStateOf(calorieTarget.toFloat()) }
-                    LaunchedEffect(calorieTarget) { sliderValue = calorieTarget.toFloat() }
-                    Text(
-                        text = "${sliderValue.toInt()} kcal",
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Black
-                    )
-                    Slider(
-                        value = sliderValue,
-                        // Was firing a haptic pulse on every onValueChange, i.e.
-                        // continuously for the whole drag.
-                        onValueChange = { sliderValue = it },
-                        onValueChangeFinished = {
-                            viewModel.updateCalorieTarget(sliderValue.toInt())
-                        },
-                        valueRange = 1200f..4000f,
-                        steps = 28,
-                        colors = SliderDefaults.colors(
-                            thumbColor = MaterialTheme.colorScheme.primary,
-                            activeTrackColor = MaterialTheme.colorScheme.primary
-                        )
-                    )
-                }
+                CalorieTargetControl(
+                    target = calorieTarget,
+                    onTargetChange = { viewModel.updateCalorieTarget(it) }
+                )
             }
 
             Spacer(modifier = Modifier.height(32.dp))
@@ -251,18 +315,38 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                     SettingRow(
                         label = "Remind me when a meal is overdue",
                         checked = enforcementEnabled,
-                        onCheckedChange = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            viewModel.toggleEnforcement(it)
+                        onCheckedChange = { enabled ->
+                            haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                            viewModel.toggleEnforcement(enabled)
+                            // Asked for here, where the user has just said they
+                            // want notifications — not on first launch before
+                            // they know the feature exists.
+                            if (enabled && needsNotificationPermission(context)) {
+                                notificationPermissionLauncher.launch(
+                                    android.Manifest.permission.POST_NOTIFICATIONS
+                                )
+                            }
                         }
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = "Checks every 6 hours during the day and notifies you if " +
                             "nothing has been logged for a while.",
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.bodySmall,
                         color = Color.Gray
                     )
+                    // Denied twice, Android stops showing the dialog entirely, so
+                    // the only honest thing left to do is say where the switch is.
+                    if (enforcementEnabled && notificationsBlocked) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Notifications are turned off for MacroMandate, so reminders " +
+                                "cannot be shown. You can turn them back on in Android Settings > " +
+                                "Apps > MacroMandate > Notifications.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
                 }
             }
 
@@ -357,6 +441,40 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                         Icon(Icons.Default.Description, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(text = "Export CSV Spreadsheet", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            SettingsCard(title = "Erase everything", icon = Icons.Default.DeleteForever) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "Permanently deletes every meal, every saved photo, and the " +
+                            "activity log from this device. Your settings and API key are kept. " +
+                            "This cannot be undone \u2014 export a backup first if you want one.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.Gray
+                    )
+                    OutlinedButton(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                            showEraseConfirm = true
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RectangleShape,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error
+                        )
+                    ) {
+                        Icon(
+                            Icons.Default.DeleteForever,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Delete all my data", fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -653,7 +771,7 @@ private fun TerminalThemeCard(
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = theme.displayName,
-                                    style = MaterialTheme.typography.bodyMedium,
+                                    style = MaterialTheme.typography.labelLarge,
                                     fontWeight = FontWeight.Black,
                                     color = if (isSelected) theme.primaryColor else Color.White
                                 )
@@ -678,3 +796,161 @@ private fun TerminalThemeCard(
         }
     }
 }
+
+
+/**
+ * The daily calorie target: a number you can type, a stepper, and a slider.
+ *
+ * This was slider-only, with `valueRange = 1200f..4000f` and `steps = 28` — i.e.
+ * exactly 29 reachable values, 100 kcal apart. Someone whose target was 1850, or
+ * 4200, or 900 under medical supervision, simply could not enter it. A target is
+ * the one number the whole app measures against, and it was the least precise
+ * control in the app.
+ *
+ * The bounds here are storage sanity limits, deliberately far wider than any
+ * recommendation. The app has no business having an opinion about what someone's
+ * target should be; it only needs the value to be a number it can divide by.
+ */
+@Composable
+private fun CalorieTargetControl(
+    target: Int,
+    onTargetChange: (Int) -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+
+    // Mirrors the persisted value while the user is interacting, so a drag does
+    // not write to DataStore, the audit log and the widget on every frame.
+    var draft by remember(target) { mutableIntStateOf(target) }
+    var typed by remember(target) { mutableStateOf(target.toString()) }
+
+    fun commit(value: Int) {
+        val clamped = value.coerceIn(MIN_TARGET, MAX_TARGET)
+        draft = clamped
+        typed = clamped.toString()
+        onTargetChange(clamped)
+    }
+
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = typed,
+                onValueChange = { input ->
+                    val digits = input.filter { it.isDigit() }.take(5)
+                    typed = digits
+                    digits.toIntOrNull()?.let { draft = it }
+                },
+                // Commit on focus loss rather than per keystroke, so typing "2"
+                // on the way to "2500" does not briefly set a 2 kcal target.
+                modifier = Modifier
+                    .weight(1f)
+                    .onFocusChanged { focus ->
+                        if (!focus.isFocused) commit(typed.toIntOrNull() ?: target)
+                    },
+                label = { Text("Target") },
+                suffix = { Text("kcal", style = MaterialTheme.typography.labelMedium) },
+                singleLine = true,
+                shape = RectangleShape,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Number,
+                    imeAction = ImeAction.Done
+                ),
+                keyboardActions = KeyboardActions(
+                    onDone = { commit(typed.toIntOrNull() ?: target) }
+                ),
+                textStyle = MaterialTheme.typography.titleMedium
+            )
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            StepButton("Decrease target by $TARGET_STEP calories", "\u2212") {
+                haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                commit(draft - TARGET_STEP)
+            }
+            Spacer(modifier = Modifier.width(4.dp))
+            StepButton("Increase target by $TARGET_STEP calories", "+") {
+                haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                commit(draft + TARGET_STEP)
+            }
+        }
+
+        Slider(
+            value = draft.coerceIn(SLIDER_MIN, SLIDER_MAX).toFloat(),
+            // Was firing a haptic pulse on every onValueChange, i.e. continuously
+            // for the whole drag.
+            onValueChange = { value ->
+                draft = value.toInt()
+                typed = draft.toString()
+            },
+            onValueChangeFinished = { commit(draft) },
+            valueRange = SLIDER_MIN.toFloat()..SLIDER_MAX.toFloat(),
+            colors = SliderDefaults.colors(
+                thumbColor = MaterialTheme.colorScheme.primary,
+                activeTrackColor = MaterialTheme.colorScheme.primary
+            )
+        )
+
+        Text(
+            text = "The slider covers $SLIDER_MIN\u2013$SLIDER_MAX kcal. Type a number above to " +
+                "set anything from $MIN_TARGET to $MAX_TARGET.",
+            style = MaterialTheme.typography.bodySmall,
+            color = Color.Gray
+        )
+    }
+}
+
+@Composable
+private fun StepButton(description: String, glyph: String, onClick: () -> Unit) {
+    OutlinedButton(
+        onClick = onClick,
+        // 48dp: a stepper the user taps repeatedly is the last place to be stingy
+        // with the touch target.
+        modifier = Modifier
+            .size(48.dp)
+            .semantics { contentDescription = description },
+        shape = RectangleShape,
+        contentPadding = PaddingValues(0.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
+    ) {
+        Text(
+            text = glyph,
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.primary
+        )
+    }
+}
+
+/**
+ * Storage sanity bounds, not dietary advice.
+ *
+ * Wide enough to cover a medically supervised low intake at one end and an
+ * endurance athlete at the other, so the app never has to tell someone their own
+ * target is wrong.
+ */
+private const val MIN_TARGET = 500
+private const val MAX_TARGET = 10_000
+
+/** The comfortable range for dragging; typing reaches the rest. */
+private const val SLIDER_MIN = 1_200
+private const val SLIDER_MAX = 4_500
+
+private const val TARGET_STEP = 50
+
+
+/** True when POST_NOTIFICATIONS is required on this OS version and not yet granted. */
+private fun needsNotificationPermission(context: android.content.Context): Boolean =
+    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+        ContextCompat.checkSelfPermission(
+            context,
+            android.Manifest.permission.POST_NOTIFICATIONS
+        ) != PackageManager.PERMISSION_GRANTED
+
+/**
+ * Whether a reminder would actually reach the user.
+ *
+ * Checks both the runtime permission and the app-level notification switch: the
+ * permission can be granted while notifications are still disabled for the app,
+ * and in that state a reminder is posted and silently discarded.
+ */
+private fun canPostNotifications(context: android.content.Context): Boolean =
+    !needsNotificationPermission(context) &&
+        NotificationManagerCompat.from(context).areNotificationsEnabled()

@@ -457,7 +457,9 @@ fun DetailRow(label: String, value: String, valueColor: Color = Color.White) {
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Text(label, color = Color.Gray, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-        Text(value, color = valueColor, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Black)
+        // Label is prose, value is data: the value keeps the terminal face so the
+        // numbers stay aligned down the column.
+        Text(label, color = Color.Gray, style = MaterialTheme.typography.bodyMedium)
+        Text(value, color = valueColor, style = MaterialTheme.typography.labelLarge)
     }
 }

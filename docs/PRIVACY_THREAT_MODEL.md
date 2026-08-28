@@ -34,7 +34,7 @@ The app is fully usable with both switched off.
 | **Retention** | Until the user deletes the meal or uninstalls |
 | **Exported** | Yes — CSV and JSON, user-initiated, to a location the user picks |
 | **Leaves device** | Only in an export the user creates |
-| **Deletion** | Per-meal from the detail screen or the history list |
+| **Deletion** | Per-meal from the detail screen or the history list, or all at once via **Settings → Erase everything** |
 
 Fields: id, timestamp, food name, calories, protein/carbs/fat, liquid flag,
 optional image path, optional coordinates, optional model assessment, a
@@ -289,8 +289,6 @@ path would then act on (§6.2).
   specify `http://`. It is build-time-only and not user-reachable, so it is not
   an attack surface for end users, but a `networkSecurityConfig` forbidding
   cleartext outside debug would make it structural.
-- **No "delete all my data" control.** Meals delete individually; the audit log
-  clears; there is no single erase-everything action.
 - **Photos orphaned by pre-fix builds are not swept.**
 - **No runtime verification.** Nothing in this document was confirmed by
   observing the app run — no device was available. It is derived from source.
@@ -315,7 +313,7 @@ For Play Console. **Verify against the shipping build before submitting.**
 | Personal identifiers | None. No accounts, no ads id, no analytics |
 | Data encrypted in transit | Yes (HTTPS to the default endpoint) |
 | Data encrypted at rest | **Say no.** Platform file-based encryption is not app-level encryption |
-| Users can request deletion | Yes — per-meal in-app, and uninstall removes everything |
+| Users can request deletion | Yes — per-meal, plus **Settings → Erase everything** (meals, photos and the activity log), and uninstall removes all of it |
 
 A privacy policy URL is required because the app collects health data and shares
 photos. It must name the AI provider and state that photographs are transmitted
