@@ -1,9 +1,13 @@
 package com.sharek.macromandate.data.local
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
-@Entity(tableName = "meal_entries")
+@Entity(
+    tableName = "meal_entries",
+    indices = [Index(value = ["timestamp"])]
+)
 data class MealEntity(
     @PrimaryKey
     val id: String,

@@ -791,6 +791,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             redactHeader("Authorization")
         }
         val client = OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
             .addInterceptor(logging)
             .build()
 

@@ -42,7 +42,7 @@ Set the following environment variables in your CI workflow:
 - `RELEASE_KEY_ALIAS`
 - `RELEASE_KEY_PASSWORD`
 
-*Note: If no keystore is provided, `assembleRelease` will still succeed and output an unsigned release artifact.*
+*Note: If no keystore is configured, `assembleRelease` and `bundleRelease` still compile and validate all R8/ProGuard rules; when signing credentials are provided, signed production artifacts are generated.*
 
 ---
 
@@ -52,7 +52,7 @@ Set the following environment variables in your CI workflow:
 ```bash
 ./gradlew assembleRelease
 ```
-Artifact location: `app/build/outputs/apk/release/app-release.apk`
+Artifact location (when signed): `app/build/outputs/apk/release/app-release.apk`
 
 ### Build Production Android App Bundle (AAB for Google Play):
 ```bash
@@ -66,7 +66,7 @@ Artifact location: `app/build/outputs/bundle/release/app-release.aab`
 
 MacroMandate uses full code shrinking and resource optimization (`isMinifyEnabled = true`, `isShrinkResources = true`). Rules are specified in `app/proguard-rules.pro`:
 
-- Room entities and DAOs preserved.
+- Room entities, DAOs, and Migrations preserved.
 - Network models and Gson serialization tokens preserved.
 - Retrofit & OkHttp interface reflection preserved.
 
@@ -74,7 +74,7 @@ MacroMandate uses full code shrinking and resource optimization (`isMinifyEnable
 
 ## 5. Release Pre-Flight Checklist
 
-- [x] All 39 automated unit tests passing (`./gradlew test`).
+- [x] All 44 automated unit tests passing (`./gradlew test`).
 - [x] R8 release build compilation succeeds (`./gradlew assembleRelease`).
 - [x] Hugging Face API keys masked and zero credential leaks in logs or exports.
 - [x] JSON backup schema compatibility maintained.
