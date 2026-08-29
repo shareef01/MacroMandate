@@ -1079,7 +1079,7 @@ fun MealFilterChipRow(
         // Sort toggle button
         Surface(
             modifier = Modifier
-                .defaultMinSize(minHeight = 44.dp)
+                .defaultMinSize(minHeight = 48.dp)
                 .clickable {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     onToggleSortOrder()
@@ -1113,7 +1113,7 @@ fun MealFilterChipRow(
             val isSelected = filter == selectedFilter
             Surface(
                 modifier = Modifier
-                    .defaultMinSize(minHeight = 44.dp)
+                    .defaultMinSize(minHeight = 48.dp)
                     .clickable {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onSelectFilter(filter)

@@ -80,7 +80,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            buildConfigField("String", "HUGGINGFACE_API_KEY", "\"$hfKey\"")
+            buildConfigField("String", "HUGGINGFACE_API_KEY", "\"\"")
             buildConfigField("String", "MANDATE_API_BASE_URL", "\"$apiBaseUrl\"")
             buildConfigField("String", "MANDATE_MODEL_ID", "\"$modelId\"")
             signingConfig = signingConfigs.getByName("release").takeIf { it.storeFile != null }

@@ -46,8 +46,8 @@ import kotlinx.coroutines.launch
 import java.util.*
 import java.util.concurrent.Executor
 
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.camera.core.ExperimentalGetImage::class)
-
+@androidx.annotation.OptIn(androidx.camera.core.ExperimentalGetImage::class)
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun CameraCaptureScreen(
     onImageCaptured: (Uri) -> Unit,

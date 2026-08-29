@@ -82,7 +82,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val serviceIntent = android.content.Intent(application, MandateSurveillanceService::class.java)
             application.startForegroundService(serviceIntent)
         } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
+            if (e is kotlinx.coroutines.CancellationException) {
+                throw e
+            }
             Log.w("MainViewModel", "Could not start surveillance service on initialization", e)
         }
     }
@@ -411,7 +413,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         true
                     } ?: false
                 } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
+                    if (e is kotlinx.coroutines.CancellationException) {
+                        throw e
+                    }
                     Log.e("MainViewModel", "Dossier export failed", e)
                     false
                 }
@@ -439,7 +443,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         true
                     } ?: false
                 } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
+                    if (e is kotlinx.coroutines.CancellationException) {
+                        throw e
+                    }
                     Log.e("MainViewModel", "JSON backup export failed", e)
                     false
                 }
@@ -473,7 +479,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     Result.success(meals.size)
                 } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
+                    if (e is kotlinx.coroutines.CancellationException) {
+                        throw e
+                    }
                     Log.e("MainViewModel", "JSON backup import failed", e)
                     Result.failure(e)
                 }
@@ -512,7 +520,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         true
                     } ?: false
                 } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
+                    if (e is kotlinx.coroutines.CancellationException) {
+                        throw e
+                    }
                     Log.e("MainViewModel", "Weekly report export failed", e)
                     false
                 }
