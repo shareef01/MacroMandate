@@ -824,10 +824,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.HEADERS else HttpLoggingInterceptor.Level.NONE
             redactHeader("Authorization")
         }
+        val retryInterceptor = okhttp3.Interceptor { chain ->
+            var response = chain.proceed(chain.request())
+            var tryCount = 0
+            val maxRetries = 2
+            while (!response.isSuccessful && (response.code == 503 || response.code == 429) && tryCount < maxRetries) {
+                tryCount++
+                response.close()
+                try {
+                    Thread.sleep(1200L * tryCount)
+                } catch (_: InterruptedException) {
+                    break
+                }
+                response = chain.proceed(chain.request())
+            }
+            response
+        }
         val client = OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
+            .addInterceptor(retryInterceptor)
             .addInterceptor(logging)
             .build()
 

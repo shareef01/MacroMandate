@@ -82,8 +82,8 @@ object ImageForensics {
             y -= paint.textSize + 10f
             canvas.drawText(idText, x, y, paint)
 
-            // Save back
-            val file = File(context.cacheDir, "watermarked_${id.take(8)}.jpg")
+            // Save directly into durable evidence store
+            val file = EvidenceStore.newFile(context, "watermarked_${id.take(8)}")
             FileOutputStream(file).use { out ->
                 mutableBitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
             }
