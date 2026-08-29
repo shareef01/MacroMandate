@@ -28,6 +28,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.*
+import androidx.compose.foundation.border
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -187,16 +189,20 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
                 }
 
                 Column(modifier = Modifier.fillMaxSize()) {
-                    StateStatusBanner(complianceStatus, Modifier.statusBarsPadding(), lastMealWasRestricted)
+                    DailyProgressHeader(
+                        totalCalories = totalCalories,
+                        target = target,
+                        complianceStatus = complianceStatus,
+                        modifier = Modifier.statusBarsPadding(),
+                        isRestrictedViolation = lastMealWasRestricted
+                    )
                     
                     Column(
                         modifier = Modifier
                             .padding(16.dp)
                             .fillMaxSize()
                     ) {
-                        SummaryCard(
-                            totalCalories = totalCalories,
-                            target = target,
+                        MacroSummaryBar(
                             protein = todayProtein,
                             carbs = todayCarbs,
                             fat = todayFat
@@ -407,38 +413,6 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
 }
 
 @Composable
-fun StateStatusBanner(status: ComplianceStatus, modifier: Modifier = Modifier, isRestrictedViolation: Boolean = false) {
-    val color = when {
-        isRestrictedViolation -> Color.Red
-        status == ComplianceStatus.EXEMPLARY -> Color(0xFF00E5FF) // Icy Cyan
-        status == ComplianceStatus.ACCEPTABLE -> Color(0xFFFFEA00) // Sharp Yellow
-        status == ComplianceStatus.SUBVERSIVE -> Color(0xFFFF1744) // Sharp Red
-        else -> Color.Gray
-    }
-    // Flavour lives here, in the status line, where it costs nothing to understand.
-    // Buttons and settings stay plain so the app is still operable.
-    val text = when {
-        isRestrictedViolation -> "Logged in a restricted zone."
-        status == ComplianceStatus.EXEMPLARY -> "On target. The State is pleased."
-        status == ComplianceStatus.ACCEPTABLE -> "Close to target. Room to improve."
-        status == ComplianceStatus.SUBVERSIVE -> "Well off target. Some features locked."
-        else -> ""
-    }
-    
-    Surface(
-        color = color,
-        modifier = modifier.fillMaxWidth(),
-        shape = RectangleShape,
-        border = BorderStroke(1.dp, Color.Black.copy(alpha = 0.25f))
-    ) {
-        TerminalTypewriterText(
-            text = text,
-            modifier = Modifier.padding(vertical = 12.dp, horizontal = 16.dp)
-        )
-    }
-}
-
-@Composable
 fun TerminalTypewriterText(text: String, modifier: Modifier = Modifier) {
     var displayedText by remember(text) { mutableStateOf("") }
     var cursorVisible by remember { mutableStateOf(true) }
@@ -448,17 +422,16 @@ fun TerminalTypewriterText(text: String, modifier: Modifier = Modifier) {
             displayedText = text.substring(0, index + 1)
             delay(30)
         }
-    }
-
-    LaunchedEffect(Unit) {
-        while (true) {
+        // Blink cursor 5 times then leave it solid to prevent infinite recomposition
+        repeat(5) {
             cursorVisible = !cursorVisible
             delay(500)
         }
+        cursorVisible = true
     }
 
     Text(
-text = displayedText + if (cursorVisible) "█" else " ",
+        text = displayedText + if (cursorVisible) "-^" else " ",
         style = MaterialTheme.typography.labelLarge,
         fontWeight = FontWeight.Black,
         color = Color.Black,
@@ -466,28 +439,48 @@ text = displayedText + if (cursorVisible) "█" else " ",
     )
 }
 
+
 @Composable
-fun SummaryCard(
+fun DailyProgressHeader(
     totalCalories: Int,
     target: Int,
-    protein: Int,
-    carbs: Int,
-    fat: Int
+    complianceStatus: ComplianceStatus,
+    modifier: Modifier = Modifier,
+    isRestrictedViolation: Boolean = false
 ) {
+    val progress = if (target > 0) totalCalories.toFloat() / target.toFloat() else 0f
+    val percent = (progress * 100).toInt()
     val delta = totalCalories - target
-    val deltaText = if (delta > 0) "+$delta kcal over target" else "${-delta} kcal remaining"
-    val deltaColor = if (delta > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+    
+    val statusColor = when {
+        isRestrictedViolation -> Color.Red
+        complianceStatus == ComplianceStatus.EXEMPLARY -> Color(0xFF00E5FF)
+        complianceStatus == ComplianceStatus.ACCEPTABLE -> Color(0xFFFFEA00)
+        complianceStatus == ComplianceStatus.SUBVERSIVE -> Color(0xFFFF1744)
+        else -> Color.Gray
+    }
 
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .hudFraming(MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface,
-            contentColor = MaterialTheme.colorScheme.onSurface
-        ),
+    val statusText = when {
+        isRestrictedViolation -> "RESTRICTED ZONE"
+        complianceStatus == ComplianceStatus.EXEMPLARY -> "EXEMPLARY"
+        complianceStatus == ComplianceStatus.ACCEPTABLE -> "ACCEPTABLE"
+        complianceStatus == ComplianceStatus.SUBVERSIVE -> "SUBVERSIVE"
+        else -> "CRISIS"
+    }
+
+    val (progressColor, messageText) = if (delta > 0) {
+        Color.Red to "+$delta KCAL OVER"
+    } else {
+        statusColor to "${-delta} KCAL REMAINING"
+    }
+
+    Surface(
+        color = Color(0xFF0A0A0A),
+        modifier = modifier.fillMaxWidth().semantics(mergeDescendants = true) {
+            contentDescription = "Daily progress: $totalCalories of $target calories, $percent percent. $messageText. Long term compliance is $statusText."
+        },
         shape = RectangleShape,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+        border = BorderStroke(1.dp, statusColor.copy(alpha = 0.3f))
     ) {
         Column(
             modifier = Modifier.padding(16.dp)
@@ -495,65 +488,129 @@ fun SummaryCard(
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.Bottom
             ) {
                 Text(
-                    text = "TODAY",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
+                    text = "TODAY // $totalCalories / $target KCAL",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.White,
                     fontWeight = FontWeight.Black
                 )
                 Text(
-                    text = deltaText,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = deltaColor,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-            Spacer(modifier = Modifier.height(4.dp))
-            Row(
-                verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    text = "$totalCalories",
-                    style = MaterialTheme.typography.displaySmall,
+                    text = "$percent%",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = progressColor,
                     fontWeight = FontWeight.Black
                 )
-                Text(
-                    text = "/ $target kcal",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.Gray,
-                    modifier = Modifier.padding(bottom = 6.dp)
+            }
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            // Progress Bar
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(24.dp)
+                    .background(Color(0xFF1A1A1A))
+                    .border(1.dp, Color(0xFF333333))
+            ) {
+                // The filled portion
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .fillMaxWidth(minOf(progress, 1f))
+                        .background(progressColor)
+                )
+                
+                // If over 100%, show an overflow indicator
+                if (progress > 1f) {
+                    val overflowWidth = minOf(progress - 1f, 1f)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(overflowWidth)
+                            .background(Color.Red.copy(alpha = 0.5f))
+                            .align(Alignment.CenterEnd)
+                    )
+                }
+
+                // Target marker
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .width(2.dp)
+                        .background(Color.White)
+                        .align(Alignment.CenterEnd)
                 )
             }
+            
             Spacer(modifier = Modifier.height(8.dp))
-            HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
-            Spacer(modifier = Modifier.height(8.dp))
+            
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "P: ${protein}g",
+                    text = messageText,
                     style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Black,
-                    color = NutritionColors.Protein
+                    color = progressColor,
+                    fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "C: ${carbs}g",
+                    text = "COMPLIANCE: $statusText",
                     style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Black,
-                    color = NutritionColors.Carbs
-                )
-                Text(
-                    text = "F: ${fat}g",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Black,
-                    color = NutritionColors.Fat
+                    color = statusColor,
+                    fontWeight = FontWeight.Bold
                 )
             }
+        }
+    }
+}
+
+@Composable
+fun MacroSummaryBar(
+    protein: Int,
+    carbs: Int,
+    fat: Int
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .hudFraming(MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+            .semantics(mergeDescendants = true) {
+                contentDescription = "Macros today: $protein grams protein, $carbs grams carbs, $fat grams fat"
+            },
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface
+        ),
+        shape = RectangleShape,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 12.dp, horizontal = 16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = "P: ${protein}g",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Black,
+                color = NutritionColors.Protein
+            )
+            Text(
+                text = "C: ${carbs}g",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Black,
+                color = NutritionColors.Carbs
+            )
+            Text(
+                text = "F: ${fat}g",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Black,
+                color = NutritionColors.Fat
+            )
         }
     }
 }
@@ -790,7 +847,10 @@ fun HistoryList(
         // Clears the bottom navigation bar so the last entry is fully readable.
         contentPadding = PaddingValues(bottom = 96.dp)
     ) {
-        items(mealEntries) { entry ->
+        items(
+            items = mealEntries,
+            key = { it.id }
+        ) { entry ->
             MealEntryItem(
                 entry = entry,
                 onDelete = { onDeleteMeal(entry) },

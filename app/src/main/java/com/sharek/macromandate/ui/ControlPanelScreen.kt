@@ -28,6 +28,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.*
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -230,15 +231,18 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                     )
                     Slider(
                         value = sliderValue,
-                        onValueChange = {
+                        onValueChange = { 
                             sliderValue = it
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         },
                         onValueChangeFinished = {
                             viewModel.updateCalorieTarget(sliderValue.toInt())
                         },
                         valueRange = 1200f..4000f,
-                        steps = 28,
+                        steps = 55,
+                        modifier = Modifier.semantics {
+                            contentDescription = "Calorie target slider. Current target is ${sliderValue.toInt()} calories."
+                        },
                         colors = SliderDefaults.colors(
                             thumbColor = MaterialTheme.colorScheme.primary,
                             activeTrackColor = MaterialTheme.colorScheme.primary
