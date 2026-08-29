@@ -54,7 +54,7 @@ object EvidenceStore {
 
     /** Removes the backing file for a stored evidence URI, if this store owns it. */
     fun delete(context: Context, imageUri: String?) {
-        val uri = imageUri?.let { runCatching { Uri.parse(it) }.getOrNull() } ?: return
+        val uri = imageUri?.let { runCatching { android.net.Uri.parse(it) }.getOrNull() } ?: return
         if (!isStored(context, uri)) return
         val path = uri.path ?: return
         runCatching { File(path).delete() }

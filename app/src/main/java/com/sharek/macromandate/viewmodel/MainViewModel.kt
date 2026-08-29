@@ -81,6 +81,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val serviceIntent = android.content.Intent(application, MandateSurveillanceService::class.java)
             application.startForegroundService(serviceIntent)
         } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
             Log.w("MainViewModel", "Could not start surveillance service on initialization", e)
         }
     }
@@ -268,6 +269,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _uiState.value = UiState.Error("UPLINK FAILURE: ${response.code()}")
                 }
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 _uiState.value = UiState.Error("SYNTHESIS ERROR: ${e.localizedMessage?.uppercase()}")
             }
         }
@@ -328,6 +330,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _uiState.value = UiState.Error("JUDGMENT UPLINK FAILURE: ${response.code()}")
                 }
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 _uiState.value = UiState.Error("JUDGMENT ERROR: ${e.localizedMessage?.uppercase()}")
             }
         }
@@ -393,6 +396,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         true
                     } ?: false
                 } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                     Log.e("MainViewModel", "Dossier export failed", e)
                     false
                 }
@@ -420,6 +424,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         true
                     } ?: false
                 } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                     Log.e("MainViewModel", "JSON backup export failed", e)
                     false
                 }
@@ -453,6 +458,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     Result.success(meals.size)
                 } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                     Log.e("MainViewModel", "JSON backup import failed", e)
                     Result.failure(e)
                 }
@@ -491,6 +497,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         true
                     } ?: false
                 } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                     Log.e("MainViewModel", "Weekly report export failed", e)
                     false
                 }
@@ -637,6 +644,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _uiState.value = UiState.Error(errorMsg)
                 }
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.e("MainViewModel", "Error processing image", e)
                 val errorMsg = if (complianceStatus.value == ComplianceStatus.SUBVERSIVE) "[ MANDATE VIOLATION ] ${e.localizedMessage?.uppercase()}" else (e.localizedMessage ?: "Unknown error")
                 _uiState.value = UiState.Error(errorMsg)
@@ -661,7 +669,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             val scale = 800f / Math.max(originalBitmap.width, originalBitmap.height).coerceAtLeast(1)
             val scaledBitmap = if (scale < 1f) {
-                Bitmap.createScaledBitmap(
+                android.graphics.Bitmap.createScaledBitmap(
                     originalBitmap,
                     (originalBitmap.width * scale).toInt(),
                     (originalBitmap.height * scale).toInt(),
@@ -676,6 +684,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val bytes = outputStream.toByteArray()
             Base64.encodeToString(bytes, Base64.NO_WRAP)
         } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
             Log.e("MainViewModel", "Error converting URI to Base64", e)
             null
         }

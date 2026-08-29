@@ -95,16 +95,66 @@ class NutritionSanitizerTest {
     }
 
     @Test
-    fun parseEmptyFieldsFallbackGracefully() {
-        val json = "{}"
+    fun parseWithNanAndInfinityFallsBackSafely() {
+        val json = """
+            {
+                "foodName": "Anomalous Food",
+                "calories": "NaN",
+                "proteinGrams": "Infinity",
+                "carbsGrams": 20.0,
+                "fatGrams": "-Infinity"
+            }
+        """.trimIndent()
 
         val parsed = NutritionSanitizer.parseAndSanitize(json)
-        assertEquals("Unidentified Item", parsed.foodName)
-        assertEquals(0, parsed.calories)
+        assertEquals("Anomalous Food", parsed.foodName)
+        assertEquals(20f, parsed.carbsGrams, 0.01f)
         assertEquals(0f, parsed.proteinGrams, 0.01f)
-        assertEquals(0f, parsed.carbsGrams, 0.01f)
         assertEquals(0f, parsed.fatGrams, 0.01f)
-        assertFalse(parsed.isLiquid)
-        assertEquals("NOMINAL REFUELING REGISTERED.", parsed.assessment)
+        assertEquals(80, parsed.calories) // 20g carbs * 4 = 80 kcal fallback
+    }
+
+    @Test
+    fun parseAlternativeKeyNames() {
+        val json = """
+            {
+                "item": "Keto Avocado Bowl",
+                "energy": "450 kcal",
+                "protein": "8.5g",
+                "carbohydrates": "4.2g",
+                "fat": "38.0g",
+                "beverage": "true",
+                "confidence": "HIGH_CONFIDENCE"
+            }
+        """.trimIndent()
+
+        val parsed = NutritionSanitizer.parseAndSanitize(json)
+        assertEquals("Keto Avocado Bowl", parsed.foodName)
+        assertEquals(450, parsed.calories)
+        assertEquals(8.5f, parsed.proteinGrams, 0.01f)
+        assertEquals(4.2f, parsed.carbsGrams, 0.01f)
+        assertEquals(38f, parsed.fatGrams, 0.01f)
+        assertTrue(parsed.isLiquid)
+        assertEquals("HIGH_CONFIDENCE", parsed.confidence)
+    }
+
+    @Test
+    fun parseExtremeValuesAndDecimals() {
+        val json = """
+            {
+                "name": "Heavy Shake",
+                "calories": 1500,
+                "protein": " 75.25 G ",
+                "carbs": " 120.50 g ",
+                "fat": " 45.75 g "
+            }
+        """.trimIndent()
+
+        val parsed = NutritionSanitizer.parseAndSanitize(json)
+        assertEquals("Heavy Shake", parsed.foodName)
+        assertEquals(1500, parsed.calories)
+        assertEquals(75.25f, parsed.proteinGrams, 0.01f)
+        assertEquals(120.50f, parsed.carbsGrams, 0.01f)
+        assertEquals(45.75f, parsed.fatGrams, 0.01f)
     }
 }

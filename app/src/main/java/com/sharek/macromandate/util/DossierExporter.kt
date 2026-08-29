@@ -119,8 +119,10 @@ object DossierExporter {
         // doubled (RFC-4180) and newlines stripped so each record stays on one row.
         val flattened = field.replace("\r", " ").replace("\n", " ").replace("\"", "\"\"")
         // foodName comes back from the model, so it is attacker-influencable via the
-        // photo. Neutralize spreadsheet formula injection with a leading apostrophe.
-        return if (flattened.isNotEmpty() && flattened[0] in FORMULA_TRIGGERS) {
+        // photo. Neutralize spreadsheet formula injection (including with leading whitespace)
+        // with a leading apostrophe.
+        val trimmedSpaces = flattened.dropWhile { it == ' ' }
+        return if (flattened.isNotEmpty() && (flattened[0] in FORMULA_TRIGGERS || (trimmedSpaces.isNotEmpty() && trimmedSpaces[0] in FORMULA_TRIGGERS))) {
             "'$flattened"
         } else {
             flattened

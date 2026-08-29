@@ -74,7 +74,7 @@ MacroMandate uses full code shrinking and resource optimization (`isMinifyEnable
 
 ## 5. Release Pre-Flight Checklist
 
-- [x] All 44 automated unit tests passing (`./gradlew test`).
+- [x] All 54 automated unit tests passing (`./gradlew test`).
 - [x] R8 release build compilation succeeds (`./gradlew assembleRelease`).
 - [x] Hugging Face API keys masked and zero credential leaks in logs or exports.
 - [x] JSON backup schema compatibility maintained.

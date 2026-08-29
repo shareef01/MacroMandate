@@ -119,4 +119,18 @@ class ComplianceEngineTest {
         assertEquals(ComplianceStatus.CRISIS, ComplianceEngine.statusFor(0))
         assertEquals(ComplianceStatus.CRISIS, ComplianceEngine.statusFor(39))
     }
+
+    @Test
+    fun scoreIsClampedBetweenZeroAndOneHundred() {
+        // Enormous surplus: 50,000 kcal vs 2,000 kcal target
+        val massiveSurplus = listOf(meal(50000))
+        assertEquals(0, ComplianceEngine.calculateScore(massiveSurplus, 2000))
+
+        // Exact match across multiple days
+        val exactMeals = listOf(
+            meal(2000, baseTimestamp),
+            meal(2000, otherDayTimestamp)
+        )
+        assertEquals(100, ComplianceEngine.calculateScore(exactMeals, 2000))
+    }
 }

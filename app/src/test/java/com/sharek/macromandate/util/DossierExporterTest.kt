@@ -135,4 +135,31 @@ class DossierExporterTest {
         val result = DossierExporter.parseJsonBackup("{\"meals\":[]}")
         org.junit.Assert.assertNull(result)
     }
+
+    @Test
+    fun csvNeutralizesWhitespacePrefixedFormulaTriggers() {
+        val triggers = listOf(" =SUM(A1:A2)", "  +cmd", "\t\t@calc", "   -100")
+        triggers.forEach { field ->
+            val escaped = DossierExporter.escapeCsvField(field)
+            assertTrue(
+                "expected '$field' to be neutralized with leading apostrophe, got '$escaped'",
+                escaped.startsWith("'")
+            )
+        }
+    }
+
+    @Test
+    fun jsonBackupHandlesUnicodeAndEmojiCorrectly() = runBlocking {
+        val meals = listOf(
+            meal("Avocado 🥑 Toast & Salmon 🍣", 450).copy(
+                assessment = "EXEMPLARY BIO-FUEL ✨"
+            )
+        )
+        val json = DossierExporter.generateJson(meals)
+        val parsed = DossierExporter.parseJsonBackup(json)
+
+        org.junit.Assert.assertNotNull(parsed)
+        assertEquals("Avocado 🥑 Toast & Salmon 🍣", parsed!![0].foodName)
+        assertEquals("EXEMPLARY BIO-FUEL ✨", parsed[0].assessment)
+    }
 }

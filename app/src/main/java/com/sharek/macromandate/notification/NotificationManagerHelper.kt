@@ -15,28 +15,26 @@ object NotificationManagerHelper {
     const val HUD_NOTIFICATION_ID = 1002
 
     fun createNotificationChannel(context: Context) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val enforcementChannel = NotificationChannel(
-                CHANNEL_ID, 
-                "Meal reminders", 
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "Reminders when a meal has not been logged"
-            }
-            
-            val hudChannel = NotificationChannel(
-                HUD_CHANNEL_ID,
-                "Daily total",
-                NotificationManager.IMPORTANCE_LOW // Ongoing persistent info
-            ).apply {
-                description = "Ongoing notification showing today's calories"
-            }
-            
-            val notificationManager: NotificationManager =
-                context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.createNotificationChannel(enforcementChannel)
-            notificationManager.createNotificationChannel(hudChannel)
+        val enforcementChannel = NotificationChannel(
+            CHANNEL_ID, 
+            "Meal reminders", 
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "Reminders when a meal has not been logged"
         }
+        
+        val hudChannel = NotificationChannel(
+            HUD_CHANNEL_ID,
+            "Daily total",
+            NotificationManager.IMPORTANCE_LOW // Ongoing persistent info
+        ).apply {
+            description = "Ongoing notification showing today's calories"
+        }
+        
+        val notificationManager: NotificationManager =
+            context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.createNotificationChannel(enforcementChannel)
+        notificationManager.createNotificationChannel(hudChannel)
     }
 
     fun postComplianceNotification(context: Context) {
