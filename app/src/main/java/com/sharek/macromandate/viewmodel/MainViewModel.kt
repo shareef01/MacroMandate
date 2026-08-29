@@ -22,6 +22,7 @@ import com.sharek.macromandate.network.ChatMessage
 import com.sharek.macromandate.network.ChatRequest
 import com.sharek.macromandate.network.ContentPart
 import com.sharek.macromandate.network.HuggingFaceApi
+import com.sharek.macromandate.network.OpenFoodFactsApi
 import com.sharek.macromandate.util.DossierExporter
 import com.sharek.macromandate.util.DossierReportGenerator
 import com.sharek.macromandate.util.NutritionSanitizer
@@ -152,10 +153,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             initialValue = TerminalTheme.CYBER_CYAN
         )
 
+    val crtEffectsEnabled: StateFlow<Boolean> = preferences.crtEffectsEnabledFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = true
+        )
+
     fun updateTerminalTheme(theme: TerminalTheme) {
         viewModelScope.launch {
             preferences.updateTerminalTheme(theme)
             logAudit("CONFIG", "TERMINAL THEME SET TO ${theme.displayName}.")
+        }
+    }
+
+    fun updateCrtEffectsEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            preferences.updateCrtEffectsEnabled(enabled)
+            logAudit("CONFIG", "CRT EFFECTS SET TO $enabled.")
         }
     }
 
@@ -813,4 +828,68 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .build()
             .create(HuggingFaceApi::class.java)
     }
+
+    private val offApi: OpenFoodFactsApi by lazy {
+        val logging = HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC }
+        val client = OkHttpClient.Builder()
+            .addInterceptor(logging)
+            .build()
+        Retrofit.Builder()
+            .baseUrl("https://world.openfoodfacts.org/")
+            .addConverterFactory(GsonConverterFactory.create())
+            .client(client)
+            .build()
+            .create(OpenFoodFactsApi::class.java)
+    }
+
+    private val _barcodeResult = MutableStateFlow<MealEntry?>(null)
+    val barcodeResult: StateFlow<MealEntry?> = _barcodeResult
+
+    fun clearBarcodeResult() {
+        _barcodeResult.value = null
+    }
+
+    fun lookupBarcode(barcode: String, context: android.content.Context) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _uiState.value = UiState.Loading
+            try {
+                val response = offApi.getProduct(barcode)
+                if (response.isSuccessful) {
+                    val body = response.body()
+                    if (body?.status == 1 && body.product != null) {
+                        val product = body.product
+                        val n = product.nutriments
+                        
+                        val kcal = n?.caloriesServing ?: n?.calories100g ?: 0.0
+                        val p = n?.proteinServing ?: n?.protein100g ?: 0.0
+                        val c = n?.carbsServing ?: n?.carbs100g ?: 0.0
+                        val f = n?.fatServing ?: n?.fat100g ?: 0.0
+                        
+                        val entry = MealEntry(
+                            id = UUID.randomUUID().toString(),
+                            timestamp = System.currentTimeMillis(),
+                            foodName = product.productName ?: "Scanned Product",
+                            calories = kcal.toInt(),
+                            proteinGrams = p.toFloat(),
+                            carbsGrams = c.toFloat(),
+                            fatGrams = f.toFloat(),
+                            imageUri = null,
+                            isLiquid = false,
+                            assessment = "Barcode Match",
+                            isRestricted = false
+                        )
+                        _barcodeResult.value = entry
+                        _uiState.value = UiState.Success(entry.foodName)
+                    } else {
+                        _uiState.value = UiState.Error("Product not found in OpenFoodFacts.")
+                    }
+                } else {
+                    _uiState.value = UiState.Error("Failed to lookup barcode.")
+                }
+            } catch (e: Exception) {
+                _uiState.value = UiState.Error("Network error: ${e.message}")
+            }
+        }
+    }
+
 }

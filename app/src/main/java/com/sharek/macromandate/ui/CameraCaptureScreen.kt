@@ -1,5 +1,13 @@
 package com.sharek.macromandate.ui
 
+
+
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageProxy
+import com.google.mlkit.vision.barcode.BarcodeScannerOptions
+import com.google.mlkit.vision.barcode.BarcodeScanning
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.common.InputImage
 import android.content.Context
 import android.net.Uri
 import android.util.Log
@@ -38,10 +46,12 @@ import kotlinx.coroutines.launch
 import java.util.*
 import java.util.concurrent.Executor
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.camera.core.ExperimentalGetImage::class)
+
 @Composable
 fun CameraCaptureScreen(
     onImageCaptured: (Uri) -> Unit,
+    onBarcodeScanned: (String) -> Unit,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -49,6 +59,21 @@ fun CameraCaptureScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val previewView = remember { PreviewView(context) }
     val imageCapture: ImageCapture = remember { ImageCapture.Builder().build() }
+    
+    var isScanningEnabled by remember { mutableStateOf(true) }
+    val barcodeScanner = remember {
+        val options = BarcodeScannerOptions.Builder()
+            .setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS)
+            .build()
+        BarcodeScanning.getClient(options)
+    }
+
+    val imageAnalysis = remember {
+        ImageAnalysis.Builder()
+            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+            .build()
+    }
+
     val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -78,7 +103,7 @@ fun CameraCaptureScreen(
     )
 
     var tickerText by remember { mutableStateOf("") }
-    val fullTicker = "Point the camera at your meal and tap the shutter.      "
+    val fullTicker = "Point the camera at your meal and tap the shutter, or scan a barcode.      "
     
     LaunchedEffect(Unit) {
         while(true) {
@@ -104,11 +129,43 @@ fun CameraCaptureScreen(
 
             try {
                 cameraProvider.unbindAll()
+                
+                imageAnalysis.setAnalyzer(ContextCompat.getMainExecutor(context)) { imageProxy ->
+                    if (!isScanningEnabled) {
+                        imageProxy.close()
+                        return@setAnalyzer
+                    }
+                    val mediaImage = imageProxy.image
+                    if (mediaImage != null) {
+                        val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
+                        barcodeScanner.process(image)
+                            .addOnSuccessListener { barcodes ->
+                                if (barcodes.isNotEmpty()) {
+                                    val code = barcodes.first().rawValue
+                                    if (code != null && isScanningEnabled) {
+                                        isScanningEnabled = false
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        onBarcodeScanned(code)
+                                    }
+                                }
+                            }
+                            .addOnFailureListener {
+                                // Ignore
+                            }
+                            .addOnCompleteListener {
+                                imageProxy.close()
+                            }
+                    } else {
+                        imageProxy.close()
+                    }
+                }
+                
                 cameraProvider.bindToLifecycle(
                     lifecycleOwner,
                     cameraSelector,
                     preview,
-                    imageCapture
+                    imageCapture,
+                    imageAnalysis
                 )
             } catch (e: Exception) {
                 Log.e("CameraCaptureScreen", "Use case binding failed", e)

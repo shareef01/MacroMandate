@@ -62,6 +62,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
     val recentAudits by viewModel.recentAudits.collectAsState()
     val apiKeyHint by viewModel.apiKeyHint.collectAsState()
     val terminalTheme by viewModel.terminalTheme.collectAsState()
+    val crtEffectsEnabled by viewModel.crtEffectsEnabled.collectAsState()
 
     var pendingRestoreUri by remember { mutableStateOf<Uri?>(null) }
 
@@ -215,6 +216,30 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                 currentTheme = terminalTheme,
                 onSelectTheme = { viewModel.updateTerminalTheme(it) }
             )
+
+            Spacer(modifier = Modifier.height(32.dp))
+            
+            SettingsCard(title = "Visual Distortion (CRT Effects)", icon = Icons.Default.Palette) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Simulated Cathode Tube", fontWeight = FontWeight.Bold, color = Color.White)
+                        Text("Enables scanlines, edge vignette, and phosphor bloom.", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                    }
+                    Switch(
+                        checked = crtEffectsEnabled,
+                        onCheckedChange = { viewModel.updateCrtEffectsEnabled(it) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                            checkedTrackColor = MaterialTheme.colorScheme.primary
+                        )
+                    )
+                }
+            }
+
 
             Spacer(modifier = Modifier.height(32.dp))
 

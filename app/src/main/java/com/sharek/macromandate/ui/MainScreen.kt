@@ -133,7 +133,10 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
         when (screenState) {
             ScreenState.DASHBOARD -> {
                 val mealEntries by viewModel.mealEntries.collectAsState()
-                val todayMeals by viewModel.todayMeals.collectAsState()
+                
+    val todayMeals by viewModel.todayMeals.collectAsState()
+    val barcodeResult by viewModel.barcodeResult.collectAsState()
+
                 // The card is labelled TOTAL DAILY CONSUMPTION, so it must sum today's
                 // meals — mealEntries is the full history and belongs to the log below.
                 val totalCalories = todayMeals.sumOf { it.calories }
@@ -178,7 +181,53 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
                         }
                 }
 
-                if (showManualEntryDialog) {
+        
+        if (barcodeResult != null) {
+            val entry = barcodeResult!!
+            AlertDialog(
+                onDismissRequest = { viewModel.clearBarcodeResult() },
+                title = {
+                    Text(
+                        text = "BARCODE SCANNED",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Black,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                },
+                text = {
+                    Column {
+                        Text("Product: ${entry.foodName}", color = Color.White)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Calories: ${entry.calories} kcal", color = Color.White)
+                        Text("P: ${entry.proteinGrams}g | C: ${entry.carbsGrams}g | F: ${entry.fatGrams}g", color = Color.White)
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            viewModel.addMealEntry(entry)
+                            viewModel.clearBarcodeResult()
+                        },
+                        shape = RectangleShape,
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Text("SAVE RECORD", fontWeight = FontWeight.Black, color = Color.Black)
+                    }
+                },
+                dismissButton = {
+                    OutlinedButton(
+                        onClick = { viewModel.clearBarcodeResult() },
+                        shape = RectangleShape
+                    ) {
+                        Text("DISCARD", color = Color.Gray)
+                    }
+                },
+                shape = RectangleShape,
+                containerColor = Color(0xFF141414)
+            )
+        }
+
+        if (showManualEntryDialog) {
                     ManualMealDialog(
                         onDismiss = { showManualEntryDialog = false },
                         onSave = { name, cal, p, c, f, isLiquid ->
@@ -374,9 +423,13 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
                 }
             }
             ScreenState.CAMERA -> {
-                CameraCaptureScreen(
+                                CameraCaptureScreen(
                     onImageCaptured = { uri ->
                         viewModel.processImageForMacros(uri, context)
+                        screenState = ScreenState.DASHBOARD
+                    },
+                    onBarcodeScanned = { barcode ->
+                        viewModel.lookupBarcode(barcode, context)
                         screenState = ScreenState.DASHBOARD
                     },
                     onBack = {

@@ -19,6 +19,7 @@ class MandatePreferences(private val context: Context) {
         val LOCATION_TRACKING_ENABLED = booleanPreferencesKey("location_tracking_enabled")
         val API_KEY = stringPreferencesKey("api_key")
         val TERMINAL_THEME = stringPreferencesKey("terminal_theme")
+        val CRT_EFFECTS_ENABLED = booleanPreferencesKey("crt_effects_enabled")
     }
 
     /**
@@ -60,6 +61,10 @@ class MandatePreferences(private val context: Context) {
         TerminalTheme.fromId(preferences[TERMINAL_THEME])
     }
 
+    val crtEffectsEnabledFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[CRT_EFFECTS_ENABLED] ?: true
+    }
+
     suspend fun updateCalorieTarget(target: Int) {
         context.dataStore.edit { preferences ->
             preferences[DAILY_CALORIE_TARGET] = target
@@ -69,6 +74,12 @@ class MandatePreferences(private val context: Context) {
     suspend fun updateTerminalTheme(theme: TerminalTheme) {
         context.dataStore.edit { preferences ->
             preferences[TERMINAL_THEME] = theme.id
+        }
+    }
+
+    suspend fun updateCrtEffectsEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[CRT_EFFECTS_ENABLED] = enabled
         }
     }
 

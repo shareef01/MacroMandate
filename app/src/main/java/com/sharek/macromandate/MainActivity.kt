@@ -9,6 +9,7 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import com.sharek.macromandate.ui.theme.crtFilter
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
@@ -92,6 +93,7 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
 
 @Composable
 fun MacroMandateApp(viewModel: MainViewModel) {
+    val crtEffectsEnabled by viewModel.crtEffectsEnabled.collectAsState()
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
@@ -113,7 +115,7 @@ fun MacroMandateApp(viewModel: MainViewModel) {
     val items = remember { listOf(Screen.Dashboard, Screen.Analytics, Screen.ControlPanel) }
 
     Scaffold(
-        modifier = Modifier.terminalOverlay(complianceStatus),
+        modifier = Modifier.terminalOverlay(complianceStatus).crtFilter(crtEffectsEnabled),
         contentWindowInsets = WindowInsets(0.dp), // Handle insets manually in screens
         bottomBar = {
             if (currentRoute != Screen.Dashboard.route && currentRoute != Screen.Analytics.route && currentRoute != Screen.ControlPanel.route) {

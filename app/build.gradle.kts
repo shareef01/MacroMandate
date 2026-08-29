@@ -140,6 +140,7 @@ dependencies {
     implementation(libs.play.services.location)
     implementation(libs.coil.compose)
     implementation(libs.androidx.core.splashscreen)
+    implementation(libs.mlkit.barcode)
     ksp(libs.androidx.room.compiler)
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
