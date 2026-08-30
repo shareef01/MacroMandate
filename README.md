@@ -110,6 +110,8 @@ Full data inventory, network boundary and threat model:
   the edit dialog, JSON restore — goes through `NutritionBounds`, so no route
   bypasses another's checks.
 - **Background**: a single WorkManager periodic worker. No foreground service.
+- **Localization**: all user-visible copy is in `strings.xml`; errors are carried
+  as `@StringRes` ids from the domain layer and resolved at display time.
 - **Widget**: Jetpack Glance.
 
 ---
@@ -155,7 +157,7 @@ Face access token. The app is fully usable without one.
 ## 🧪 Tests
 
 ```bash
-./gradlew test                        # 118 unit tests
+./gradlew test                        # 129 unit tests
 ./gradlew connectedDebugAndroidTest   # requires a device — includes MigrationTest
 ```
 
@@ -166,6 +168,7 @@ Face access token. The app is fully usable without one.
 | `BackupRestoreHostileInputTest` | Restore as a hostile boundary — future versions, oversized files, impossible values, bad timestamps, foreign image URIs, duplicate ids |
 | `NutritionFormatTest` | Rounding, screen-reader descriptions, comma decimal separators, numeric overflow |
 | `AnalysisErrorTest` | HTTP status and transport exceptions → readable domain errors |
+| `ErrorCopyTest` | The copy rules, asserted against `strings.xml` itself: no URLs, status codes or stack frames in user-facing text |
 | `ImageForensicsTest` | Downsample sizing across 12 MP, 50 MP, panorama and degenerate frames |
 | `NutritionSanitizerTest` | Model-response parsing |
 | `DossierExporterTest` | CSV escaping, formula-injection mitigation, JSON round trip |

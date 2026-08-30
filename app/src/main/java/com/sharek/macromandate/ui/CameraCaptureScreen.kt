@@ -37,6 +37,8 @@ import com.sharek.macromandate.util.EvidenceStore
 import kotlinx.coroutines.launch
 import java.util.*
 import java.util.concurrent.Executor
+import androidx.compose.ui.res.stringResource
+import com.sharek.macromandate.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -52,6 +54,10 @@ fun CameraCaptureScreen(
     val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    // Resolved in composition: the click handler is not a composable, and the
+    // failure text is fixed anyway — the CameraX exception detail goes to the log,
+    // not to the user.
+    val captureFailedMessage = stringResource(R.string.camera_capture_failed)
 
     val primaryColor = MaterialTheme.colorScheme.primary
     val onPrimaryColor = MaterialTheme.colorScheme.onPrimary
@@ -140,13 +146,16 @@ fun CameraCaptureScreen(
 
         TopAppBar(
             modifier = Modifier.statusBarsPadding(),
-            title = { Text("Take photo", fontWeight = FontWeight.Black) },
+            title = { Text(stringResource(R.string.camera_title), fontWeight = FontWeight.Black) },
             navigationIcon = {
                 IconButton(onClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     onBack()
                 }) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = stringResource(R.string.content_description_back)
+                    )
                 }
             },
             colors = TopAppBarDefaults.topAppBarColors(
@@ -171,7 +180,7 @@ fun CameraCaptureScreen(
             // character every 100ms: unreadable, permanently recomposing, and a
             // screen reader would re-announce it ten times a second.
             Text(
-                text = "Point the camera at your meal, then tap the shutter.",
+                text = stringResource(R.string.camera_instruction),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.Bold,
@@ -188,10 +197,8 @@ fun CameraCaptureScreen(
                     imageCapture = imageCapture,
                     executor = ContextCompat.getMainExecutor(context),
                     onImageCaptured = onImageCaptured,
-                    onCaptureError = { message ->
-                        scope.launch {
-                            snackbarHostState.showSnackbar("Couldn’t take the photo: $message")
-                        }
+                    onCaptureError = {
+                        scope.launch { snackbarHostState.showSnackbar(captureFailedMessage) }
                     }
                 )
             },
@@ -206,7 +213,7 @@ fun CameraCaptureScreen(
         ) {
             Icon(
                 imageVector = Icons.Default.Camera,
-                contentDescription = "Take Photo",
+                contentDescription = stringResource(R.string.content_description_shutter),
                 modifier = Modifier.size(48.dp)
             )
         }
@@ -223,7 +230,7 @@ private fun takePhoto(
     imageCapture: ImageCapture,
     executor: Executor,
     onImageCaptured: (Uri) -> Unit,
-    onCaptureError: (String) -> Unit
+    onCaptureError: () -> Unit
 ) {
     // Written straight into EvidenceStore rather than cacheDir: the persisted meal
     // record points at this path, and the OS may evict anything under cacheDir.
@@ -236,9 +243,12 @@ private fun takePhoto(
         executor,
         object : ImageCapture.OnImageSavedCallback {
             override fun onError(exception: ImageCaptureException) {
-                Log.e("CameraCaptureScreen", "Photo capture failed: ${exception.message}", exception)
+                // The detail is a CameraX internal message; it belongs in logcat.
+                // Uppercasing it and putting it in a snackbar told the user
+                // nothing they could act on.
+                Log.w("CameraCaptureScreen", "Photo capture failed", exception)
                 file.delete()
-                onCaptureError(exception.message?.uppercase() ?: "UNKNOWN CAPTURE FAILURE")
+                onCaptureError()
             }
 
             override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {

@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -31,6 +32,8 @@ import com.sharek.macromandate.ui.theme.NutritionColors
 import com.sharek.macromandate.viewmodel.MainViewModel
 import java.text.SimpleDateFormat
 import java.util.*
+import androidx.compose.ui.res.stringResource
+import com.sharek.macromandate.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,7 +53,11 @@ fun MealDetailScreen(
 
     if (meal == null) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("This meal is no longer available.", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Black)
+            Text(
+                stringResource(R.string.detail_unavailable),
+                color = MaterialTheme.colorScheme.error,
+                fontWeight = FontWeight.Black
+            )
         }
         return
     }
@@ -64,13 +71,16 @@ fun MealDetailScreen(
                 .statusBarsPadding()
         ) {
             TopAppBar(
-                title = { Text("Meal", fontWeight = FontWeight.Black) },
+                title = { Text(stringResource(R.string.nav_meal), fontWeight = FontWeight.Black) },
                 navigationIcon = {
                     IconButton(onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onBack()
                     }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.content_description_back)
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -90,7 +100,8 @@ fun MealDetailScreen(
             ) {
                 AsyncImage(
                     model = meal.imageUri,
-                    contentDescription = "Visual Evidence",
+                    // The photo repeats what the fields below already state.
+                    contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
                 )
@@ -103,7 +114,7 @@ fun MealDetailScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            "Restricted zone",
+                            stringResource(R.string.filter_flagged),
                             color = Color.White,
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Black,
@@ -120,7 +131,7 @@ fun MealDetailScreen(
                         contentAlignment = Alignment.TopCenter
                     ) {
                         Text(
-                            "Late-night meal",
+                            stringResource(R.string.detail_late_night),
                             color = Color.Black,
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Black,
@@ -140,7 +151,7 @@ fun MealDetailScreen(
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Text(
-                                "Assessment",
+                                stringResource(R.string.detail_assessment),
                                 color = MaterialTheme.colorScheme.primary,
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Black
@@ -165,7 +176,7 @@ fun MealDetailScreen(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "ID: ${meal.id.take(8)}",
+                    text = meal.id.take(8).uppercase(),
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.Gray,
                     fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
@@ -182,31 +193,57 @@ fun MealDetailScreen(
                 Spacer(modifier = Modifier.height(24.dp))
 
                 // Macro Interrogation
-                Text("Nutrition", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Black)
+                Text(
+                    stringResource(R.string.detail_nutrition),
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Black
+                )
                 Spacer(modifier = Modifier.height(16.dp))
 
                 // .toInt() truncated: 12.7 g of protein displayed as "12 g", and
                 // every macro read low by up to a gram everywhere in the app.
-                DetailRow("Calories", "${meal.calories} kcal", MaterialTheme.colorScheme.primary)
-                DetailRow("Protein", formatGrams(meal.proteinGrams), NutritionColors.Protein)
-                DetailRow("Carbs", formatGrams(meal.carbsGrams), NutritionColors.Carbs)
-                DetailRow("Fat", formatGrams(meal.fatGrams), NutritionColors.Fat)
-                DetailRow("Type", if (meal.isLiquid) "Liquid Intake" else "Solid Food")
+                DetailRow(
+                    stringResource(R.string.detail_calories),
+                    stringResource(R.string.detail_kcal, meal.calories),
+                    MaterialTheme.colorScheme.primary
+                )
+                DetailRow(stringResource(R.string.field_protein), formatGrams(meal.proteinGrams), NutritionColors.Protein)
+                DetailRow(stringResource(R.string.field_carbs), formatGrams(meal.carbsGrams), NutritionColors.Carbs)
+                DetailRow(stringResource(R.string.field_fat), formatGrams(meal.fatGrams), NutritionColors.Fat)
+                DetailRow(
+                    stringResource(R.string.detail_type),
+                    stringResource(
+                        if (meal.isLiquid) R.string.detail_type_liquid else R.string.detail_type_solid
+                    )
+                )
 
                 Spacer(modifier = Modifier.height(24.dp))
                 HorizontalDivider(thickness = 2.dp, color = Color.White.copy(alpha = 0.2f))
                 Spacer(modifier = Modifier.height(24.dp))
 
                 // Geospatial Intelligence
-                Text("Location", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Black)
+                Text(
+                    stringResource(R.string.detail_location),
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Black
+                )
                 Spacer(modifier = Modifier.height(16.dp))
 
+                // Read from the configuration, not Locale.getDefault(): the latter
+                // is invisible to Compose, so a locale change would leave these
+                // coordinates formatted for the previous one until something else
+                // happened to recompose them.
+                val locale = LocalConfiguration.current.locales[0]
                 val coordText = if (meal.latitude != null && meal.longitude != null) {
-                    "${"%.6f".format(meal.latitude)}, ${"%.6f".format(meal.longitude)} [GEOTAGGED]"
+                    stringResource(
+                        R.string.detail_geotagged,
+                        String.format(locale, "%.6f", meal.latitude),
+                        String.format(locale, "%.6f", meal.longitude)
+                    )
                 } else {
-                    "NO COORDINATES RECORDED"
+                    stringResource(R.string.detail_no_coordinates)
                 }
-                DetailRow("Coordinates", coordText)
+                DetailRow(stringResource(R.string.detail_coordinates), coordText)
 
                 Spacer(modifier = Modifier.height(40.dp))
 
@@ -228,7 +265,7 @@ fun MealDetailScreen(
                     ) {
                         Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Edit meal", fontWeight = FontWeight.Black)
+                        Text(stringResource(R.string.detail_edit), fontWeight = FontWeight.Black)
                     }
 
                     OutlinedButton(
@@ -242,7 +279,7 @@ fun MealDetailScreen(
                     ) {
                         Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Delete", fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.error)
+                        Text(stringResource(R.string.detail_delete), fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.error)
                     }
                 }
 
@@ -266,15 +303,15 @@ fun MealDetailScreen(
                 onDismissRequest = { showDeleteConfirmDialog = false },
                 title = {
                     Text(
-                        "DELETE DOSSIER RECORD?",
+                        stringResource(R.string.delete_meal_title),
                         fontWeight = FontWeight.Black,
                         color = MaterialTheme.colorScheme.error
                     )
                 },
                 text = {
                     Text(
-                        "This meal entry and its telemetry will be permanently expunged from the surveillance archive.",
-                        color = Color.White
+                        stringResource(R.string.delete_meal_body_detail),
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 },
                 confirmButton = {
@@ -290,7 +327,7 @@ fun MealDetailScreen(
                             contentColor = MaterialTheme.colorScheme.onError
                         )
                     ) {
-                        Text("EXPUNGE RECORD", fontWeight = FontWeight.Black)
+                        Text(stringResource(R.string.delete_meal_confirm_detail), fontWeight = FontWeight.Black)
                     }
                 },
                 dismissButton = {
@@ -298,7 +335,7 @@ fun MealDetailScreen(
                         onClick = { showDeleteConfirmDialog = false },
                         shape = RectangleShape
                     ) {
-                        Text("CANCEL", color = Color.Gray)
+                        Text(stringResource(R.string.action_cancel), color = Color.Gray)
                     }
                 },
                 shape = RectangleShape,
@@ -328,7 +365,7 @@ fun EditMealDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "CORRECT DOSSIER ENTRY",
+                text = stringResource(R.string.edit_meal_title),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Black,
                 color = MaterialTheme.colorScheme.primary
@@ -344,7 +381,7 @@ fun EditMealDialog(
                 OutlinedTextField(
                     value = foodName,
                     onValueChange = { foodName = it },
-                    label = { Text("Item Name") },
+                    label = { Text(stringResource(R.string.field_item_name)) },
                     singleLine = true,
                     shape = RectangleShape,
                     modifier = Modifier.fillMaxWidth()
@@ -352,7 +389,7 @@ fun EditMealDialog(
                 OutlinedTextField(
                     value = caloriesStr,
                     onValueChange = { caloriesStr = it.filter { ch -> ch.isDigit() }.take(6) },
-                    label = { Text("Calories (kcal)") },
+                    label = { Text(stringResource(R.string.field_calories)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     shape = RectangleShape,
@@ -365,7 +402,7 @@ fun EditMealDialog(
                     OutlinedTextField(
                         value = proteinStr,
                         onValueChange = { proteinStr = sanitizeDecimalInput(it) },
-                        label = { Text("P (g)") },
+                        label = { Text(stringResource(R.string.field_protein)) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         shape = RectangleShape,
@@ -374,7 +411,7 @@ fun EditMealDialog(
                     OutlinedTextField(
                         value = carbsStr,
                         onValueChange = { carbsStr = sanitizeDecimalInput(it) },
-                        label = { Text("C (g)") },
+                        label = { Text(stringResource(R.string.field_carbs)) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         shape = RectangleShape,
@@ -383,7 +420,7 @@ fun EditMealDialog(
                     OutlinedTextField(
                         value = fatStr,
                         onValueChange = { fatStr = sanitizeDecimalInput(it) },
-                        label = { Text("F (g)") },
+                        label = { Text(stringResource(R.string.field_fat)) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         shape = RectangleShape,
@@ -406,7 +443,7 @@ fun EditMealDialog(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Liquid consumption",
+                        text = stringResource(R.string.field_is_liquid),
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.White
                     )
@@ -438,12 +475,12 @@ fun EditMealDialog(
                     contentColor = MaterialTheme.colorScheme.onPrimary
                 )
             ) {
-                Text("SAVE CORRECTIONS", fontWeight = FontWeight.Black)
+                Text(stringResource(R.string.edit_meal_save), fontWeight = FontWeight.Black)
             }
         },
         dismissButton = {
             OutlinedButton(onClick = onDismiss, shape = RectangleShape) {
-                Text("CANCEL", color = Color.Gray)
+                Text(stringResource(R.string.action_cancel), color = Color.Gray)
             }
         },
         shape = RectangleShape,

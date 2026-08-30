@@ -26,6 +26,9 @@ import coil.compose.AsyncImage
 import com.sharek.macromandate.ui.theme.NutritionColors
 import com.sharek.macromandate.util.ParsedNutrition
 import com.sharek.macromandate.viewmodel.PendingAnalysis
+import androidx.annotation.StringRes
+import androidx.compose.ui.res.stringResource
+import com.sharek.macromandate.R
 
 /**
  * The confirmation step between a model's answer and the user's meal log.
@@ -62,14 +65,14 @@ fun AnalysisReviewSheet(
         title = {
             Column {
                 Text(
-                    text = "Check this estimate",
+                    text = stringResource(R.string.analysis_review_title),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Black,
                     color = MaterialTheme.colorScheme.primary
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Estimated from your photo by AI. Correct anything that looks wrong before saving.",
+                    text = stringResource(R.string.analysis_review_subtitle),
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.Gray
                 )
@@ -93,7 +96,7 @@ fun AnalysisReviewSheet(
                     contentScale = ContentScale.Crop
                 )
 
-                pending.caveat?.let { caveat ->
+                pending.caveatRes?.let { caveatRes ->
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)),
@@ -112,7 +115,7 @@ fun AnalysisReviewSheet(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = caveat,
+                                text = stringResource(caveatRes),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
@@ -123,7 +126,7 @@ fun AnalysisReviewSheet(
                 OutlinedTextField(
                     value = foodName,
                     onValueChange = { foodName = it },
-                    label = { Text("Item name") },
+                    label = { Text(stringResource(R.string.field_item_name)) },
                     singleLine = true,
                     shape = RectangleShape,
                     modifier = Modifier.fillMaxWidth()
@@ -132,7 +135,7 @@ fun AnalysisReviewSheet(
                 OutlinedTextField(
                     value = caloriesStr,
                     onValueChange = { caloriesStr = it.filter { ch -> ch.isDigit() }.take(6) },
-                    label = { Text("Calories (kcal)") },
+                    label = { Text(stringResource(R.string.field_calories)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     shape = RectangleShape,
@@ -143,9 +146,9 @@ fun AnalysisReviewSheet(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    MacroField("Protein", proteinStr, NutritionColors.Protein, Modifier.weight(1f)) { proteinStr = it }
-                    MacroField("Carbs", carbsStr, NutritionColors.Carbs, Modifier.weight(1f)) { carbsStr = it }
-                    MacroField("Fat", fatStr, NutritionColors.Fat, Modifier.weight(1f)) { fatStr = it }
+                    MacroField(R.string.field_protein, proteinStr, NutritionColors.Protein, Modifier.weight(1f)) { proteinStr = it }
+                    MacroField(R.string.field_carbs, carbsStr, NutritionColors.Carbs, Modifier.weight(1f)) { carbsStr = it }
+                    MacroField(R.string.field_fat, fatStr, NutritionColors.Fat, Modifier.weight(1f)) { fatStr = it }
                 }
 
                 Row(
@@ -164,7 +167,7 @@ fun AnalysisReviewSheet(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Drink rather than food",
+                        text = stringResource(R.string.field_is_drink),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface
                     )
@@ -191,12 +194,12 @@ fun AnalysisReviewSheet(
                     contentColor = MaterialTheme.colorScheme.onPrimary
                 )
             ) {
-                Text("Save to log", fontWeight = FontWeight.Black)
+                Text(stringResource(R.string.analysis_save), fontWeight = FontWeight.Black)
             }
         },
         dismissButton = {
             OutlinedButton(onClick = onDiscard, shape = RectangleShape) {
-                Text("Discard", color = Color.Gray)
+                Text(stringResource(R.string.analysis_discard), color = Color.Gray)
             }
         },
         shape = RectangleShape,
@@ -206,12 +209,14 @@ fun AnalysisReviewSheet(
 
 @Composable
 private fun MacroField(
-    label: String,
+    @StringRes labelRes: Int,
     value: String,
     accent: Color,
     modifier: Modifier = Modifier,
     onValueChange: (String) -> Unit
 ) {
+    val label = stringResource(labelRes)
+    val fieldDescription = stringResource(R.string.field_grams_description, label)
     OutlinedTextField(
         value = value,
         onValueChange = { onValueChange(sanitizeDecimalInput(it)) },
@@ -219,8 +224,10 @@ private fun MacroField(
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
         shape = RectangleShape,
-        suffix = { Text("g", style = MaterialTheme.typography.labelSmall) },
-        modifier = modifier.semantics { contentDescription = "$label in grams" }
+        suffix = { Text(stringResource(R.string.field_grams_suffix), style = MaterialTheme.typography.labelSmall) },
+        // "Protein" alone reads as a heading; the unit belongs in the description
+        // so a screen reader user knows what the field wants.
+        modifier = modifier.semantics { contentDescription = fieldDescription }
     )
 }
 

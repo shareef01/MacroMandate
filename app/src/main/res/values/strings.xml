@@ -1,5 +1,300 @@
-<resources>
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Every user-visible string in the app.
+
+    This file previously held exactly one entry (app_name); all other copy was a
+    Kotlin literal, which meant the app could not be translated at all and there
+    was no single place to review its voice.
+
+    Two conventions:
+
+    - The dystopian register belongs to *chrome* — status lines, section headings,
+      button labels, the audit log. Anything that tells the user something factual
+      about their food, their data, or a failure is written plainly. "Character in
+      the chrome, clarity in the data."
+    - ALL CAPS is for short system labels only. Sentences are sentence case:
+      all-caps prose measurably slows reading and is announced awkwardly by screen
+      readers.
+
+    Internal diagnostics (log tags, audit categories) are deliberately NOT here.
+    They are never shown to a user and translating them would only make crash
+    reports harder to read.
+-->
+<resources xmlns:tools="http://schemas.android.com/tools">
     <string name="app_name">MacroMandate</string>
+
+    <!-- ==================== Navigation ==================== -->
+    <string name="nav_today">Today</string>
+    <string name="nav_trends">Trends</string>
+    <string name="nav_settings">Settings</string>
+    <string name="nav_meal">Meal</string>
+
+    <!-- ==================== Dashboard ==================== -->
+    <!--
+        The remaining %d strings below measure kcal. "kcal" is a unit symbol and
+        does not inflect, and the surrounding wording is quantity-neutral, so a
+        plural would add two identical forms per language for no benefit.
+        Translators who need a different structure can still override the whole
+        string.
+    -->
+
+    <string name="dashboard_today">TODAY</string>
+    <string name="dashboard_recent_meals">Recent meals</string>
+    <string name="dashboard_logged_count">%1$d/%2$d LOGGED</string>
+    <string name="dashboard_kcal_of_target" tools:ignore="PluralsCandidate">/ %1$d kcal</string>
+    <string name="dashboard_over_target" tools:ignore="PluralsCandidate">+%1$d kcal over target</string>
+    <string name="dashboard_remaining" tools:ignore="PluralsCandidate">%1$d kcal remaining</string>
+    <string name="macro_protein">PROTEIN</string>
+    <string name="macro_carbs">CARBS</string>
+    <string name="macro_fat">FAT</string>
+    <string name="macro_grams_short">%1$sg</string>
+
+    <!-- Status line. Flavour lives here; it gates nothing. -->
+    <string name="status_on_target">On target. The State is pleased.</string>
+    <string name="status_close_to_target">Close to target.</string>
+    <string name="status_off_target">Well off target.</string>
+    <string name="status_far_from_target">Far from target.</string>
+
+    <!-- ==================== Logging actions ==================== -->
+    <string name="action_take_photo">Take photo</string>
+    <string name="action_choose_photo">Choose photo</string>
+    <string name="action_log_manually">Log a meal manually</string>
+    <!-- Shown under the capture buttons: the network boundary, stated where the
+         decision is made rather than buried in Settings. -->
+    <string name="capture_network_notice">Photos are sent to your configured analysis provider. Manual entry stays on this device.</string>
+
+    <!-- ==================== Analysis ==================== -->
+    <string name="analysis_in_progress">Analysing photo</string>
+    <string name="analysis_may_take_a_minute">This can take up to a minute.</string>
+    <string name="analysis_review_title">Check this estimate</string>
+    <string name="analysis_review_subtitle">Estimated from your photo by AI. Correct anything that looks wrong before saving.</string>
+    <string name="analysis_save">Save to log</string>
+    <string name="analysis_discard">Discard</string>
+    <string name="analysis_caveat_contradiction">The calorie figure doesn\'t match the macros given. Worth checking.</string>
+    <string name="analysis_caveat_derived">No calorie figure was returned, so this is calculated from the macros.</string>
+    <string name="analysis_caveat_clamped">Some values were outside the range this app can store and were adjusted.</string>
+    <string name="analysis_logged">Logged: %1$s</string>
+
+    <!-- ==================== Meal entry fields ==================== -->
+    <string name="field_item_name">Item name</string>
+    <string name="field_calories">Calories (kcal)</string>
+    <string name="field_protein">Protein</string>
+    <string name="field_carbs">Carbs</string>
+    <string name="field_fat">Fat</string>
+    <string name="field_grams_suffix">g</string>
+    <string name="field_grams_description">%1$s in grams</string>
+    <string name="field_is_drink">Drink rather than food</string>
+    <string name="field_is_liquid">Liquid consumption (beverage or shake)</string>
+
+    <!-- ==================== Manual entry / edit ==================== -->
+    <string name="manual_entry_title">MANUAL REFUELING ENTRY</string>
+    <string name="manual_entry_save">LOG RECORD</string>
+    <string name="edit_meal_title">CORRECT DOSSIER ENTRY</string>
+    <string name="edit_meal_save">SAVE CORRECTIONS</string>
+    <!--
+        Upper case on purpose. Every button in this app is a terminal command
+        label (DELETE, RESTORE, LOG RECORD), which is the one place the caps rule
+        in the header does apply: short, fixed, system-register. Lint's ButtonCase
+        check enforces a Material convention this app deliberately does not follow.
+    -->
+    <string name="action_cancel" tools:ignore="ButtonCase">CANCEL</string>
+
+    <!-- ==================== Meal detail ==================== -->
+    <string name="detail_assessment">Assessment</string>
+    <string name="detail_nutrition">Nutrition</string>
+    <string name="detail_location">Location</string>
+    <string name="detail_coordinates">Coordinates</string>
+    <string name="detail_no_coordinates">Not recorded</string>
+    <string name="detail_geotagged">%1$s, %2$s</string>
+    <string name="detail_calories">Calories</string>
+    <string name="detail_type">Type</string>
+    <string name="detail_type_liquid">Liquid intake</string>
+    <string name="detail_type_solid">Solid food</string>
+    <string name="detail_edit">Edit meal</string>
+    <string name="detail_delete">Delete</string>
+    <string name="detail_unavailable">This meal is no longer available.</string>
+    <string name="detail_late_night">Late-night meal</string>
+    <string name="detail_kcal" tools:ignore="PluralsCandidate">%1$d kcal</string>
+    <string name="content_description_back">Back</string>
+    <string name="content_description_delete_meal">Delete %1$s</string>
+
+    <!-- ==================== Delete confirmation ==================== -->
+    <string name="delete_meal_title">DELETE DOSSIER RECORD?</string>
+    <string name="delete_meal_body" tools:ignore="PluralsCandidate">Are you sure you want to delete \'%1$s\' (%2$d kcal)? This will update daily and weekly totals.</string>
+    <string name="delete_meal_body_detail">This meal and its photo will be permanently deleted.</string>
+    <string name="delete_meal_confirm">DELETE</string>
+    <string name="delete_meal_confirm_detail">EXPUNGE RECORD</string>
+
+    <!-- ==================== Search and filters ==================== -->
+    <string name="search_placeholder">Filter records (e.g. Steak, 40P, Night)</string>
+    <string name="content_description_search">Search</string>
+    <string name="content_description_clear_search">Clear</string>
+    <string name="content_description_sort">Sort</string>
+    <string name="filter_all">ALL</string>
+    <string name="filter_today">TODAY</string>
+    <string name="filter_high_protein">HIGH PROTEIN</string>
+    <string name="filter_high_calorie">HIGH CAL</string>
+    <string name="filter_liquid">LIQUID</string>
+    <string name="filter_flagged">FLAGGED</string>
+    <string name="sort_newest">NEWEST</string>
+    <string name="sort_calories">CALORIES ↓</string>
+    <string name="sort_protein">PROTEIN ↓</string>
+
+    <!-- ==================== Empty states ==================== -->
+    <!-- Says what happened, why, and what to do next. The no-key variant used to
+         claim meals could not be logged at all, which was never true. -->
+    <string name="empty_no_meals">No meals logged yet.\n\nTake a photo, or log one by hand.</string>
+    <string name="empty_no_meals_no_key">No meals logged yet.\n\nLog one by hand to start. Photo analysis also needs an API key, which you can add in Settings.</string>
+    <string name="empty_no_filter_matches">No meals match this filter</string>
+    <string name="empty_no_filter_matches_hint">Try a different search term, or clear the filters to see everything.</string>
+    <string name="empty_clear_filters">CLEAR FILTERS</string>
+    <string name="empty_no_map_points">No meals mapped yet.\n\nTurn on \"Tag meals with location\" in Settings, then photograph a meal to place it here.</string>
+    <string name="empty_no_activity">No activity yet</string>
+
+    <!-- ==================== Camera ==================== -->
+    <string name="camera_title">Take photo</string>
+    <string name="camera_instruction">Point the camera at your meal, then tap the shutter.</string>
+    <string name="content_description_shutter">Take photo</string>
+    <string name="camera_capture_failed">Couldn\'t take the photo. Try again.</string>
+
+    <!-- ==================== Trends ==================== -->
+    <string name="trends_macros_today">Macros today</string>
+    <string name="trends_last_7_days">Last 7 days</string>
+    <string name="trends_daily_summary">Daily summary</string>
+    <string name="trends_meal_map">Meal map (%1$d)</string>
+    <string name="trends_no_geotagged">No geotagged meals</string>
+    <string name="trends_close_map">Close map</string>
+    <string name="trends_where_you_ate">Where you ate</string>
+    <string name="trends_title">Trends</string>
+    <string name="trends_todays_progress">Today\'s progress</string>
+    <string name="trends_of_target" tools:ignore="PluralsCandidate">of %1$d kcal</string>
+    <string name="trends_debrief_title">INTELLIGENCE DEBRIEF</string>
+    <string name="trends_export_file">EXPORT FILE</string>
+    <string name="trends_copy">COPY</string>
+    <string name="trends_writing_summary">Writing your summary…</string>
+    <string name="content_description_close">Close</string>
+    <string name="macro_amount_with_share">%1$sg (%2$s)</string>
+    <string name="trends_geotag_marker">· GEOTAGGED</string>
+    <string name="trends_generate_dossier">Generate weekly dossier debrief</string>
+    <string name="trends_dismiss">Tap anywhere to dismiss</string>
+    <!-- The second network boundary, previously undisclosed. -->
+    <string name="trends_summary_notice">\"Daily summary\" sends today\'s meal names and totals to your analysis provider.</string>
+    <!-- "1 day" vs "2 days": a screen reader reads this verbatim, so the
+         grammar has to be right in every language, not patched with an if. -->
+    <plurals name="chart_weekly_description">
+        <item quantity="one">Weekly intake chart: %1$d calories average across %2$d day with entries. Daily target %3$d calories.</item>
+        <item quantity="other">Weekly intake chart: %1$d calories average across %2$d days with entries. Daily target %3$d calories.</item>
+    </plurals>
+    <plurals name="chart_weekly_description_empty">
+        <item quantity="one">Weekly intake chart: no meals logged in the last %1$d day. Daily target %2$d calories.</item>
+        <item quantity="other">Weekly intake chart: no meals logged in the last %1$d days. Daily target %2$d calories.</item>
+    </plurals>
+
+    <!-- ==================== Settings ==================== -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_api_key">Analysis API key</string>
+    <string name="settings_api_key_present">A key is saved (%1$s). Enter a new one to replace it.</string>
+    <string name="settings_api_key_absent">Meal analysis needs a Hugging Face access token. Paste one here to turn it on — it is stored only on this device.</string>
+    <string name="settings_api_key_hint">hf_…</string>
+    <string name="settings_api_key_save">Save key</string>
+    <string name="settings_api_key_clear">Clear</string>
+    <string name="settings_api_key_saved">API key saved.</string>
+    <string name="settings_api_key_cleared">API key cleared.</string>
+    <string name="content_description_show_key">Show key</string>
+    <string name="content_description_hide_key">Hide key</string>
+
+    <string name="settings_theme">Terminal theme</string>
+    <string name="settings_theme_description">Select tactical phosphor rendering and interface palette.</string>
+    <string name="content_description_theme_active">Active</string>
+
+    <string name="settings_calorie_target">Daily calorie target</string>
+    <string name="settings_target_field">Target</string>
+    <string name="settings_target_unit">kcal</string>
+    <string name="settings_target_range" tools:ignore="PluralsCandidate">The slider covers %1$d–%2$d kcal. Type a number above to set anything from %3$d to %4$d.</string>
+    <plurals name="content_description_decrease_target">
+        <item quantity="one">Decrease target by %1$d calorie</item>
+        <item quantity="other">Decrease target by %1$d calories</item>
+    </plurals>
+    <plurals name="content_description_increase_target">
+        <item quantity="one">Increase target by %1$d calorie</item>
+        <item quantity="other">Increase target by %1$d calories</item>
+    </plurals>
+
+    <string name="settings_reminders">Reminders</string>
+    <string name="settings_reminders_toggle">Remind me when a meal is overdue</string>
+    <string name="settings_reminders_description">Checks every 6 hours during the day and notifies you if nothing has been logged for a while.</string>
+    <string name="settings_reminders_blocked">Notifications are turned off for MacroMandate, so reminders cannot be shown. You can turn them back on in Android Settings &gt; Apps &gt; MacroMandate &gt; Notifications.</string>
+
+    <string name="settings_location">Location</string>
+    <string name="settings_location_toggle">Tag meals with location</string>
+    <string name="settings_location_description">When on, your precise coordinates are saved with each meal, printed onto the photo, and that photo is sent to the analysis service. Off by default.</string>
+
+    <string name="settings_your_data">Your data</string>
+    <string name="settings_data_portability">Data portability &amp; backup</string>
+    <string name="settings_data_description">Export structured JSON archives for full database restoration, or CSV dossiers for external spreadsheet analysis.</string>
+    <string name="settings_export_json">Export JSON Backup</string>
+    <string name="settings_restore_json">Restore JSON Backup</string>
+    <string name="settings_export_csv">Export CSV Spreadsheet</string>
+
+    <string name="settings_erase">Erase everything</string>
+    <string name="settings_erase_description">Permanently deletes every meal, every saved photo, and the activity log from this device. Your settings and API key are kept. This cannot be undone — export a backup first if you want one.</string>
+    <string name="settings_erase_button">Delete all my data</string>
+    <string name="settings_erase_confirm_title">Delete everything?</string>
+    <string name="settings_erase_confirm_body">Every meal, every saved photo and the activity log will be permanently deleted from this device. This cannot be undone.</string>
+    <string name="settings_erase_confirm_button">Delete everything</string>
+    <string name="settings_erase_cancel">Cancel</string>
+    <string name="settings_erase_done">All data deleted.</string>
+    <string name="settings_erase_failed">Could not delete everything.</string>
+
+    <string name="settings_activity_log">Activity log</string>
+    <string name="settings_clear_log">CLEAR LOG</string>
+
+    <!-- ==================== Backup and restore ==================== -->
+    <string name="restore_title">RESTORE MEAL DATABASE?</string>
+    <string name="restore_body">This will parse the selected JSON backup and merge all records into your local database. Existing records with identical IDs will be updated.</string>
+    <string name="restore_confirm">RESTORE</string>
+    <plurals name="restore_success">
+        <item quantity="one">Restored %1$d record.</item>
+        <item quantity="other">Restored %1$d records.</item>
+    </plurals>
+    <string name="restore_error_too_large">That backup file is too large to restore.</string>
+    <string name="restore_error_future_version">That backup was written by a newer version of MacroMandate.</string>
+    <string name="restore_error_unreadable">That file could not be read as a MacroMandate backup.</string>
+    <string name="export_csv_success">CSV dossier exported.</string>
+    <string name="export_csv_failed">Export failed.</string>
+    <string name="export_json_success">JSON backup exported.</string>
+    <string name="export_json_failed">JSON export failed.</string>
+
+    <!-- ==================== Errors ====================
+         One plain sentence each. No status codes, no hostnames, no stack frames.
+         Where the app still works without the network, the message says so. -->
+    <string name="error_no_api_key">No API key set. Add one in Settings to analyse photos.</string>
+    <string name="error_offline">No connection. You can still log this meal manually.</string>
+    <string name="error_timeout">Analysis timed out. Try again, or log the meal manually.</string>
+    <string name="error_credential_rejected">The analysis service rejected your API key. Check it in Settings.</string>
+    <string name="error_rate_limited">The analysis service is rate limiting requests. Try again shortly.</string>
+    <string name="error_provider_unavailable">The analysis service is unavailable right now. Try again later.</string>
+    <string name="error_image_unreadable">That image could not be read. Try another photo.</string>
+    <string name="error_unreadable_result">The analysis service returned no usable nutrition data.</string>
+    <string name="error_secure_connection_failed">Could not establish a secure connection to the analysis service.</string>
+    <string name="error_unknown">Analysis failed. You can still log this meal manually.</string>
+    <string name="error_no_meals_today">Nothing logged today to summarise.</string>
+
+    <!-- ==================== Notifications ==================== -->
+    <string name="notification_channel_reminders">Meal reminders</string>
+    <string name="notification_channel_reminders_description">Reminders when a meal has not been logged</string>
+    <string name="notification_channel_daily_total">Daily total</string>
+    <string name="notification_channel_daily_total_description">Ongoing notification showing today\'s calories</string>
+    <string name="notification_meal_overdue_title">Meal overdue</string>
+    <string name="notification_meal_overdue_body">You haven\'t logged a meal in a while.</string>
+
+    <!-- ==================== Widget ==================== -->
     <string name="widget_label">MacroMandate daily total</string>
     <string name="widget_description">Today\'s calories against your target.</string>
+    <string name="widget_title">MACROMANDATE</string>
+    <string name="widget_progress" tools:ignore="PluralsCandidate">%1$d / %2$d kcal</string>
+    <string name="widget_progress_no_target" tools:ignore="PluralsCandidate">%1$d kcal</string>
+    <string name="widget_log_meal">Log a meal</string>
+
+    <!-- ==================== Fallback content ==================== -->
 </resources>

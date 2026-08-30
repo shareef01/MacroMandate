@@ -42,6 +42,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.sharek.macromandate.R
 import com.sharek.macromandate.model.MealEntry
 import com.sharek.macromandate.ui.theme.NutritionColors
 import com.sharek.macromandate.viewmodel.ComplianceStatus
@@ -50,24 +51,26 @@ import com.sharek.macromandate.viewmodel.UiState
 import com.sharek.macromandate.ui.hudFraming
 import java.text.SimpleDateFormat
 import java.util.*
+import androidx.annotation.StringRes
+import androidx.compose.ui.res.stringResource
 
 enum class ScreenState {
     DASHBOARD, CAMERA
 }
 
-enum class MealFilter(val label: String) {
-    ALL("ALL"),
-    TODAY("TODAY"),
-    HIGH_PROTEIN("HIGH PROTEIN"),
-    HIGH_CAL("HIGH CAL"),
-    LIQUID("LIQUID"),
-    FLAGGED("FLAGGED")
+enum class MealFilter(@StringRes val labelRes: Int) {
+    ALL(R.string.filter_all),
+    TODAY(R.string.filter_today),
+    HIGH_PROTEIN(R.string.filter_high_protein),
+    HIGH_CAL(R.string.filter_high_calorie),
+    LIQUID(R.string.filter_liquid),
+    FLAGGED(R.string.filter_flagged)
 }
 
-enum class MealSortOrder(val label: String) {
-    NEWEST("NEWEST"),
-    HIGHEST_CAL("CALORIES ↓"),
-    HIGHEST_PROTEIN("PROTEIN ↓");
+enum class MealSortOrder(@StringRes val labelRes: Int) {
+    NEWEST(R.string.sort_newest),
+    HIGHEST_CAL(R.string.sort_calories),
+    HIGHEST_PROTEIN(R.string.sort_protein);
 
     fun next(): MealSortOrder = when (this) {
         NEWEST -> HIGHEST_CAL
@@ -115,17 +118,19 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
         }
     )
 
-    LaunchedEffect(uiState) {
-        when (val state = uiState) {
-            is UiState.Error -> {
-                snackbarHostState.showSnackbar(state.message)
-                viewModel.resetUiState()
-            }
-            is UiState.Success -> {
-                snackbarHostState.showSnackbar("Logged: ${state.mealName}")
-                viewModel.resetUiState()
-            }
-            else -> {}
+    // Resolved in composition, not inside the effect: a LaunchedEffect body is a
+    // suspend lambda rather than a composable, so pulling a resource from inside
+    // it has to go through LocalContext, which does not re-read on a
+    // configuration change.
+    val snackbarMessage = when (val state = uiState) {
+        is UiState.Error -> stringResource(state.messageRes)
+        is UiState.Success -> stringResource(R.string.analysis_logged, state.mealName)
+        else -> null
+    }
+    LaunchedEffect(snackbarMessage) {
+        snackbarMessage?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            viewModel.resetUiState()
         }
     }
 
@@ -250,14 +255,18 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "Recent meals",
+                                text = stringResource(R.string.dashboard_recent_meals),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Black,
                                 color = MaterialTheme.colorScheme.primary
                             )
                             if (mealEntries.isNotEmpty()) {
                                 Text(
-                                    text = "${filteredMealEntries.size}/${mealEntries.size} LOGGED",
+                                    text = stringResource(
+                                        R.string.dashboard_logged_count,
+                                        filteredMealEntries.size,
+                                        mealEntries.size
+                                    ),
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
                                     color = Color.Gray
@@ -277,13 +286,9 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
                                 // read. An empty state has to say what happened, why,
                                 // and what they can do next.
                                 Text(
-                                    text = if (hasApiKey) {
-                                        "No meals logged yet.\n\nTake a photo, or log one by hand."
-                                    } else {
-                                        "No meals logged yet.\n\nLog one by hand to start. " +
-                                            "Photo analysis also needs an API key, " +
-                                            "which you can add in Settings."
-                                    },
+                                    text = stringResource(
+                                        if (hasApiKey) R.string.empty_no_meals else R.string.empty_no_meals_no_key
+                                    ),
                                     style = MaterialTheme.typography.bodyLarge,
                                     color = Color.Gray,
                                     fontWeight = FontWeight.Bold,
@@ -331,7 +336,7 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
                         onDismissRequest = { mealToDelete = null },
                         title = {
                             Text(
-                                text = "DELETE DOSSIER RECORD?",
+                                text = stringResource(R.string.delete_meal_title),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Black,
                                 color = MaterialTheme.colorScheme.error
@@ -339,9 +344,13 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
                         },
                         text = {
                             Text(
-                                text = "Are you sure you want to delete '${targetMeal.foodName.uppercase()}' (${targetMeal.calories} kcal)? This will update daily and weekly aggregates.",
+                                text = stringResource(
+                                    R.string.delete_meal_body,
+                                    targetMeal.foodName,
+                                    targetMeal.calories
+                                ),
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = Color.White
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                         },
                         confirmButton = {
@@ -357,7 +366,7 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
                                     contentColor = MaterialTheme.colorScheme.onError
                                 )
                             ) {
-                                Text("DELETE", fontWeight = FontWeight.Black)
+                                Text(stringResource(R.string.delete_meal_confirm), fontWeight = FontWeight.Black)
                             }
                         },
                         dismissButton = {
@@ -365,7 +374,7 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
                                 onClick = { mealToDelete = null },
                                 shape = RectangleShape
                             ) {
-                                Text("CANCEL", color = Color.Gray)
+                                Text(stringResource(R.string.action_cancel), color = Color.Gray)
                             }
                         },
                         shape = RectangleShape,
@@ -430,12 +439,14 @@ fun StateStatusBanner(status: ComplianceStatus, modifier: Modifier = Modifier) {
     }
     // Flavour lives in the status line, where it costs nothing to understand.
     // No status claims a feature is locked any more, because none is.
-    val text = when (status) {
-        ComplianceStatus.EXEMPLARY -> "On target. The State is pleased."
-        ComplianceStatus.ACCEPTABLE -> "Close to target."
-        ComplianceStatus.SUBVERSIVE -> "Well off target."
-        ComplianceStatus.CRISIS -> "Far from target."
-    }
+    val text = stringResource(
+        when (status) {
+            ComplianceStatus.EXEMPLARY -> R.string.status_on_target
+            ComplianceStatus.ACCEPTABLE -> R.string.status_close_to_target
+            ComplianceStatus.SUBVERSIVE -> R.string.status_off_target
+            ComplianceStatus.CRISIS -> R.string.status_far_from_target
+        }
+    )
 
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -469,7 +480,11 @@ fun SummaryCard(
     fat: Int
 ) {
     val delta = totalCalories - target
-    val deltaText = if (delta > 0) "+$delta kcal over target" else "${-delta} kcal remaining"
+    val deltaText = if (delta > 0) {
+        stringResource(R.string.dashboard_over_target, delta)
+    } else {
+        stringResource(R.string.dashboard_remaining, -delta)
+    }
     val deltaColor = if (delta > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
 
     Card(
@@ -492,7 +507,7 @@ fun SummaryCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "TODAY",
+                    text = stringResource(R.string.dashboard_today),
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Black
@@ -515,7 +530,7 @@ fun SummaryCard(
                     fontWeight = FontWeight.Black
                 )
                 Text(
-                    text = "/ $target kcal",
+                    text = stringResource(R.string.dashboard_kcal_of_target, target),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = Color.Gray,
@@ -539,9 +554,9 @@ fun SummaryCard(
                     },
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                MacroReadout("PROTEIN", protein, NutritionColors.Protein)
-                MacroReadout("CARBS", carbs, NutritionColors.Carbs)
-                MacroReadout("FAT", fat, NutritionColors.Fat)
+                MacroReadout(R.string.macro_protein, protein, NutritionColors.Protein)
+                MacroReadout(R.string.macro_carbs, carbs, NutritionColors.Carbs)
+                MacroReadout(R.string.macro_fat, fat, NutritionColors.Fat)
             }
         }
     }
@@ -573,7 +588,12 @@ fun ActionRow(
                     modifier = Modifier.size(16.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Take photo", fontWeight = FontWeight.Bold, maxLines = 1, fontSize = 12.sp)
+                Text(
+                    stringResource(R.string.action_take_photo),
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    fontSize = 12.sp
+                )
             }
             OutlinedButton(
                 onClick = onImportImage,
@@ -589,7 +609,7 @@ fun ActionRow(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    "Choose photo",
+                    stringResource(R.string.action_choose_photo),
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
@@ -603,7 +623,7 @@ fun ActionRow(
         // room, or documents, and the user is entitled to know it leaves the
         // device before they tap.
         Text(
-            text = "Photos are sent to your configured analysis provider. Manual entry stays on this device.",
+            text = stringResource(R.string.capture_network_notice),
             style = MaterialTheme.typography.labelSmall,
             color = Color.Gray,
             modifier = Modifier.padding(top = 2.dp)
@@ -623,7 +643,7 @@ fun ActionRow(
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                "Log a meal manually",
+                stringResource(R.string.action_log_manually),
                 color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.Black,
                 fontSize = 12.sp
@@ -652,7 +672,7 @@ fun ManualMealDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "MANUAL REFUELING ENTRY",
+                text = stringResource(R.string.manual_entry_title),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Black,
                 color = MaterialTheme.colorScheme.primary
@@ -668,7 +688,7 @@ fun ManualMealDialog(
                 OutlinedTextField(
                     value = foodName,
                     onValueChange = { foodName = it },
-                    label = { Text("Item Name") },
+                    label = { Text(stringResource(R.string.field_item_name)) },
                     singleLine = true,
                     shape = RectangleShape,
                     modifier = Modifier.fillMaxWidth()
@@ -676,7 +696,7 @@ fun ManualMealDialog(
                 OutlinedTextField(
                     value = caloriesStr,
                     onValueChange = { caloriesStr = it.filter { ch -> ch.isDigit() }.take(6) },
-                    label = { Text("Calories (kcal)") },
+                    label = { Text(stringResource(R.string.field_calories)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     shape = RectangleShape,
@@ -689,7 +709,7 @@ fun ManualMealDialog(
                     OutlinedTextField(
                         value = proteinStr,
                         onValueChange = { proteinStr = sanitizeDecimalInput(it) },
-                        label = { Text("P (g)") },
+                        label = { Text(stringResource(R.string.field_protein)) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         shape = RectangleShape,
@@ -698,7 +718,7 @@ fun ManualMealDialog(
                     OutlinedTextField(
                         value = carbsStr,
                         onValueChange = { carbsStr = sanitizeDecimalInput(it) },
-                        label = { Text("C (g)") },
+                        label = { Text(stringResource(R.string.field_carbs)) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         shape = RectangleShape,
@@ -707,7 +727,7 @@ fun ManualMealDialog(
                     OutlinedTextField(
                         value = fatStr,
                         onValueChange = { fatStr = sanitizeDecimalInput(it) },
-                        label = { Text("F (g)") },
+                        label = { Text(stringResource(R.string.field_fat)) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         shape = RectangleShape,
@@ -730,7 +750,7 @@ fun ManualMealDialog(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Liquid consumption (Beverage / Shake)",
+                        text = stringResource(R.string.field_is_liquid),
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.White
                     )
@@ -753,12 +773,12 @@ fun ManualMealDialog(
                     contentColor = MaterialTheme.colorScheme.onPrimary
                 )
             ) {
-                Text("LOG RECORD", fontWeight = FontWeight.Black)
+                Text(stringResource(R.string.manual_entry_save), fontWeight = FontWeight.Black)
             }
         },
         dismissButton = {
             OutlinedButton(onClick = onDismiss, shape = RectangleShape) {
-                Text("CANCEL", color = Color.Gray)
+                Text(stringResource(R.string.action_cancel), color = Color.Gray)
             }
         },
         shape = RectangleShape,
@@ -798,6 +818,8 @@ fun MealEntryItem(
     // with a real zone marker rather than a hardcoded literal.
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm z", Locale.getDefault()) }
     val haptic = LocalHapticFeedback.current
+    val deleteDescription = stringResource(R.string.content_description_delete_meal, entry.foodName)
+    val macroDescription = macroContentDescription(entry.proteinGrams, entry.carbsGrams, entry.fatGrams)
 
     Card(
         modifier = Modifier
@@ -835,14 +857,12 @@ fun MealEntryItem(
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.clearAndSetSemantics {
-                            contentDescription = macroContentDescription(
-                                entry.proteinGrams, entry.carbsGrams, entry.fatGrams
-                            )
+                            contentDescription = macroDescription
                         }
                     )
                 }
                 Text(
-                    text = "${entry.calories} KCAL",
+                    text = stringResource(R.string.detail_kcal, entry.calories).uppercase(),
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Black,
                     color = MaterialTheme.colorScheme.primary,
@@ -853,7 +873,7 @@ fun MealEntryItem(
                     // Every row's delete button announced the bare word "DELETE",
                     // giving no way to tell which meal was about to go.
                     modifier = Modifier.semantics {
-                        contentDescription = "Delete ${entry.foodName}"
+                        contentDescription = deleteDescription
                     }
                 ) {
                     Icon(
@@ -883,7 +903,7 @@ fun MealEntryItem(
                 if (entry.latitude != null && entry.longitude != null) {
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "· GEOTAGGED",
+                        text = stringResource(R.string.trends_geotag_marker),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
                     )
@@ -909,7 +929,7 @@ fun MealSearchBar(
             .height(52.dp),
         placeholder = {
             Text(
-                "Filter records (e.g. Steak, 40P, Night)",
+                stringResource(R.string.search_placeholder),
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.Gray
             )
@@ -917,7 +937,7 @@ fun MealSearchBar(
         leadingIcon = {
             Icon(
                 imageVector = Icons.Default.Search,
-                contentDescription = "Search",
+                contentDescription = stringResource(R.string.content_description_search),
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(18.dp)
             )
@@ -930,7 +950,7 @@ fun MealSearchBar(
                 }) {
                     Icon(
                         imageVector = Icons.Default.Clear,
-                        contentDescription = "Clear",
+                        contentDescription = stringResource(R.string.content_description_clear_search),
                         tint = Color.Gray,
                         modifier = Modifier.size(18.dp)
                     )
@@ -986,13 +1006,13 @@ fun MealFilterChipRow(
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.Sort,
-                    contentDescription = "Sort",
+                    contentDescription = stringResource(R.string.content_description_sort),
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(14.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = sortOrder.label,
+                    text = stringResource(sortOrder.labelRes),
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Black,
                     color = MaterialTheme.colorScheme.primary
@@ -1019,7 +1039,7 @@ fun MealFilterChipRow(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = filter.label,
+                        text = stringResource(filter.labelRes),
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         color = if (isSelected) MaterialTheme.colorScheme.onPrimary else Color.Gray
@@ -1050,7 +1070,7 @@ fun EmptySearchResultView(
                 .padding(16.dp)
         ) {
             Text(
-                text = "No meals match this filter",
+                text = stringResource(R.string.empty_no_filter_matches),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Black,
                 color = MaterialTheme.colorScheme.error,
@@ -1058,7 +1078,7 @@ fun EmptySearchResultView(
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "Try a different search term, or clear the filters to see everything.",
+                text = stringResource(R.string.empty_no_filter_matches_hint),
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.Gray,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -1073,7 +1093,7 @@ fun EmptySearchResultView(
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
             ) {
                 Text(
-                    text = "CLEAR FILTERS",
+                    text = stringResource(R.string.empty_clear_filters),
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Black,
                     color = MaterialTheme.colorScheme.primary
@@ -1092,16 +1112,16 @@ fun EmptySearchResultView(
  * goal the user never set.
  */
 @Composable
-private fun MacroReadout(label: String, grams: Int, accent: Color) {
+private fun MacroReadout(@StringRes labelRes: Int, grams: Int, accent: Color) {
     Column(horizontalAlignment = Alignment.Start) {
         Text(
-            text = label,
+            text = stringResource(labelRes),
             style = MaterialTheme.typography.labelSmall,
             color = Color.Gray,
             fontWeight = FontWeight.Bold
         )
         Text(
-            text = "${grams}g",
+            text = stringResource(R.string.macro_grams_short, grams),
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Black,
             color = accent
@@ -1134,14 +1154,14 @@ private fun AnalysisLoadingOverlay(onCancel: () -> Unit) {
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    "Analysing photo",
+                    stringResource(R.string.analysis_in_progress),
                     color = MaterialTheme.colorScheme.primary,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Black
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    "This can take up to a minute.",
+                    stringResource(R.string.analysis_may_take_a_minute),
                     color = Color.Gray,
                     style = MaterialTheme.typography.bodySmall
                 )
@@ -1151,7 +1171,11 @@ private fun AnalysisLoadingOverlay(onCancel: () -> Unit) {
                     shape = RectangleShape,
                     border = BorderStroke(1.dp, Color.Gray)
                 ) {
-                    Text("Cancel", color = Color.Gray, fontWeight = FontWeight.Bold)
+                    Text(
+                        stringResource(R.string.settings_erase_cancel),
+                        color = Color.Gray,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         }

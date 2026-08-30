@@ -1,6 +1,8 @@
 package com.sharek.macromandate.viewmodel
 
 import android.net.Uri
+import androidx.annotation.StringRes
+import com.sharek.macromandate.R
 import com.sharek.macromandate.util.ParsedNutrition
 
 /**
@@ -38,15 +40,19 @@ data class PendingAnalysis(
             nutrition.caloriesContradictMacros ||
             nutrition.valuesClamped
 
-    /** A short, non-alarming explanation of [hasCaveat], or null when there is none. */
-    val caveat: String?
+    /**
+     * A short, non-alarming explanation of [hasCaveat] as a string resource, or
+     * null when there is nothing to flag.
+     *
+     * Only the most specific one is shown. Stacking three caveats on an estimate
+     * turns a useful "worth checking" into noise the user learns to dismiss.
+     */
+    @get:StringRes
+    val caveatRes: Int?
         get() = when {
-            nutrition.caloriesContradictMacros ->
-                "The calorie figure doesn't match the macros given. Worth checking."
-            nutrition.caloriesDerivedFromMacros ->
-                "No calorie figure was returned, so this is calculated from the macros."
-            nutrition.valuesClamped ->
-                "Some values were outside the range this app can store and were adjusted."
+            nutrition.caloriesContradictMacros -> R.string.analysis_caveat_contradiction
+            nutrition.caloriesDerivedFromMacros -> R.string.analysis_caveat_derived
+            nutrition.valuesClamped -> R.string.analysis_caveat_clamped
             else -> null
         }
 }

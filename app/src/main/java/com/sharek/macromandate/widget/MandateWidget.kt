@@ -18,6 +18,7 @@ import com.sharek.macromandate.data.local.AppDatabase
 import com.sharek.macromandate.data.pref.MandatePreferences
 import com.sharek.macromandate.data.repository.MealRepository
 import kotlinx.coroutines.flow.first
+import com.sharek.macromandate.R
 
 class MandateWidget : GlanceAppWidget() {
 
@@ -54,7 +55,7 @@ class MandateWidget : GlanceAppWidget() {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = "MACROMANDATE",
+                text = context.getString(R.string.widget_title),
                 style = TextStyle(
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold
@@ -64,7 +65,11 @@ class MandateWidget : GlanceAppWidget() {
             Spacer(modifier = GlanceModifier.height(8.dp))
 
             Text(
-                text = if (target > 0) "$current / $target kcal" else "$current kcal",
+                text = if (target > 0) {
+                    context.getString(R.string.widget_progress, current, target)
+                } else {
+                    context.getString(R.string.widget_progress_no_target, current)
+                },
                 style = TextStyle(
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Medium
@@ -81,7 +86,7 @@ class MandateWidget : GlanceAppWidget() {
             Spacer(modifier = GlanceModifier.height(12.dp))
 
             Button(
-                text = "Log a meal",
+                text = context.getString(R.string.widget_log_meal),
                 onClick = actionStartActivity(ComponentName(context, MainActivity::class.java)),
                 modifier = GlanceModifier.fillMaxWidth()
             )

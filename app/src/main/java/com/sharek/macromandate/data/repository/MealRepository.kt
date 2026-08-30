@@ -6,6 +6,7 @@ import com.sharek.macromandate.model.MealEntry
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
@@ -22,6 +23,17 @@ class MealRepository(private val mealDao: MealDao) {
          * oldest day moved the score without ever being shown.
          */
         const val WEEK_LENGTH_DAYS = 7
+
+        /**
+         * How long [dayBoundaries] will sleep before re-checking which day it is.
+         *
+         * Fifteen minutes bounds the worst-case staleness after a clock change,
+         * a timezone crossing, or a wake from deep sleep, while being far too
+         * coarse to matter for battery — the check is a `Calendar` construction
+         * and an integer comparison, and it emits nothing unless the day
+         * actually changed.
+         */
+        const val BOUNDARY_CHECK_INTERVAL_MS = 15L * 60 * 1000
     }
 
     fun getAllMeals(): Flow<List<MealEntry>> {
@@ -45,25 +57,44 @@ class MealRepository(private val mealDao: MealDao) {
         }
 
     /**
-     * Emits the current start-of-day, then re-emits at every midnight.
+     * Emits the current start-of-day, and re-emits whenever it changes.
      *
      * The cutoff must not be captured once when the flow is built: these flows are
-     * collected for the lifetime of the ViewModel and of the long-running
-     * surveillance service, so a fixed cutoff keeps reporting yesterday's totals
-     * after the day rolls over.
+     * collected for the lifetime of the ViewModel, so a fixed cutoff keeps
+     * reporting yesterday's totals after the day rolls over.
+     *
+     * Sleeping straight through to the next midnight looks tidier but is wrong in
+     * three ways that all show the user stale totals:
+     *
+     * - `delay` is driven by `CLOCK_MONOTONIC`, which does not advance while the
+     *   device is in deep sleep. A phone asleep across midnight wakes up still
+     *   reporting yesterday, until whatever remains of a several-hour timer runs
+     *   out.
+     * - Travelling across a timezone moves midnight, but a timer already armed for
+     *   the old one does not care.
+     * - The same applies to the user setting the clock, and to a DST transition.
+     *
+     * Waking at most every [BOUNDARY_CHECK_INTERVAL_MS] and recomputing costs a
+     * few comparisons an hour and is correct under all of them.
+     * [distinctUntilChanged] means a re-check that finds the same boundary emits
+     * nothing, so downstream queries are not re-run for a tick that changed
+     * nothing.
      */
     private fun dayBoundaries(): Flow<Long> = flow {
         while (true) {
             val today = startOfTodayCalendar()
             emit(today.timeInMillis)
-            // Adding a day via Calendar rather than 24h of millis keeps this correct
-            // across DST transitions.
+
+            // Adding a day via Calendar rather than 24h of millis keeps this
+            // correct across DST transitions, where a day is 23 or 25 hours.
             val nextMidnight = (today.clone() as Calendar)
                 .apply { add(Calendar.DAY_OF_YEAR, 1) }
                 .timeInMillis
-            delay((nextMidnight - System.currentTimeMillis()).coerceAtLeast(1L))
+
+            val untilMidnight = nextMidnight - System.currentTimeMillis()
+            delay(untilMidnight.coerceIn(1L, BOUNDARY_CHECK_INTERVAL_MS))
         }
-    }
+    }.distinctUntilChanged()
 
     private fun startOfTodayCalendar(): Calendar = Calendar.getInstance().apply {
         set(Calendar.HOUR_OF_DAY, 0)

@@ -9,7 +9,9 @@ import androidx.core.graphics.scale
 import androidx.glance.appwidget.updateAll
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.annotation.StringRes
 import com.sharek.macromandate.BuildConfig
+import com.sharek.macromandate.R
 import com.sharek.macromandate.data.local.AppDatabase
 import com.sharek.macromandate.data.local.AuditEntity
 import com.sharek.macromandate.data.pref.MandatePreferences
@@ -56,8 +58,18 @@ import kotlin.math.abs
 sealed class UiState {
     object Idle : UiState()
     object Loading : UiState()
+
+    /** [mealName] is the user's own text, so it is passed through, not localized. */
     data class Success(val mealName: String) : UiState()
-    data class Error(val message: String) : UiState()
+
+    /**
+     * Carries a string resource, not a string.
+     *
+     * Resolving the message where the failure happens bakes in the locale that
+     * was active at throw time and puts English inside the ViewModel. The id is
+     * resolved by whichever composable displays it.
+     */
+    data class Error(@StringRes val messageRes: Int) : UiState()
 }
 
 /**
@@ -221,12 +233,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val meals = todayMeals.value
             if (meals.isEmpty()) {
-                _uiState.value = UiState.Error("NO DATA AVAILABLE FOR SYNTHESIS.")
+                _uiState.value = UiState.Error(R.string.error_no_meals_today)
                 return@launch
             }
             val apiKey = resolveApiKey()
             if (apiKey.isBlank()) {
-                _uiState.value = UiState.Error(ApiConfig.NOT_CONFIGURED_MESSAGE)
+                _uiState.value = UiState.Error(AnalysisError.NoApiKey.messageRes)
                 return@launch
             }
 
@@ -265,10 +277,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     // — StateFlow conflates, and there is no suspension point between.
                     _uiState.value = UiState.Idle
                 } else {
-                    _uiState.value = UiState.Error("UPLINK FAILURE: ${response.code()}")
+                    // Was "UPLINK FAILURE: 503". The analysis path was given a
+                    // domain error taxonomy and this one was missed, so it kept
+                    // showing status codes and raw exception text.
+                    _uiState.value = UiState.Error(AnalysisError.fromHttpStatus(response.code()).messageRes)
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                _uiState.value = UiState.Error("SYNTHESIS ERROR: ${e.localizedMessage?.uppercase()}")
+                Log.w(TAG, "Daily briefing failed", e)
+                _uiState.value = UiState.Error(AnalysisError.fromThrowable(e).messageRes)
             }
         }
     }
@@ -379,7 +397,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     } ?: return@withContext Result.failure(Exception("Failed to read selected backup file."))
 
                     val meals = DossierExporter.parseJsonBackup(jsonString).getOrElse { failure ->
-                        return@withContext Result.failure(Exception(restoreMessage(failure)))
+                        return@withContext Result.failure(RestoreFailure(restoreMessageRes(failure)))
                     }
 
                     if (meals.isNotEmpty()) {
@@ -390,10 +408,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     Result.success(meals.size)
                 } catch (e: OutOfMemoryError) {
-                    Result.failure(Exception("That backup file is too large to restore."))
+                    Result.failure(RestoreFailure(R.string.restore_error_too_large))
                 } catch (e: Exception) {
                     Log.w(TAG, "JSON backup import failed", e)
-                    Result.failure(Exception("That file could not be read as a MacroMandate backup."))
+                    Result.failure(RestoreFailure(R.string.restore_error_unreadable))
                 }
             }
 
@@ -471,7 +489,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         analysisJob = viewModelScope.launch {
             val apiKey = resolveApiKey()
             if (apiKey.isBlank()) {
-                _uiState.value = UiState.Error(AnalysisError.NoApiKey.message)
+                _uiState.value = UiState.Error(AnalysisError.NoApiKey.messageRes)
                 return@launch
             }
             _uiState.value = UiState.Loading
@@ -542,7 +560,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private class AnalysisFailure(val error: AnalysisError) : Exception(error.message)
+    private class AnalysisFailure(val error: AnalysisError) : Exception(error::class.simpleName)
 
     /** Performs the request and extracts one nutrition object, or an [AnalysisError]. */
     private suspend fun requestNutrition(apiKey: String, base64Image: String): Result<ParsedNutrition> {
@@ -648,7 +666,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Reports a failure and releases the frame that was being analysed. */
     private fun failAnalysis(source: Uri, error: AnalysisError) {
-        _uiState.value = UiState.Error(error.message)
+        _uiState.value = UiState.Error(error.messageRes)
         releaseCapture(source)
     }
 
@@ -867,18 +885,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return hour >= 23 || hour < 5
     }
 
-    private fun restoreMessage(failure: Throwable): String =
+    /** A restore failure that names a string resource rather than carrying English. */
+    class RestoreFailure(@StringRes val messageRes: Int) : Exception()
+
+    @StringRes
+    private fun restoreMessageRes(failure: Throwable): Int =
         when ((failure as? DossierExporter.RestoreException)?.error) {
-            is DossierExporter.RestoreError.TooLarge ->
-                "That backup file is too large to restore."
-            is DossierExporter.RestoreError.UnsupportedVersion ->
-                "That backup was written by a newer version of MacroMandate."
-            else ->
-                "That file could not be read as a MacroMandate backup."
+            is DossierExporter.RestoreError.TooLarge -> R.string.restore_error_too_large
+            is DossierExporter.RestoreError.UnsupportedVersion -> R.string.restore_error_future_version
+            else -> R.string.restore_error_unreadable
         }
 
     private companion object {
         const val TAG = "MainViewModel"
+        // Matches R.string.fallback_meal_name. Kept as a constant because it is
+        // written into the database, not displayed: a stored row must not change
+        // meaning when the device language does.
         const val DEFAULT_MEAL_NAME = "Untitled meal"
         const val LOCATION_TIMEOUT_SECONDS = 5L
 

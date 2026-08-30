@@ -37,6 +37,8 @@ import androidx.fragment.app.FragmentActivity
 import androidx.compose.runtime.collectAsState
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
+import androidx.annotation.StringRes
+import androidx.compose.ui.res.stringResource
 
 class MainActivity : FragmentActivity() {
     private val viewModel: MainViewModel by viewModels()
@@ -64,11 +66,11 @@ class MainActivity : FragmentActivity() {
 
 // Nav labels are single words: three long labels overflowed their items and ran
 // into the screen edges on a 1080px display.
-sealed class Screen(val route: String, val title: String, val icon: ImageVector) {
-    object Dashboard : Screen("dashboard", "Today", Icons.Default.Dashboard)
-    object Analytics : Screen("analytics", "Trends", Icons.Default.Analytics)
-    object ControlPanel : Screen("control_panel", "Settings", Icons.Default.Settings)
-    object MealDetail : Screen("meal_detail/{mealId}", "Meal", Icons.Default.Settings) // Icon is placeholder
+sealed class Screen(val route: String, @StringRes val titleRes: Int, val icon: ImageVector) {
+    object Dashboard : Screen("dashboard", R.string.nav_today, Icons.Default.Dashboard)
+    object Analytics : Screen("analytics", R.string.nav_trends, Icons.Default.Analytics)
+    object ControlPanel : Screen("control_panel", R.string.nav_settings, Icons.Default.Settings)
+    object MealDetail : Screen("meal_detail/{mealId}", R.string.nav_meal, Icons.Default.Settings)
 }
 
 @Composable
@@ -100,10 +102,14 @@ fun MacroMandateApp(viewModel: MainViewModel) {
                 ) {
                     items.forEach { screen ->
                         NavigationBarItem(
-                            icon = { Icon(screen.icon, contentDescription = screen.title) },
+                            icon = {
+                                // The label below already names the destination, so
+                                // describing the icon too makes TalkBack say it twice.
+                                Icon(screen.icon, contentDescription = null)
+                            },
                             label = {
                                 Text(
-                                    screen.title,
+                                    stringResource(screen.titleRes),
                                     style = MaterialTheme.typography.labelMedium,
                                     maxLines = 1
                                 )

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Cleartext is refused outright.
+
+    MANDATE_API_BASE_URL is a build-time override, so a developer pointing the
+    app at a local http:// proxy is the realistic reason it would ever be needed
+    — and that belongs in a debug build, not in something a user installs. With
+    no debug-overrides block here, even that has to be a deliberate edit.
+
+    The default policy on API 28+ already blocks cleartext; stating it makes the
+    guarantee explicit rather than inherited, so a future manifest change cannot
+    quietly relax it.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>

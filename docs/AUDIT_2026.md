@@ -1200,8 +1200,8 @@ Re-run clean after every change in this audit:
 | Task | Result |
 |---|---|
 | `clean testDebugUnitTest lintDebug assembleDebug assembleRelease compileDebugAndroidTestKotlin` | **BUILD SUCCESSFUL** |
-| Unit tests | **118 run, 0 failures, 0 errors, 0 skipped** (was 44) |
-| `lintDebug` | **21 results, 0 code findings** (was 32). All 21 are dependency-version advisories (`GradleDependency` ×15, `NewerVersionAvailable` ×5, `AndroidGradlePluginVersion` ×1). Every code, resource and manifest finding is resolved — `UnusedResources`, `DataExtractionRules`, `RedundantLabel`, `UnusedAttribute`, `UseKtx` and `ObsoleteSdkInt` are all cleared. Dependency bumps were deliberately left alone: upgrading libraries inside an audit change set mixes unrelated regression risk into it |
+| Unit tests | **129 run, 0 failures, 0 errors, 0 skipped** (was 44) |
+| `lintDebug` | **22 results, 0 code findings** (was 32). All 21 are dependency-version advisories (`GradleDependency` ×15, `NewerVersionAvailable` ×5, `AndroidGradlePluginVersion` ×1). Every code, resource and manifest finding is resolved — `UnusedResources`, `DataExtractionRules`, `RedundantLabel`, `UnusedAttribute`, `UseKtx` and `ObsoleteSdkInt` are all cleared. Dependency bumps were deliberately left alone: upgrading libraries inside an audit change set mixes unrelated regression risk into it |
 | `lintVitalRelease` | passed |
 | Debug APK | 79.15 MB |
 | Release APK | 5.87 MB, R8 minified, **unsigned** (no keystore available) |
@@ -1345,6 +1345,87 @@ merely reworded.
 
 ---
 
+## 3d. Third pass — localization and the last raw-error path
+
+### §22.2 — Every user-visible string was a Kotlin literal
+
+| | |
+|---|---|
+| **ID** | MM-036 (from the first pass) · **P2** · **CONFIRMED** |
+
+`strings.xml` held exactly **one** entry, `app_name`. Every button, dialog,
+error, notification, empty state and content description in the application was
+a hardcoded literal. The app could not be translated at all, and there was no
+single place to review its voice.
+
+**Fix.** All ~170 user-visible strings extracted. Two pieces of that were
+architectural rather than mechanical:
+
+- **`AnalysisError` now carries `@StringRes` ids, not `String`s.** A domain class
+  has no business holding English, and resolving text at throw time is wrong for
+  a value that may be displayed after a configuration change. `UiState.Error` and
+  the restore failures carry ids the same way.
+- **Resource lookups were hoisted into composition.** A `LaunchedEffect` body is
+  a suspend lambda, and an activity-result callback is not a composable, so
+  resolving a string inside either means going through `LocalContext` — which
+  Compose does not observe. Lint caught three of these; all are now resolved in
+  composition and captured.
+
+Internal diagnostics — log tags, audit-log categories — were deliberately left
+as literals. They are never shown to a user, and translating them would only make
+crash reports harder to read.
+
+Also corrected in the same pass: `Locale.getDefault()` read inside a composable
+(non-observable), four count-bearing strings converted to `<plurals>`, and the
+kcal-bearing strings annotated with the reason they are *not* plurals rather than
+silently suppressed.
+
+### §38.2 — The daily briefing still showed raw exception text
+
+| | |
+|---|---|
+| **ID** | MM-046 · **P1** · **CONFIRMED** · `MainViewModel.generateDailyBriefing` |
+
+Found while converting `UiState` to resource ids. The analysis path was given the
+`AnalysisError` taxonomy in the first pass (§3.3); the briefing path was missed
+and still did:
+
+```kotlin
+UiState.Error("UPLINK FAILURE: ${response.code()}")
+UiState.Error("SYNTHESIS ERROR: ${e.localizedMessage?.uppercase()}")
+```
+
+Same defect, same screen family, one function away — a good argument for the
+taxonomy being a type rather than a convention. Now mapped through
+`AnalysisError`, with `CancellationException` rethrown rather than swallowed as a
+failure.
+
+### §38.3 — Camera capture failures showed CameraX internals
+
+| | |
+|---|---|
+| **ID** | MM-047 · **P2** · **CONFIRMED** · `CameraCaptureScreen` |
+
+`onCaptureError(exception.message?.uppercase() ?: "UNKNOWN CAPTURE FAILURE")` —
+the same uppercased-exception pattern, in the last place it survived. The detail
+now goes to logcat and the user gets one sentence.
+
+### Regression guard for the copy rules
+
+`ErrorCopyTest` parses `strings.xml` directly and asserts the rules hold: no
+error message contains a URL, hostname, status code, `Exception`, or stack frame;
+none is all-caps; each is a complete sentence; failures that leave the app usable
+name the manual fallback; failures the user can fix point at Settings; the review
+sheet says "Estimated" and "AI"; both network-boundary notices name the provider;
+and no status-line string mentions locking — which would mean the gating from
+§1.1 had come back.
+
+A unit test has no `Context`, so reading the resource file is what makes these
+checkable at all rather than deferring them to a device pass that has not
+happened.
+
+---
+
 ## 4. What changed
 
 | Area | Change |
@@ -1358,13 +1439,13 @@ merely reworded.
 
 | | Before | After |
 |---|---|---|
-| Unit tests | 44 | **118** |
+| Unit tests | 44 | **129** |
 | Instrumentation tests | 1 (asserts the package name) | 5 (+4 migration, unexecuted) |
 
 New suites: `NutritionBoundsTest` (19), `HostileAnalysisResponseTest` (20),
 `BackupRestoreHostileInputTest` (16), `NutritionFormatTest` (12),
-`AnalysisErrorTest` (10), `ImageForensicsTest` (7), `MigrationTest`
-(4, **not executed**).
+`AnalysisErrorTest` (11), `ImageForensicsTest` (7), `ErrorCopyTest` (10),
+`MigrationTest` (4, **not executed**).
 
 ---
 
@@ -1376,16 +1457,21 @@ New suites: `NutritionBoundsTest` (19), `HostileAnalysisResponseTest` (20),
 2. **Device verification pass** — TalkBack traversal, font scale to 2.0, touch
    target bounds, rotation through every dialog, the widget on a real launcher,
    startup and jank measurement.
-3. **Extract strings to resources** (§22.1). Still the largest outstanding
-   item: every user-visible string is a Kotlin literal.
-4. **Decompose `MainViewModel`** into screen-scoped ViewModels with injected
-   dependencies, primarily to make the analysis pipeline testable.
-5. Timezone-change receiver (MM-037); `java.time` migration; paging for the
-   history list; a `networkSecurityConfig` forbidding cleartext outside debug.
+3. **Decompose `MainViewModel`** into screen-scoped ViewModels with injected
+   dependencies. It remains the god object described in §1, and the reason it
+   matters is testability: it builds its own Retrofit instance in a `by lazy` and
+   reads `Application` directly, so none of the analysis pipeline can be
+   unit-tested. This is now the largest outstanding item.
+4. `java.time` migration; paging for the history list; a translation into at
+   least one other language, which is the only real test of the extraction.
 
 Done in the second pass: the typography scale (MM-034), EXIF orientation
 (MM-042), the POST_NOTIFICATIONS rationale (MM-043), the calorie target control
-(MM-041), erase-all (MM-044), and the empty states (MM-045).
+(MM-041), erase-all (MM-044), the empty states (MM-045).
+
+Done in the third pass: string extraction (MM-036), the briefing error path
+(MM-046), camera capture errors (MM-047), the day-rollover robustness fix
+(MM-037), and a `networkSecurityConfig` forbidding cleartext.
 
 ---
 

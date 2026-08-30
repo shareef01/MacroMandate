@@ -58,6 +58,10 @@ import com.sharek.macromandate.viewmodel.MainViewModel
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
+import androidx.compose.ui.res.stringResource
+import com.sharek.macromandate.R
+import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.res.pluralStringResource
 
 @Composable
 fun ControlPanelScreen(viewModel: MainViewModel) {
@@ -76,9 +80,24 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
     var pendingRestoreUri by remember { mutableStateOf<Uri?>(null) }
     var showEraseConfirm by remember { mutableStateOf(false) }
 
+    // Resolved here, in composition, because the launcher and click callbacks
+    // below are not composables.
+    val csvExported = stringResource(R.string.export_csv_success)
+    val csvFailed = stringResource(R.string.export_csv_failed)
+    val jsonExported = stringResource(R.string.export_json_success)
+    val jsonFailed = stringResource(R.string.export_json_failed)
+    val eraseDone = stringResource(R.string.settings_erase_done)
+    val eraseFailed = stringResource(R.string.settings_erase_failed)
+    val keySaved = stringResource(R.string.settings_api_key_saved)
+    val keyCleared = stringResource(R.string.settings_api_key_cleared)
+    val restoreFallbackError = stringResource(R.string.restore_error_unreadable)
+
     // Reflects whether reminders can actually be delivered, so the toggle cannot
     // sit there claiming to be on while the OS silently drops every notification.
     var notificationsBlocked by remember { mutableStateOf(!canPostNotifications(context)) }
+    // LocalResources rather than LocalContext.resources: it is the observable
+    // one, so a configuration change re-reads it.
+    val resources = LocalResources.current
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted -> notificationsBlocked = !granted }
@@ -103,7 +122,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                 viewModel.exportDataTo(context, target) { succeeded ->
                     scope.launch {
                         snackbarHostState.showSnackbar(
-                            if (succeeded) "CSV dossier exported." else "Export failed."
+                            if (succeeded) csvExported else csvFailed
                         )
                     }
                 }
@@ -118,7 +137,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                 viewModel.exportJsonBackupTo(context, target) { succeeded ->
                     scope.launch {
                         snackbarHostState.showSnackbar(
-                            if (succeeded) "JSON backup exported." else "JSON export failed."
+                            if (succeeded) jsonExported else jsonFailed
                         )
                     }
                 }
@@ -140,7 +159,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
             onDismissRequest = { pendingRestoreUri = null },
             title = {
                 Text(
-                    text = "RESTORE MEAL DATABASE?",
+                    text = stringResource(R.string.restore_title),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Black,
                     color = MaterialTheme.colorScheme.primary
@@ -148,7 +167,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
             },
             text = {
                 Text(
-                    text = "This will parse the selected JSON backup and merge all records into your local database. Existing records with identical IDs will be updated.",
+                    text = stringResource(R.string.restore_body),
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color.White
                 )
@@ -163,10 +182,18 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                                 scope.launch {
                                     result.fold(
                                         onSuccess = { count ->
-                                            snackbarHostState.showSnackbar("Restored $count records successfully.")
+                                            snackbarHostState.showSnackbar(
+                                                resources.getQuantityString(R.plurals.restore_success, count, count)
+                                            )
                                         },
                                         onFailure = { error ->
-                                            snackbarHostState.showSnackbar("Restore failed: ${error.message}")
+                                            // The reason is a resource id on RestoreFailure;
+                                                // anything else stays generic rather than
+                                                // surfacing an exception string.
+                                                val message = (error as? MainViewModel.RestoreFailure)
+                                                    ?.let { resources.getString(it.messageRes) }
+                                                    ?: restoreFallbackError
+                                                snackbarHostState.showSnackbar(message)
                                         }
                                     )
                                 }
@@ -179,7 +206,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                         contentColor = MaterialTheme.colorScheme.onPrimary
                     )
                 ) {
-                    Text("RESTORE", fontWeight = FontWeight.Black)
+                    Text(stringResource(R.string.restore_confirm), fontWeight = FontWeight.Black)
                 }
             },
             dismissButton = {
@@ -187,7 +214,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                     onClick = { pendingRestoreUri = null },
                     shape = RectangleShape
                 ) {
-                    Text("CANCEL", color = Color.Gray)
+                    Text(stringResource(R.string.action_cancel), color = Color.Gray)
                 }
             },
             shape = RectangleShape,
@@ -200,7 +227,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
             onDismissRequest = { showEraseConfirm = false },
             title = {
                 Text(
-                    text = "Delete everything?",
+                    text = stringResource(R.string.settings_erase_confirm_title),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Black,
                     color = MaterialTheme.colorScheme.error
@@ -208,8 +235,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
             },
             text = {
                 Text(
-                    text = "Every meal, every saved photo and the activity log will be " +
-                        "permanently deleted from this device. This cannot be undone.",
+                    text = stringResource(R.string.settings_erase_confirm_body),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -221,7 +247,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                         viewModel.deleteAllData { succeeded ->
                             scope.launch {
                                 snackbarHostState.showSnackbar(
-                                    if (succeeded) "All data deleted." else "Could not delete everything."
+                                    if (succeeded) eraseDone else eraseFailed
                                 )
                             }
                         }
@@ -232,14 +258,14 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                         contentColor = MaterialTheme.colorScheme.onError
                     )
                 ) {
-                    Text("Delete everything", fontWeight = FontWeight.Black)
+                    Text(stringResource(R.string.settings_erase_confirm_button), fontWeight = FontWeight.Black)
                 }
             },
             dismissButton = {
                 // Cancel first in reading order and visually plainer than confirm:
                 // the safe choice should be the easy one on a destructive dialog.
                 OutlinedButton(onClick = { showEraseConfirm = false }, shape = RectangleShape) {
-                    Text("Cancel", color = Color.Gray)
+                    Text(stringResource(R.string.settings_erase_cancel), color = Color.Gray)
                 }
             },
             shape = RectangleShape,
@@ -263,7 +289,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Settings",
+                        text = stringResource(R.string.settings_title),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Black,
                         color = MaterialTheme.colorScheme.onBackground
@@ -286,7 +312,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                         viewModel.updateApiKey(key)
                         scope.launch {
                             snackbarHostState.showSnackbar(
-                                if (key.isBlank()) "API key cleared." else "API key saved."
+                                if (key.isBlank()) keyCleared else keySaved
                             )
                         }
                     }
@@ -301,7 +327,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            SettingsCard(title = "Daily calorie target", icon = Icons.Default.Settings) {
+            SettingsCard(title = stringResource(R.string.settings_calorie_target), icon = Icons.Default.Settings) {
                 CalorieTargetControl(
                     target = calorieTarget,
                     onTargetChange = { viewModel.updateCalorieTarget(it) }
@@ -310,10 +336,10 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            SettingsCard(title = "Reminders", icon = Icons.Default.Notifications) {
+            SettingsCard(title = stringResource(R.string.settings_reminders), icon = Icons.Default.Notifications) {
                 Column {
                     SettingRow(
-                        label = "Remind me when a meal is overdue",
+                        label = stringResource(R.string.settings_reminders_toggle),
                         checked = enforcementEnabled,
                         onCheckedChange = { enabled ->
                             haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
@@ -330,8 +356,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Checks every 6 hours during the day and notifies you if " +
-                            "nothing has been logged for a while.",
+                        text = stringResource(R.string.settings_reminders_description),
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.Gray
                     )
@@ -340,9 +365,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                     if (enforcementEnabled && notificationsBlocked) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Notifications are turned off for MacroMandate, so reminders " +
-                                "cannot be shown. You can turn them back on in Android Settings > " +
-                                "Apps > MacroMandate > Notifications.",
+                            text = stringResource(R.string.settings_reminders_blocked),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error
                         )
@@ -352,10 +375,10 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            SettingsCard(title = "Location", icon = Icons.Default.LocationOn) {
+            SettingsCard(title = stringResource(R.string.settings_location), icon = Icons.Default.LocationOn) {
                 Column {
                     SettingRow(
-                        label = "Tag meals with location",
+                        label = stringResource(R.string.settings_location_toggle),
                         checked = locationTrackingEnabled,
                         onCheckedChange = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -365,9 +388,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                     Spacer(modifier = Modifier.height(8.dp))
                     // Prominent disclosure: coordinates do not stay on the device.
                     Text(
-                        text = "When on, your precise coordinates are saved with each meal, " +
-                            "printed onto the photo, and that photo is sent to the analysis " +
-                            "service. Off by default.",
+                        text = stringResource(R.string.settings_location_description),
                         style = MaterialTheme.typography.labelSmall,
                         color = Color.Gray
                     )
@@ -377,16 +398,16 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
             Spacer(modifier = Modifier.height(32.dp))
 
             Text(
-                text = "Your data",
+                text = stringResource(R.string.settings_your_data),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Black
             )
             Spacer(modifier = Modifier.height(16.dp))
 
-            SettingsCard(title = "Data portability & backup", icon = Icons.Default.Storage) {
+            SettingsCard(title = stringResource(R.string.settings_data_portability), icon = Icons.Default.Storage) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        text = "Export structured JSON archives for full database restoration, or CSV dossiers for external spreadsheet analysis.",
+                        text = stringResource(R.string.settings_data_description),
                         style = MaterialTheme.typography.labelSmall,
                         color = Color.Gray
                     )
@@ -406,7 +427,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                     ) {
                         Icon(Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(text = "Export JSON Backup", fontWeight = FontWeight.Black)
+                        Text(text = stringResource(R.string.settings_export_json), fontWeight = FontWeight.Black)
                     }
 
                     // Import JSON Button
@@ -424,7 +445,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                     ) {
                         Icon(Icons.Default.FileUpload, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(text = "Restore JSON Backup", fontWeight = FontWeight.Black)
+                        Text(text = stringResource(R.string.settings_restore_json), fontWeight = FontWeight.Black)
                     }
 
                     // Export CSV Button
@@ -440,19 +461,17 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                     ) {
                         Icon(Icons.Default.Description, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(text = "Export CSV Spreadsheet", fontWeight = FontWeight.Bold)
+                        Text(text = stringResource(R.string.settings_export_csv), fontWeight = FontWeight.Bold)
                     }
                 }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            SettingsCard(title = "Erase everything", icon = Icons.Default.DeleteForever) {
+            SettingsCard(title = stringResource(R.string.settings_erase), icon = Icons.Default.DeleteForever) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        text = "Permanently deletes every meal, every saved photo, and the " +
-                            "activity log from this device. Your settings and API key are kept. " +
-                            "This cannot be undone \u2014 export a backup first if you want one.",
+                        text = stringResource(R.string.settings_erase_description),
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.Gray
                     )
@@ -474,7 +493,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Delete all my data", fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.settings_erase_button), fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -487,7 +506,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Activity log",
+                    text = stringResource(R.string.settings_activity_log),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Black
                 )
@@ -500,7 +519,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                         modifier = Modifier.defaultMinSize(minHeight = 44.dp)
                     ) {
                         Text(
-                            "CLEAR LOG",
+                            stringResource(R.string.settings_clear_log),
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Black,
                             color = Color.Gray
@@ -564,16 +583,15 @@ private fun ApiKeyCard(
     var revealed by remember { mutableStateOf(false) }
     val hasKey = keyHint.isNotBlank()
 
-    SettingsCard(title = "Analysis API key", icon = Icons.Default.Key) {
+    SettingsCard(title = stringResource(R.string.settings_api_key), icon = Icons.Default.Key) {
         Column {
             Text(
                 text = if (hasKey) {
-                    "A key is saved ($keyHint). Enter a new one to replace it."
+                    stringResource(R.string.settings_api_key_present, keyHint)
                 } else {
-                    "Meal analysis needs a Hugging Face access token. Paste one here " +
-                        "to turn it on — it is stored only on this device."
+                    stringResource(R.string.settings_api_key_absent)
                 },
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.bodySmall,
                 color = Color.Gray
             )
 
@@ -583,7 +601,7 @@ private fun ApiKeyCard(
                 value = draft,
                 onValueChange = { draft = it },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("hf_...") },
+                label = { Text(stringResource(R.string.settings_api_key_hint)) },
                 singleLine = true,
                 shape = RectangleShape,
                 visualTransformation = if (revealed) {
@@ -603,7 +621,10 @@ private fun ApiKeyCard(
                             } else {
                                 Icons.Default.Visibility
                             },
-                            contentDescription = if (revealed) "Hide key" else "Show key"
+                            contentDescription = stringResource(
+                                if (revealed) R.string.content_description_hide_key
+                                else R.string.content_description_show_key
+                            )
                         )
                     }
                 },
@@ -626,7 +647,7 @@ private fun ApiKeyCard(
                     modifier = Modifier.weight(1f),
                     shape = RectangleShape
                 ) {
-                    Text("Save key", fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.settings_api_key_save), fontWeight = FontWeight.Bold)
                 }
                 if (hasKey) {
                     OutlinedButton(
@@ -638,7 +659,7 @@ private fun ApiKeyCard(
                         modifier = Modifier.weight(1f),
                         shape = RectangleShape
                     ) {
-                        Text("Clear", fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.settings_api_key_clear), fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -691,7 +712,7 @@ fun AuditBufferHud(audits: List<AuditEntity>) {
         if (audits.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
-                    text = "No activity yet",
+                    text = stringResource(R.string.empty_no_activity),
                     color = Color.Gray,
                     style = MaterialTheme.typography.bodySmall
                 )
@@ -727,10 +748,10 @@ private fun TerminalThemeCard(
 ) {
     val haptic = LocalHapticFeedback.current
 
-    SettingsCard(title = "Terminal theme", icon = Icons.Default.Palette) {
+    SettingsCard(title = stringResource(R.string.settings_theme), icon = Icons.Default.Palette) {
         Column {
             Text(
-                text = "Select tactical phosphor rendering and interface palette.",
+                text = stringResource(R.string.settings_theme_description),
                 style = MaterialTheme.typography.labelSmall,
                 color = Color.Gray
             )
@@ -784,7 +805,7 @@ private fun TerminalThemeCard(
                             if (isSelected) {
                                 Icon(
                                     imageVector = Icons.Default.Check,
-                                    contentDescription = "Active",
+                                    contentDescription = stringResource(R.string.content_description_theme_active),
                                     tint = theme.primaryColor,
                                     modifier = Modifier.size(20.dp)
                                 )
@@ -846,8 +867,8 @@ private fun CalorieTargetControl(
                     .onFocusChanged { focus ->
                         if (!focus.isFocused) commit(typed.toIntOrNull() ?: target)
                     },
-                label = { Text("Target") },
-                suffix = { Text("kcal", style = MaterialTheme.typography.labelMedium) },
+                label = { Text(stringResource(R.string.settings_target_field)) },
+                suffix = { Text(stringResource(R.string.settings_target_unit), style = MaterialTheme.typography.labelMedium) },
                 singleLine = true,
                 shape = RectangleShape,
                 keyboardOptions = KeyboardOptions(
@@ -862,12 +883,18 @@ private fun CalorieTargetControl(
 
             Spacer(modifier = Modifier.width(8.dp))
 
-            StepButton("Decrease target by $TARGET_STEP calories", "\u2212") {
+            StepButton(
+            pluralStringResource(R.plurals.content_description_decrease_target, TARGET_STEP, TARGET_STEP),
+            "\u2212"
+        ) {
                 haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
                 commit(draft - TARGET_STEP)
             }
             Spacer(modifier = Modifier.width(4.dp))
-            StepButton("Increase target by $TARGET_STEP calories", "+") {
+            StepButton(
+            pluralStringResource(R.plurals.content_description_increase_target, TARGET_STEP, TARGET_STEP),
+            "+"
+        ) {
                 haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
                 commit(draft + TARGET_STEP)
             }
@@ -890,8 +917,9 @@ private fun CalorieTargetControl(
         )
 
         Text(
-            text = "The slider covers $SLIDER_MIN\u2013$SLIDER_MAX kcal. Type a number above to " +
-                "set anything from $MIN_TARGET to $MAX_TARGET.",
+            text = stringResource(
+                R.string.settings_target_range, SLIDER_MIN, SLIDER_MAX, MIN_TARGET, MAX_TARGET
+            ),
             style = MaterialTheme.typography.bodySmall,
             color = Color.Gray
         )

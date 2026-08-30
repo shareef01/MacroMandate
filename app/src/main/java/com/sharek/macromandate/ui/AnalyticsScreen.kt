@@ -35,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sharek.macromandate.data.repository.MealRepository
+import com.sharek.macromandate.R
 import com.sharek.macromandate.model.MealEntry
 import com.sharek.macromandate.ui.theme.NutritionColors
 import com.sharek.macromandate.viewmodel.MainViewModel
@@ -42,6 +43,8 @@ import com.sharek.macromandate.viewmodel.UiState
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -87,9 +90,15 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
 
     // Summary failures used to be discarded silently: the spinner vanished and
     // nothing replaced it. Surface them and return the state to Idle.
-    LaunchedEffect(uiState) {
-        (uiState as? UiState.Error)?.let { error ->
-            snackbarHostState.showSnackbar(error.message)
+    //
+    // The message is resolved here, in composition, rather than inside the
+    // effect. A LaunchedEffect body is a suspend lambda, not a composable, so
+    // reaching for a resource from inside it means going through LocalContext —
+    // which does not re-read when the configuration changes.
+    val errorMessage = (uiState as? UiState.Error)?.let { stringResource(it.messageRes) }
+    LaunchedEffect(errorMessage) {
+        errorMessage?.let { message ->
+            snackbarHostState.showSnackbar(message)
             viewModel.resetUiState()
         }
     }
@@ -121,7 +130,7 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Trends",
+                            text = stringResource(R.string.trends_title),
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Black,
                             color = MaterialTheme.colorScheme.onBackground
@@ -139,7 +148,7 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "Today's progress",
+                        text = stringResource(R.string.trends_todays_progress),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Black,
                         color = MaterialTheme.colorScheme.primary
@@ -165,7 +174,11 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
                         )
                     ) {
                         Text(
-                            text = if (geotaggedCount > 0) "Meal map ($geotaggedCount)" else "No geotagged meals",
+                            text = if (geotaggedCount > 0) {
+                                stringResource(R.string.trends_meal_map, geotaggedCount)
+                            } else {
+                                stringResource(R.string.trends_no_geotagged)
+                            },
                             fontWeight = FontWeight.Black,
                             fontSize = 12.sp,
                             maxLines = 1
@@ -187,7 +200,7 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
                         )
                     ) {
                         Text(
-                            "Daily summary",
+                            stringResource(R.string.trends_daily_summary),
                             fontWeight = FontWeight.Black,
                             fontSize = 12.sp,
                             maxLines = 1
@@ -199,7 +212,7 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
                 // configured provider as text. That is a second network boundary
                 // beyond the photo upload, and it was previously undisclosed.
                 Text(
-                    text = "\"Daily summary\" sends today's meal names and totals to your analysis provider.",
+                    text = stringResource(R.string.trends_summary_notice),
                     style = MaterialTheme.typography.labelSmall,
                     color = Color.Gray,
                     modifier = Modifier.align(Alignment.Start).padding(top = 8.dp)
@@ -208,7 +221,7 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
                 Spacer(modifier = Modifier.height(32.dp))
 
                 Text(
-                    text = "Macros today",
+                    text = stringResource(R.string.trends_macros_today),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Black,
                     modifier = Modifier.align(Alignment.Start)
@@ -218,7 +231,7 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
 
                 Spacer(modifier = Modifier.height(48.dp))
                 Text(
-                    text = "Last 7 days",
+                    text = stringResource(R.string.trends_last_7_days),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Black,
                     modifier = Modifier.align(Alignment.Start)
@@ -248,7 +261,7 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Generate weekly dossier debrief",
+                        text = stringResource(R.string.trends_generate_dossier),
                         fontWeight = FontWeight.Black
                     )
                 }
@@ -269,7 +282,7 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "INTELLIGENCE DEBRIEF",
+                            text = stringResource(R.string.trends_debrief_title),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Black,
                             color = MaterialTheme.colorScheme.primary
@@ -277,7 +290,7 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
                         IconButton(onClick = { activeReport = null }) {
                             Icon(
                                 imageVector = Icons.Default.Close,
-                                contentDescription = "Close",
+                                contentDescription = stringResource(R.string.content_description_close),
                                 tint = Color.Gray,
                                 modifier = Modifier.size(20.dp)
                             )
@@ -322,7 +335,7 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("EXPORT FILE", fontWeight = FontWeight.Black, fontSize = 12.sp)
+                        Text(stringResource(R.string.trends_export_file), fontWeight = FontWeight.Black, fontSize = 12.sp)
                     }
                 },
                 dismissButton = {
@@ -345,7 +358,7 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            "COPY",
+                            stringResource(R.string.trends_copy),
                             fontWeight = FontWeight.Black,
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.primary
@@ -376,7 +389,7 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
                         .padding(24.dp)
                 ) {
                     Text(
-                        "Daily summary",
+                        stringResource(R.string.trends_daily_summary),
                         color = Color(0xFF00E5FF),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Black
@@ -395,7 +408,7 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
                     )
                     Spacer(modifier = Modifier.height(24.dp))
                     Text(
-                        "Tap anywhere to dismiss",
+                        stringResource(R.string.trends_dismiss),
                         color = Color.Gray,
                         style = MaterialTheme.typography.labelSmall,
                         modifier = Modifier.align(Alignment.CenterHorizontally)
@@ -414,7 +427,7 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
                         CircularProgressIndicator(color = Color(0xFF00E5FF), strokeWidth = 4.dp)
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            "Writing your summary...",
+                            stringResource(R.string.trends_writing_summary),
                             color = Color(0xFF00E5FF),
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Black
@@ -471,7 +484,7 @@ fun DailyComplianceChart(current: Int, target: Int) {
                 fontWeight = FontWeight.Black
             )
             Text(
-                text = "of $target kcal",
+                text = stringResource(R.string.trends_of_target, target),
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
                 color = Color.Gray
@@ -526,7 +539,7 @@ fun TerminalProgressBar(label: String, amount: Float, pct: Int, progress: Float,
             )
             val pctText = if (amount > 0f && progress > 0f) "${pct}% cal" else "0%"
             Text(
-                text = "${amount.toInt()}g ($pctText)",
+                text = stringResource(R.string.macro_amount_with_share, formatGramsValue(amount), pctText),
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Bold,
                 color = Color.Gray
@@ -586,11 +599,20 @@ fun WeeklyBarChart(meals: List<MealEntry>, target: Int) {
         0
     }
     val weeklyDescription = if (daysWithEntries == 0) {
-        "Weekly intake chart: no meals logged in the last ${MealRepository.WEEK_LENGTH_DAYS} days. " +
-            "Daily target $target calories."
+        pluralStringResource(
+            R.plurals.chart_weekly_description_empty,
+            MealRepository.WEEK_LENGTH_DAYS,
+            MealRepository.WEEK_LENGTH_DAYS,
+            target
+        )
     } else {
-        "Weekly intake chart: $avgCalories calories average across $daysWithEntries " +
-            "${if (daysWithEntries == 1) "day" else "days"} with entries. Daily target $target calories."
+        pluralStringResource(
+            R.plurals.chart_weekly_description,
+            daysWithEntries,
+            avgCalories,
+            daysWithEntries,
+            target
+        )
     }
 
     Box(
@@ -723,8 +745,7 @@ fun SurveillanceMap(meals: List<MealEntry>, onBack: () -> Unit) {
                 // is nothing to plot, rather than opening a full-screen tactical
                 // grid to announce that there is no data.
                 Text(
-                    text = "No meals mapped yet.\n\nTurn on \"Tag meals with location\" in " +
-                        "Settings, then photograph a meal to place it here.",
+                    text = stringResource(R.string.empty_no_map_points),
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color.Gray,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -733,7 +754,12 @@ fun SurveillanceMap(meals: List<MealEntry>, onBack: () -> Unit) {
         }
 
         Column(modifier = Modifier.padding(16.dp)) {
-            Text("Where you ate", color = primaryColor, fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleMedium)
+            Text(
+                stringResource(R.string.trends_where_you_ate),
+                color = primaryColor,
+                fontWeight = FontWeight.Black,
+                style = MaterialTheme.typography.titleMedium
+            )
             Spacer(modifier = Modifier.weight(1f))
             Button(
                 onClick = onBack,
@@ -744,7 +770,7 @@ fun SurveillanceMap(meals: List<MealEntry>, onBack: () -> Unit) {
                     contentColor = MaterialTheme.colorScheme.onPrimary
                 )
             ) {
-                Text("Close map", fontWeight = FontWeight.Black)
+                Text(stringResource(R.string.trends_close_map), fontWeight = FontWeight.Black)
             }
         }
     }

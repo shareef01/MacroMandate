@@ -23,18 +23,18 @@ object NotificationManagerHelper {
             // several times a day gets its notifications turned off entirely.
             val enforcementChannel = NotificationChannel(
                 CHANNEL_ID,
-                "Meal reminders",
+                context.getString(R.string.notification_channel_reminders),
                 NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
-                description = "Reminders when a meal has not been logged"
+                description = context.getString(R.string.notification_channel_reminders_description)
             }
             
             val hudChannel = NotificationChannel(
                 HUD_CHANNEL_ID,
-                "Daily total",
-                NotificationManager.IMPORTANCE_LOW // Ongoing persistent info
+                context.getString(R.string.notification_channel_daily_total),
+                NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Ongoing notification showing today's calories"
+                description = context.getString(R.string.notification_channel_daily_total_description)
             }
             
             val notificationManager: NotificationManager =
@@ -47,8 +47,8 @@ object NotificationManagerHelper {
     fun postComplianceNotification(context: Context) {
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
-            .setContentTitle("Meal overdue")
-            .setContentText("You haven't logged a meal in a while.")
+            .setContentTitle(context.getString(R.string.notification_meal_overdue_title))
+            .setContentText(context.getString(R.string.notification_meal_overdue_body))
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
 

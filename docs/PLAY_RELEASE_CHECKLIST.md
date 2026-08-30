@@ -162,6 +162,8 @@ unverified and must be walked manually.
 **Accessibility**
 - ☐ TalkBack over the whole app. Confirm macros read as *"Protein 40 grams…"*, not *"P colon 40 g"*
 - ☐ Confirm the monospace/sans split reads as deliberate on a real display
+- ☐ Switch the device to a comma-decimal locale and check macro entry, coordinates
+  and the weekly chart
 - ☐ Delete buttons announce which meal
 - ☐ Font scale 1.0 / 1.15 / 1.3 / 1.5 / **2.0** — check the summary card, nav labels, dialogs, chart
 - ☐ Touch targets ≥48 dp — measure, do not assume
