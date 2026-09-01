@@ -24,6 +24,8 @@ import com.sharek.macromandate.network.ChatMessage
 import com.sharek.macromandate.network.ChatRequest
 import com.sharek.macromandate.network.ContentPart
 import com.sharek.macromandate.network.HuggingFaceApi
+import com.sharek.macromandate.network.NutritionAnalyzer
+import com.sharek.macromandate.network.analysisError
 import com.sharek.macromandate.util.DossierExporter
 import com.sharek.macromandate.util.DossierReportGenerator
 import com.sharek.macromandate.util.NutritionBounds
@@ -529,15 +531,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 return@launch
             }
 
-            val parsed = try {
-                requestNutrition(apiKey, base64Image)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.w(TAG, "Analysis request failed", e)
-                failAnalysis(uri, AnalysisError.fromThrowable(e))
-                return@launch
-            }
+            val parsed = analyzer.analyze(apiKey, base64Image)
 
             parsed.fold(
                 onSuccess = { nutrition ->
@@ -553,47 +547,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     inFlightCapture = null
                     _uiState.value = UiState.Idle
                 },
-                onFailure = { error ->
-                    failAnalysis(uri, (error as? AnalysisFailure)?.error ?: AnalysisError.Unknown)
-                }
+                onFailure = { error -> failAnalysis(uri, error.analysisError) }
             )
-        }
-    }
-
-    private class AnalysisFailure(val error: AnalysisError) : Exception(error::class.simpleName)
-
-    /** Performs the request and extracts one nutrition object, or an [AnalysisError]. */
-    private suspend fun requestNutrition(apiKey: String, base64Image: String): Result<ParsedNutrition> {
-        val response = api.chatCompletion(
-            token = ApiConfig.authHeader(apiKey),
-            request = imageRequest(ANALYSIS_PROMPT, base64Image)
-        )
-
-        if (!response.isSuccessful) {
-            // The body can echo the request or carry a provider HTML page, so it
-            // is never shown to the user and never logged in a release build.
-            if (BuildConfig.DEBUG) {
-                Log.d(TAG, "Provider returned ${response.code()}: ${response.errorBody()?.string()}")
-            }
-            return Result.failure(AnalysisFailure(AnalysisError.fromHttpStatus(response.code())))
-        }
-
-        val responseText = response.body()?.firstMessage().orEmpty()
-        val jsonStart = responseText.indexOf('{')
-        val jsonEnd = responseText.lastIndexOf('}')
-        if (jsonStart == -1 || jsonEnd <= jsonStart) {
-            // Prose, markdown fences and truncated replies all land here.
-            if (BuildConfig.DEBUG) Log.d(TAG, "No JSON object in reply: $responseText")
-            return Result.failure(AnalysisFailure(AnalysisError.UnreadableResult))
-        }
-
-        return try {
-            Result.success(
-                NutritionSanitizer.parseAndSanitize(responseText.substring(jsonStart, jsonEnd + 1))
-            )
-        } catch (e: Exception) {
-            if (BuildConfig.DEBUG) Log.d(TAG, "Unparsable nutrition object", e)
-            Result.failure(AnalysisFailure(AnalysisError.UnreadableResult))
         }
     }
 
@@ -938,6 +893,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
         )
     )
+
+    /**
+     * The network-facing half of the capture flow.
+     *
+     * Split out so it can be unit-tested against a fake [HuggingFaceApi]: the
+     * provider's reply is the most hostile input this app handles and it had no
+     * executable coverage while it lived inline here.
+     */
+    private val analyzer: NutritionAnalyzer by lazy {
+        NutritionAnalyzer(
+            api = api,
+            modelId = ApiConfig.model,
+            promptBuilder = { ANALYSIS_PROMPT },
+            debugLog = { message -> if (BuildConfig.DEBUG) Log.d(TAG, message) }
+        )
+    }
 
     private val api: HuggingFaceApi by lazy {
         val logging = HttpLoggingInterceptor().apply {

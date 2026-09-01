@@ -12,7 +12,6 @@ import androidx.glance.layout.*
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
-import androidx.glance.unit.ColorProvider
 import com.sharek.macromandate.MainActivity
 import com.sharek.macromandate.data.local.AppDatabase
 import com.sharek.macromandate.data.pref.MandatePreferences
