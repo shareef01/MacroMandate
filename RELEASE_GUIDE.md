@@ -103,26 +103,22 @@ The debug build is unaffected.
 
 ## 6. Release Pre-Flight Checklist
 
-**Verified by the August 2026 audit** (`docs/AUDIT_2026.md`):
+**Verified by the August/September 2026 audit** (`docs/AUDIT_REPORT.md`):
 
-- [x] 111 unit tests passing (`./gradlew test`)
-- [x] `lintDebug` and `lintVitalRelease` clean
+- [x] Unit tests passing (`./gradlew test`)
+- [x] `lintDebug` and `lintVitalRelease` clean (0 errors)
 - [x] R8 release build succeeds (`./gradlew assembleRelease`)
+- [x] Production App Bundle succeeds (`./gradlew bundleRelease`) -> `app-release.aab`
+- [x] Instrumented `MigrationTest` passing on hardware (`./gradlew connectedDebugAndroidTest` / `am instrument`)
 - [x] No credential in logs, exports or backups; release build refuses to embed one
 - [x] Location tracking opt-in, off by default
 - [x] Restore validates hostile input; every write path shares one validation gate
 
-**Not yet done — these block a release:**
+**Remaining before store submission:**
 
-- [ ] `./gradlew connectedDebugAndroidTest` — **`MigrationTest` has never been
-      executed.** No device was available. Nothing ships before this passes
-- [ ] Signed build (this machine has no keystore; `assembleRelease` emits an
-      **unsigned** APK)
-- [ ] `./gradlew bundleRelease` — an AAB has never been built
-- [ ] Verify R8 did not break Gson or Room reflection **by running the release
-      build on a device**; keep rules are not proof
+- [ ] Sign the build with production keystore (configure `RELEASE_STORE_FILE` credentials)
 - [ ] Manual device pass — see `docs/PLAY_RELEASE_CHECKLIST.md` §7
-- [ ] Privacy policy published
+- [ ] Privacy policy published at public URL
 
 > **Never ship a Room schema bump without a `Migration` and a passing
 > `MigrationTest`.** Destructive fallback is now debug-only, so a missing

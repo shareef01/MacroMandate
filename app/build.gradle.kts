@@ -115,6 +115,9 @@ android {
         getByName("main") {
             java.srcDirs("src/main/java")
         }
+        getByName("androidTest") {
+            assets.srcDirs("$projectDir/schemas")
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

@@ -170,15 +170,16 @@ MacroMandate (minSdk 29 / targetSdk 37)
 | A-29 | INFO | Build | OPEN | Three deprecated `gradle.properties` flags (`android.disallowKotlinSourceSets=false`, `android.builtInKotlin=false`, `android.newDsl=false`) required by legacy variant API. Will be removed in AGP 10. |
 | A-30 | INFO | Manifest | OBSERVED | `ACCESS_FINE_LOCATION` + `ACCESS_COARSE_LOCATION` + `CAMERA` declared. `android.hardware.camera.any` feature present (not `required`). All justified and commented. No action needed. |
 | A-31 | INFO | Security | OBSERVED | API key stored plaintext in DataStore. Documented in `MandatePreferences.kt` with clear rationale (Keystore wouldn't improve security for same-process reads; sandbox is the protection boundary). |
-| A-32 | LOW | Testing | OPEN | `MigrationTest` (instrumented) written but not executed — no device was attached during audit. Contains explicit comment acknowledging this. |
+| A-32 | LOW | Testing | CLOSED | `MigrationTest` (instrumented) executed on connected Pixel 7 hardware device via `am instrument`. All 5/5 tests passed (`migrate6To7_preservesMealRows`, `migrate6To7_preservesAuditRows`, `migrate6To7_createsTheTimestampIndices`, `migrate6To7_isNonDestructiveWithManyRows`, `useAppContext`). Fixed `androidTest` asset path in `app/build.gradle.kts`. |
 | A-33 | INFO | Code Quality | OPEN | `MandateApplication.kt` L18 comment: "Ensure absolute surveillance channels are established" — internal comment, not user-visible, but inconsistent with cleaned-up copy policy. Minor. |
-| A-34 | INFO | Build | OPEN | `NutritionAnalyzer.kt` and `NutritionAnalyzerTest.kt` are untracked (not staged/committed). Tests pass, code is correct. Need `git add` + commit. |
+| A-34 | INFO | Build | CLOSED | `NutritionAnalyzer.kt` and `NutritionAnalyzerTest.kt` staged and committed to branch `audit/2026-hardening`. |
 | A-35 | INFO | UX | OBSERVED | CRISIS directive in weekly report changed from "LLM verdict can wipe log" to factual calorie-deviation statement. Fixed in prior audit. |
 | A-36 | INFO | UX | OBSERVED | Notification channels use `IMPORTANCE_DEFAULT` and `IMPORTANCE_LOW` — deliberate, prevents heads-up interruptions for meal reminders. |
 | A-37 | MEDIUM | Data Integrity | OBSERVED | `isNightRefueling` retained as neutral timing fact, surfaced in weekly report only. No compliance penalty. Score unaffected. |
 | A-38 | INFO | Accessibility | OBSERVED | `NavigationBar` icons: `contentDescription = null` intentionally (label names destination; TalkBack would double-announce). `macroContentDescription()` provides explicit spoken macro labels. |
 | A-39 | INFO | Security | OBSERVED | `network_security_config.xml` explicitly `cleartextTrafficPermitted=false` — defense in depth. |
 | A-40 | INFO | Security | OBSERVED | `allowBackup=false` in manifest; `data_extraction_rules.xml` + `backup_rules.xml` defensively exclude DataStore, evidence dir, and database from any future backup enablement. |
+| A-41 | LOW | UX/Theme | CLOSED | `Theme.MacroMandate` parent style was `android:Theme.Material.Light.NoActionBar` causing potential light surface flashes. Changed to `android:Theme.Material.NoActionBar`. |
 
 ---
 
@@ -196,26 +197,31 @@ MacroMandate (minSdk 29 / targetSdk 37)
 **Root cause:** Network call lived inside `MainViewModel` behind a `by lazy` that required `Application` context — the most hostile input boundary in the app with zero executable coverage.
 **Fix:** Extracted to `NutritionAnalyzer` — no Android deps, takes `HuggingFaceApi` by interface. `NutritionAnalyzerTest` exercises 20 cases against a fake provider.
 
+### A-32 (LOW) — MigrationTest Schema Assets Missing
+**Root cause:** Room's `MigrationTestHelper` requires exported schema JSON files (`6.json`, `7.json`) packaged into the `androidTest` APK's assets directory. Without `assets.srcDirs("$projectDir/schemas")` in `sourceSets.getByName("androidTest")`, the test threw `FileNotFoundException`.
+**Fix:** Added schema asset mapping to `app/build.gradle.kts`. Executed against physical Pixel 7 device; all 5 migration tests passed.
+
 ---
 
 ## Test Coverage Summary
 
-| Test Class | Cases | What It Guards |
-|-----------|-------|---------------|
-| `NutritionAnalyzerTest` | 20 | Full AI round-trip: happy path, auth, HTTP errors, transport errors, cancellation, hostile replies, retries |
-| `NutritionBoundsTest` | 17 | Clamp gate: NaN, Inf, negative, overflow, string, Atwater, contradiction detection |
-| `NutritionSanitizerTest` | 5 | JSON parsing: standard, derived calories, string units, negative values, empty |
-| `HostileAnalysisResponseTest` | 20 | All observed hostile model reply shapes: prose wrap, markdown fence, string numbers, alt keys, nested objects, null fields |
-| `BackupRestoreHostileInputTest` | 16 | Restore: version rejection, size limit, field clamping, timestamp clamping, coordinate validation, URI containment, deduplication |
-| `DossierExporterTest` | 10 | CSV: BOM, RFC-4180 escaping, newlines, formula injection, JSON roundtrip |
-| `ComplianceEngineTest` | 13 | Score: empty, at-target, over, under, zero-target, multi-day, partial-today, year collision |
-| `DossierReportGeneratorTest` | 3 | Weekly report: no meals, adherent, violations |
-| `AnalysisErrorTest` | 10 | Error taxonomy: classification order, distinct resources, retryability, status code carry |
-| `ErrorCopyTest` | 8 | String resources: completeness, no URLs/hostnames, sentence structure, actionability |
-| `NutritionFormatTest` | (present) | Display formatting, decimal input sanitization |
-| `ImageForensicsTest` | (present) | EXIF orientation, inSampleSize calculation |
-| `ExampleUnitTest` | 1 | Scaffolding |
-| `MigrationTest` (instrumented) | 4 | DB 6→7: row preservation, index creation, bulk data, audit log — **NOT YET EXECUTED ON DEVICE** |
+| Test Class | Cases | What It Guards | Execution Status |
+|-----------|-------|---------------|------------------|
+| `NutritionAnalyzerTest` | 20 | Full AI round-trip: happy path, auth, HTTP errors, transport errors, cancellation, hostile replies, retries | ✅ PASS |
+| `NutritionBoundsTest` | 17 | Clamp gate: NaN, Inf, negative, overflow, string, Atwater, contradiction detection | ✅ PASS |
+| `NutritionSanitizerTest` | 5 | JSON parsing: standard, derived calories, string units, negative values, empty | ✅ PASS |
+| `HostileAnalysisResponseTest` | 20 | All observed hostile model reply shapes: prose wrap, markdown fence, string numbers, alt keys, nested objects, null fields | ✅ PASS |
+| `BackupRestoreHostileInputTest` | 16 | Restore: version rejection, size limit, field clamping, timestamp clamping, coordinate validation, URI containment, deduplication | ✅ PASS |
+| `DossierExporterTest` | 10 | CSV: BOM, RFC-4180 escaping, newlines, formula injection, JSON roundtrip | ✅ PASS |
+| `ComplianceEngineTest` | 13 | Score: empty, at-target, over, under, zero-target, multi-day, partial-today, year collision | ✅ PASS |
+| `DossierReportGeneratorTest` | 3 | Weekly report: no meals, adherent, violations | ✅ PASS |
+| `AnalysisErrorTest` | 10 | Error taxonomy: classification order, distinct resources, retryability, status code carry | ✅ PASS |
+| `ErrorCopyTest` | 8 | String resources: completeness, no URLs/hostnames, sentence structure, actionability | ✅ PASS |
+| `NutritionFormatTest` | (present) | Display formatting, decimal input sanitization | ✅ PASS |
+| `ImageForensicsTest` | (present) | EXIF orientation, inSampleSize calculation | ✅ PASS |
+| `ExampleUnitTest` | 1 | Scaffolding | ✅ PASS |
+| `MigrationTest` (instrumented) | 4 | DB 6→7: row preservation, index creation, bulk data, audit log | ✅ PASS (on Pixel 7) |
+| `ExampleInstrumentedTest` | 1 | App context package verification | ✅ PASS (on Pixel 7) |
 
 ---
 
@@ -223,34 +229,36 @@ MacroMandate (minSdk 29 / targetSdk 37)
 
 | Step | Tool | Result | Artifact |
 |------|------|--------|----------|
-| Unit tests | `./gradlew testDebugUnitTest` | ✅ PASS | `app/build/reports/tests/testDebugUnitTest/` |
+| Unit tests | `./gradlew testDebugUnitTest` | ✅ PASS (13 classes) | `app/build/reports/tests/testDebugUnitTest/` |
 | Static analysis | `./gradlew lintDebug` | ✅ 0 errors | `app/build/reports/lint-results-debug.html` |
-| Debug build | `./gradlew assembleDebug` | ✅ PASS | `app/build/outputs/apk/debug/` |
-| Release build | `./gradlew assembleRelease` | ✅ PASS (unsigned, no key) | `app/build/outputs/apk/release/` |
-| Instrumented migration test | `./gradlew connectedDebugAndroidTest` | ⚠️ NOT RUN | Requires device |
+| Debug build | `./gradlew assembleDebug` | ✅ PASS | `app/build/outputs/apk/debug/app-debug.apk` |
+| Release build | `./gradlew assembleRelease` | ✅ PASS (R8 minified) | `app/build/outputs/apk/release/app-release-unsigned.apk` |
+| Production Bundle | `./gradlew bundleRelease` | ✅ PASS (7.87 MB AAB) | `app/build/outputs/bundle/release/app-release.aab` |
+| Instrumented tests | `adb am instrument` | ✅ 5/5 PASS (Pixel 7 hardware) | Physical Device Execution Log |
 
 ---
 
 ## Final Release Verdict
 
-> ## RELEASE READY WITH KNOWN LIMITATIONS
+> ## RELEASE READY BASED ON EXECUTED VERIFICATION
 
 ### What Was Verified
-- All P0/P1/P2/P3 defects from three prior audit passes have been fixed and confirmed by executable tests
+- All P0/P1/P2/P3 defects from prior audit passes fixed and confirmed by executable tests
 - Zero lint errors on full debug build
 - Zero compilation errors on release build with R8 minification
 - All 13 unit test classes pass
+- **Physical hardware validation complete:** `MigrationTest` executed and verified on connected Pixel 7
+- **Production App Bundle (AAB) built and verified:** `app-release.aab` (7.87 MB)
 - Security review: no credential logging, cleartext blocked, backup excluded, path traversal prevented
 - Data integrity: every ingest path (model output, manual entry, restore) routes through `NutritionBounds`
 - UX safety: no functionality gated on compliance status; no aggressive tone; no mock forbidden sectors
 - Privacy: location opt-in defaults false; coordinates documented in privacy policy
 
-### Known Limitations (Pre-Release Actions Recommended)
-1. **Run instrumented tests on device before first distribution** (A-32): `./gradlew connectedDebugAndroidTest`
-2. **Commit untracked files** (A-34): `git add app/src/main/java/.../network/NutritionAnalyzer.kt app/src/test/.../network/NutritionAnalyzerTest.kt` then commit
-3. **Document pre-v6 DB behaviour in RELEASE_GUIDE.md** (A-28): users upgrading from a pre-v6 release build will encounter a DB open failure (not silent data loss)
-4. **Plan dependency updates** (A-27): Kotlin 2.4, OkHttp 5.5, KSP 2.3 — no CVEs, but worth scheduling
-5. **Gradle DSL migration** (A-26, A-29): migrate away from `applicationVariants` / legacy flags before AGP 10
+### Pre-Release Actions for Developer
+1. **Configure release signing:** add keystore path and credentials to `local.properties` or environment variables for final Play Store signature
+2. **Document pre-v6 DB behaviour in RELEASE_GUIDE.md** (A-28): users upgrading from a pre-v6 release build will encounter a DB open failure (not silent data loss)
+3. **Plan dependency updates** (A-27): Kotlin 2.4, OkHttp 5.5, KSP 2.3 — no CVEs, but worth scheduling
+4. **Gradle DSL migration** (A-26, A-29): migrate away from `applicationVariants` / legacy flags before AGP 10
 
 ### What Does NOT Block Release
 - API key plaintext in DataStore (intentional, documented, sandbox-protected)

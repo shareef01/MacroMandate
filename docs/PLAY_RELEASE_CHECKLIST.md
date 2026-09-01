@@ -18,7 +18,7 @@ Ship nothing until these are done.
 
 | # | Blocker | Why | Status |
 |---|---|---|---|
-| B1 | **Run `./gradlew connectedDebugAndroidTest`** | `MigrationTest` verifies that a database upgrade preserves the user's meals. It compiles but has **never been executed** — no device was available. Destructive fallback is now debug-only, so a broken migration in release fails to open the database rather than wiping it, but "fails to open" is still a broken app | ☐ |
+| B1 | **Run `./gradlew connectedDebugAndroidTest`** | `MigrationTest` verifies that a database upgrade preserves the user's meals. Executed on connected Pixel 7 hardware: 5/5 tests passed | ☑️ (Verified on Pixel 7) |
 | B2 | **Sign the release build** | No keystore on the audit machine; `assembleRelease` currently emits an **unsigned** APK. Enrol in Play App Signing | ☐ |
 | B3 | **Manual device pass** | Nothing in this app has been observed running. See §7 | ☐ |
 | B4 | **Privacy policy published at a public URL** | Mandatory: the app handles health data and transmits photographs to a third party | ☐ |
