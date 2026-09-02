@@ -2,6 +2,7 @@ package com.sharek.macromandate.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -382,6 +383,9 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
                 }
             }
             ScreenState.CAMERA -> {
+                BackHandler {
+                    screenState = ScreenState.DASHBOARD
+                }
                 CameraCaptureScreen(
                     onImageCaptured = { uri ->
                         viewModel.processImageForMacros(uri, context)
@@ -703,12 +707,12 @@ fun ManualMealDialog(
                 )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     OutlinedTextField(
                         value = proteinStr,
                         onValueChange = { proteinStr = sanitizeDecimalInput(it) },
-                        label = { Text(stringResource(R.string.field_protein)) },
+                        label = { Text(stringResource(R.string.field_protein), maxLines = 1, softWrap = false, fontSize = 10.sp) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         shape = RectangleShape,
@@ -717,7 +721,7 @@ fun ManualMealDialog(
                     OutlinedTextField(
                         value = carbsStr,
                         onValueChange = { carbsStr = sanitizeDecimalInput(it) },
-                        label = { Text(stringResource(R.string.field_carbs)) },
+                        label = { Text(stringResource(R.string.field_carbs), maxLines = 1, softWrap = false, fontSize = 10.sp) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         shape = RectangleShape,
@@ -726,7 +730,7 @@ fun ManualMealDialog(
                     OutlinedTextField(
                         value = fatStr,
                         onValueChange = { fatStr = sanitizeDecimalInput(it) },
-                        label = { Text(stringResource(R.string.field_fat)) },
+                        label = { Text(stringResource(R.string.field_fat), maxLines = 1, softWrap = false, fontSize = 10.sp) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         shape = RectangleShape,

@@ -25,6 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.sharek.macromandate.model.MealEntry
 import com.sharek.macromandate.ui.theme.NutritionColors
@@ -396,12 +397,12 @@ fun EditMealDialog(
                 )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     OutlinedTextField(
                         value = proteinStr,
                         onValueChange = { proteinStr = sanitizeDecimalInput(it) },
-                        label = { Text(stringResource(R.string.field_protein)) },
+                        label = { Text(stringResource(R.string.field_protein), maxLines = 1, softWrap = false, fontSize = 10.sp) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         shape = RectangleShape,
@@ -410,7 +411,7 @@ fun EditMealDialog(
                     OutlinedTextField(
                         value = carbsStr,
                         onValueChange = { carbsStr = sanitizeDecimalInput(it) },
-                        label = { Text(stringResource(R.string.field_carbs)) },
+                        label = { Text(stringResource(R.string.field_carbs), maxLines = 1, softWrap = false, fontSize = 10.sp) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         shape = RectangleShape,
@@ -419,7 +420,7 @@ fun EditMealDialog(
                     OutlinedTextField(
                         value = fatStr,
                         onValueChange = { fatStr = sanitizeDecimalInput(it) },
-                        label = { Text(stringResource(R.string.field_fat)) },
+                        label = { Text(stringResource(R.string.field_fat), maxLines = 1, softWrap = false, fontSize = 10.sp) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         shape = RectangleShape,

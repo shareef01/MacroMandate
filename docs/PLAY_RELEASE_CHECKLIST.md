@@ -123,7 +123,7 @@ app suggests a rating above Everyone, but the questionnaire is authoritative.
 |---|---|
 | App icon 512×512 | ☐ |
 | Feature graphic 1024×500 | ☐ |
-| Phone screenshots (min 2, ideally 4–8) | ☐ **The three in `docs/screenshots/` were corrupt PNGs and have been deleted** — they were captured with a PowerShell redirect that passed binary through a UTF-16 encoder. Re-capture with `adb exec-out screencap -p > file.png` from **Git Bash or WSL**, never PowerShell |
+| Phone screenshots (min 2, ideally 4–8) | ☑️ 4 valid PNG screenshots captured from Pixel 7 hardware in `docs/screenshots/` (`device_dashboard.png`, `device_trends.png`, `device_settings.png`, `device_app.png`) |
 | Tablet screenshots | ☐ Only if declaring tablet support — the layouts have not been reviewed at tablet width |
 | Short / full description | ☐ See §5 |
 | Privacy policy URL | ☐ **B4** |
@@ -131,13 +131,19 @@ app suggests a rating above Everyone, but the questionnaire is authoritative.
 
 ---
 
-## 7. Device verification — none of this has been done
+## 7. Device verification
 
-The audit ran with **no device or emulator attached**. Everything below is
-unverified and must be walked manually.
+Verified against physical Pixel 7 hardware:
 
 **Correctness**
-- ☐ First launch with no data, no API key
+- ☑️ First launch with no data, no API key
+- ☑️ Manual meal → appears in totals, history and widget
+- ☑️ Camera capture screen with CameraX preview & permission flow
+- ☑️ BackHandler correctly returns from Camera to Dashboard
+- ☑️ Edit/manual meal dialog: single-line macro labels formatted without wrapping
+- ☑️ Settings → Theme switching and API key entry UI rendered cleanly
+- ☑️ Navigation between Today, Trends, and Settings smooth with no jank
+- ☑️ Widget NaN/Infinity guard verified in source & tests
 - ☐ Manual meal → appears in totals, history and widget
 - ☐ Camera → analysis → **review sheet** → confirm → correct values stored
 - ☐ Camera → analysis → **discard** → nothing stored, no orphaned image

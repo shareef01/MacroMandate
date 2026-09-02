@@ -15,7 +15,7 @@ class MandateApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        // Ensure absolute surveillance channels are established before any system module starts
+        // Initialize notification channels before any system module posts notifications
         NotificationManagerHelper.createNotificationChannel(this)
         // Schedule the periodic enforcement check (persists across reboots via WorkManager),
         // but respect a user who explicitly disabled enforcement — otherwise re-scheduling
