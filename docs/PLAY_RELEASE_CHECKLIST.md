@@ -1,7 +1,7 @@
-# MacroMandate — Play Store Release Checklist
+# MacroMandate — Google Play Release Checklist
 
-Derived from source inspection during the August 2026 audit
-(`docs/AUDIT_2026.md`).
+A pre-flight verification checklist for the Google Play Store release,
+reflecting the completed application audit (`docs/AUDIT_REPORT.md`).
 
 **This is not a compliance certification.** Play policy is enforced by review
 against a specific uploaded artefact, and much of it cannot be evaluated from a
@@ -101,8 +101,8 @@ The app estimates calories and macronutrients and uses the vocabulary of
 | Any diagnosis, treatment or medical claim | **No** — verified by reading every user-facing string |
 | AI estimates labelled as estimates | **Yes** (fixed) — the review sheet reads "Estimated from your photo by AI"; the weekly report carries a note |
 | Measurement / calculation / estimate / flavour kept distinguishable | **Yes** (fixed) — the parser now carries `caloriesDerivedFromMacros` so the UI can say which numbers the model actually gave |
-| App withholds data or features based on eating behaviour | **No longer** — the entire lockout system was removed (`AUDIT_2026.md` §1.1) |
-| Model output can delete user data | **No longer** — removed (§1.2) |
+| App withholds data or features based on eating behaviour | **No longer** — the entire lockout system was removed (`AUDIT_REPORT.md` Finding 1) |
+| Model output can delete user data | **No longer** — removed (`AUDIT_REPORT.md` Finding 2) |
 | Shaming or punitive framing | Reduced. Late-night meals no longer cost score or carry a "CIRCADIAN DISCIPLINE BREACH" verdict. The dystopian voice is retained in the chrome |
 | Prescriptive dietary limits imposed | **No.** Validation bounds are parser limits (0–20,000 kcal), documented as such |
 
@@ -184,7 +184,7 @@ Verified against physical Pixel 7 hardware:
 - ☐ Reminder fires when overdue, and **does not fire for a user with no meals**
 - ☐ Toggling reminders repeatedly does not stack workers
 - ☐ Reboot → schedule survives (WorkManager's own handling; the boot receiver is gone)
-- ☐ Timezone change and a DST boundary — day rollover (`AUDIT_2026.md` MM-037)
+- ☐ Timezone change and a DST boundary — day rollover (`AUDIT_REPORT.md` Finding 22)
 
 **Performance** — baseline numbers do not exist yet
 - ☐ `adb shell am start -W` cold start

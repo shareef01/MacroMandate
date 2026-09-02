@@ -1,7 +1,6 @@
 # MacroMandate — Production Audit Report
-**Audit Branch:** `audit/2026-hardening`
 **Audit Date:** 2026-09-02
-**Auditor:** Antigravity Agentic Audit (multi-role: security, privacy, data integrity, UX, accessibility, performance, release engineering)
+**Review Scope:** Security, privacy, data integrity, UI/UX, accessibility, performance, release engineering
 **Baseline Commits:** `0f48299` → `c830ed4` → `a005b69` (three prior audit passes already committed)
 
 ---

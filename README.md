@@ -1,218 +1,110 @@
-# MacroMandate 👁️📟
+# MacroMandate
 
-> **Sovereign Dietary Intelligence & Calorie Surveillance System**
+A local-first Android calorie and macro tracker with a retro tactical terminal interface. It estimates nutritional values from meal photos using a vision model, lets you log or correct entries by hand, and keeps your data stored locally on your device.
 
-**MacroMandate** is a local-first Android nutrition tracker with a retro tactical
-terminal aesthetic. Photograph a meal and a multimodal model estimates its
-calories and macros; log by hand when you'd rather; keep every record on your own
-device.
+<p align="center">
+  <img src="docs/screenshots/device_dashboard.png" width="22%" alt="Dashboard screen" />
+  <img src="docs/screenshots/device_app.png" width="22%" alt="Meal log entry" />
+  <img src="docs/screenshots/device_trends.png" width="22%" alt="Weekly trends" />
+  <img src="docs/screenshots/device_settings.png" width="22%" alt="Settings and theme options" />
+</p>
 
-The persona is deliberate. The numbers are not part of the persona:
+## What it does
 
-> **Character in the chrome. Clarity in the data.**
+- **Meal photo estimation**: Snap or pick a picture to get an estimate of calories, protein, carbs, and fat. Every result is presented in a review sheet before anything is saved.
+- **Manual logging & editing**: Log meals manually without needing an API key or internet connection, and edit any logged meal's name, calories, macros, or beverage status at any time.
+- **Daily progress & targets**: Track calories against a daily target with remaining calorie calculations and macro progress bars.
+- **Weekly trends**: View seven-day consumption charts, macro distribution breakdown, and weekly summaries.
+- **Optional geotagging**: Disabled by default. When enabled, location coordinates are saved alongside meals and rendered as an overlay on uploaded images.
+- **Terminal themes**: Switch between Cyber Cyan, Phosphor Green, Amber CRT, and Stark Mono themes.
+- **Data export & restore**: Export your history as JSON backups or CSV files for spreadsheets, and restore from backup anytime.
+- **Home screen widget**: Quick glance at today's calorie totals directly from your launcher.
+- **Reminders**: Optional notifications scheduled via WorkManager if nothing has been logged for a while.
 
-The interface is dramatic. What it tells you about your food is plain, hedged
-where it should be hedged, and always yours to correct.
+> **Note**: MacroMandate is a personal tracking tool and is not medical software. Nutritional estimates from AI models are approximations and should always be reviewed.
 
----
+## How photo analysis works
 
-## ⚡ What it does
+When you take or pick a meal photo:
+1. The image is downsampled and corrected for EXIF orientation.
+2. The image is sent to an OpenAI-compatible vision endpoint (by default, Hugging Face router running `google/gemma-4-31B-it`, configurable via Settings or build properties).
+3. The model returns estimated calories, protein, carbohydrates, and fat.
+4. An **Analysis Review Sheet** pops up with the parsed numbers. You can adjust any values or discard the estimate entirely before saving.
 
-- 📸 **Photo analysis** — capture or pick an image; a vision model estimates
-  calories, protein, carbohydrates and fat. **Every result is shown for review
-  and correction before anything is written to your log.**
-- ✍️ **Manual entry** — a complete alternative path. Works offline, with no API
-  key, and when the model gets it wrong.
-- ✏️ **In-place correction** — edit any record's name, calories, macros and
-  liquid status; totals recompute immediately.
-- 📊 **Today** — calories against target, remaining delta, macro breakdown.
-- 📈 **Trends** — seven-day intake against your target, macro distribution, and a
-  weekly summary you can copy or export.
-- 🗺️ **Optional geotagging** — off by default. When on, coordinates are saved
-  with the meal *and rendered into the image that gets uploaded*; the setting
-  says so.
-- 🎨 **Four terminal themes** — Cyber Cyan, Phosphor Green, Amber CRT, Stark Mono.
-- 💾 **Your data, portable** — JSON backup and restore, CSV export for
-  spreadsheets, and a one-tap erase of everything. No account, no sync, no
-  lock-in.
-- 🔔 **Reminders** — an optional nudge when nothing has been logged for a while.
-- 📟 **Home-screen widget** — today's total at a glance.
+## Privacy & data handling
 
-### What it deliberately does not do
+- **Local-first storage**: Meals and audit records live in an on-device Room database. No third-party accounts, analytics, or sync servers are run for this project.
+- **Network calls**: Network requests are only made when you trigger photo analysis or generate a daily summary. Only the photo and meal text for that specific request are transmitted.
+- **API key storage**: Your API token is saved in app-private DataStore preferences protected by standard Android application sandboxing. The app excludes credentials from logs, backups, and exports.
+- **Geotagging disclosure**: If enabled, location coordinates are included with meal records and visible in photo overlays. You can toggle this off in Settings at any time.
 
-- It does not lock you out of your own records, whatever your intake looks like.
-- It does not let a language model decide to delete your history.
-- It does not present an AI estimate as a measurement.
-- It does not diagnose, treat, or advise. It is not medical software.
+## Tech stack
 
-> An earlier version did the first two of those. See
-> [`docs/AUDIT_2026.md`](docs/AUDIT_2026.md) §1.1–§1.2 for what happened and why
-> it was removed.
+- **Language & UI**: Kotlin 2.1, Jetpack Compose, Material 3
+- **Architecture**: MVVM with Repository pattern, StateFlow, Coroutines
+- **Storage**: Room Database (with explicit migrations), DataStore Preferences
+- **Camera & Images**: CameraX, Coil
+- **Networking**: Retrofit 2, OkHttp (OpenAI-compatible chat completions)
+- **Background tasks**: WorkManager
+- **Widget**: Jetpack Glance
 
----
-
-## 🔒 Privacy
-
-Everything lives on your device. There is no server operated by this project, no
-account, no analytics, and no crash reporter.
-
-**Two things leave the device, both only when you ask for them,** both to the AI
-provider you configure and authenticated with your own key:
-
-- a **meal photograph**, when you use photo analysis. The image can incidentally
-  contain faces, your home, or documents on the table, so the app says so at the
-  point of capture rather than burying it in Settings.
-- **today's meal names and totals as text**, if you tap *Trends → Daily summary*.
-
-Nothing else — not your history, not your preferences, not the activity log.
-
-The API key is stored in app-private storage. **It is not encrypted** — the
-protection is the Android sandbox, and this README will not claim otherwise. It
-is never written to logs, exports, or backups.
-
-Full data inventory, network boundary and threat model:
-[`docs/PRIVACY_THREAT_MODEL.md`](docs/PRIVACY_THREAT_MODEL.md).
-
----
-
-## 🛠️ Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    JETPACK COMPOSE UI                       │
-│  MainScreen │ AnalyticsScreen │ ControlPanelScreen │ Detail │
-├─────────────────────────────────────────────────────────────┤
-│                      VIEWMODEL LAYER                        │
-│           MainViewModel · StateFlow · UiState               │
-├─────────────────────────────────────────────────────────────┤
-│                      REPOSITORY LAYER                       │
-│    MealRepository │ AuditRepository │ MandatePreferences    │
-├─────────────────────────────────────────────────────────────┤
-│                      LOCAL DATA LAYER                       │
-│  Room (MealEntity, AuditEntity) │ DataStore Preferences     │
-│           ── plaintext, sandbox-protected ──                │
-├─────────────────────────────────────────────────────────────┤
-│                      NETWORK & SYSTEM                       │
-│  Retrofit → chat completions │ CameraX │ WorkManager        │
-│  NutritionBounds ── one validation gate for every writer    │
-└─────────────────────────────────────────────────────────────┘
-```
-
-- **UI**: Jetpack Compose + Material 3, with custom HUD framing and a CRT
-  scanline overlay drawn in Compose (`drawWithCache`; no shaders).
-- **Architecture**: MVVM + repository, coroutines and `StateFlow`.
-  `MainViewModel` currently serves every screen — see the audit's follow-ups.
-- **Persistence**: Room with exported schemas and explicit migrations.
-  Destructive fallback is **debug-only**.
-- **Networking**: Retrofit 2 + OkHttp, OpenAI-compatible chat completions, with
-  explicit timeouts and no automatic retries.
-- **Validation**: every path that writes nutrition — model output, manual entry,
-  the edit dialog, JSON restore — goes through `NutritionBounds`, so no route
-  bypasses another's checks.
-- **Background**: a single WorkManager periodic worker. No foreground service.
-- **Localization**: all user-visible copy is in `strings.xml`; errors are carried
-  as `@StringRes` ids from the domain layer and resolved at display time.
-- **Widget**: Jetpack Glance.
-
----
-
-## 🚀 Getting started
+## Getting started
 
 ### Prerequisites
-
 - Android Studio Ladybug or newer
-- Android SDK 37 (`minSdk` 29)
 - JDK 17+
+- Android SDK 37 (`minSdk` 29)
 
-### Build
-
+### Build & Run
 ```bash
 git clone https://github.com/shareef01/MacroMandate.git
 cd MacroMandate
 
-./gradlew test            # unit tests
-./gradlew assembleDebug   # debug APK
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+# Run unit tests
+./gradlew test
+
+# Assemble debug APK
+./gradlew assembleDebug
 ```
 
-### Configuration (`local.properties`)
+### API Configuration
+To use image analysis:
+1. Open the app and navigate to **Settings**.
+2. Enter your Hugging Face API token under **Analysis API Key**.
 
+For local development, you can optionally set defaults in `local.properties`:
 ```properties
-# Optional: pre-fill a token for local development ONLY.
-# The release build will FAIL if this is set — a BuildConfig string constant
-# is recoverable from any installed APK in seconds. Users supply their own
-# key in Settings instead.
-HUGGINGFACE_API_KEY=hf_your_token_here
-
-# Optional: point at a backend proxy that holds the credential.
+HUGGINGFACE_API_KEY=your_token_here
 MANDATE_API_BASE_URL=https://router.huggingface.co/
 MANDATE_MODEL_ID=google/gemma-4-31B-it
 ```
+*(Note: Release builds disallow compiled-in API keys in `local.properties` by default to prevent accidental credential leakage.)*
 
-To use photo analysis, open **Settings → Analysis API key** and paste a Hugging
-Face access token. The app is fully usable without one.
+## Tests & Verification
 
----
-
-## 🧪 Tests
-
+Run the test suite:
 ```bash
-./gradlew test                        # 129 unit tests
-./gradlew connectedDebugAndroidTest   # requires a device — includes MigrationTest
+# Unit tests
+./gradlew test
+
+# Static analysis
+./gradlew lintDebug
+
+# Instrumented tests (requires connected device/emulator)
+./gradlew connectedDebugAndroidTest
 ```
 
-| Suite | Covers |
-|---|---|
-| `NutritionBoundsTest` | The shared validation gate: clamping, NaN/Infinity, Atwater fallback, macro/calorie contradiction |
-| `HostileAnalysisResponseTest` | Model responses treated as hostile input — prose, markdown fences, string numbers, nulls, arrays, absurd values, truncated JSON, HTML error pages |
-| `BackupRestoreHostileInputTest` | Restore as a hostile boundary — future versions, oversized files, impossible values, bad timestamps, foreign image URIs, duplicate ids |
-| `NutritionFormatTest` | Rounding, screen-reader descriptions, comma decimal separators, numeric overflow |
-| `AnalysisErrorTest` | HTTP status and transport exceptions → readable domain errors |
-| `ErrorCopyTest` | The copy rules, asserted against `strings.xml` itself: no URLs, status codes or stack frames in user-facing text |
-| `ImageForensicsTest` | Downsample sizing across 12 MP, 50 MP, panorama and degenerate frames |
-| `NutritionSanitizerTest` | Model-response parsing |
-| `DossierExporterTest` | CSV escaping, formula-injection mitigation, JSON round trip |
-| `DossierReportGeneratorTest` | Weekly summary arithmetic |
-| `ComplianceEngineTest` | Target-closeness scoring |
-| `MigrationTest` *(instrumented)* | Database upgrades preserve meals and audit rows |
+## Documentation
 
----
+- [`docs/AUDIT_REPORT.md`](docs/AUDIT_REPORT.md): Comprehensive security, privacy, and architecture review.
+- [`docs/PRIVACY_THREAT_MODEL.md`](docs/PRIVACY_THREAT_MODEL.md): Threat model, data inventory, and network boundary analysis.
+- [`docs/PLAY_RELEASE_CHECKLIST.md`](docs/PLAY_RELEASE_CHECKLIST.md): Pre-flight checklist for store release.
+- [`RELEASE_GUIDE.md`](RELEASE_GUIDE.md): Keystore setup, signing configuration, and build commands.
 
----
+## Author
 
-## 📱 Screenshots
+Shareef — [@shareef01](https://github.com/shareef01)
 
-<p align="center">
-  <img src="docs/screenshots/device_dashboard.png" width="22%" alt="Dashboard" />
-  <img src="docs/screenshots/device_app.png" width="22%" alt="Logged Meal" />
-  <img src="docs/screenshots/device_trends.png" width="22%" alt="Trends & Macros" />
-  <img src="docs/screenshots/device_settings.png" width="22%" alt="Settings & Themes" />
-</p>
-
----
-
-## 📋 Status
-
-**Production Verified & Release-Ready.** All correctness, privacy, data integrity, and UI/UX defects have been resolved, covered by 13 unit test classes, and verified on real hardware (Pixel 7).
-
-- **On-Device Database Migrations:** `MigrationTest` passed 5/5 on hardware (`am instrument`).
-- **Production Packaging:** `./gradlew bundleRelease` verified (`app-release.aab`).
-- **Pre-Release Guide:** See [`docs/PLAY_RELEASE_CHECKLIST.md`](docs/PLAY_RELEASE_CHECKLIST.md) and [`RELEASE_GUIDE.md`](RELEASE_GUIDE.md) for final Play Console submission steps.
-
----
-
-## 📚 Documentation
-
-| Document | Contents |
-|---|---|
-| [`docs/AUDIT_REPORT.md`](docs/AUDIT_REPORT.md) | Comprehensive audit report: architecture map, threat model, 41 classified findings, and verification matrix |
-| [`docs/AUDIT_2026.md`](docs/AUDIT_2026.md) | Historical audit report: baseline, feature inventory, and prior findings |
-| [`docs/PRIVACY_THREAT_MODEL.md`](docs/PRIVACY_THREAT_MODEL.md) | Data inventory, network boundary, threats, Data Safety draft |
-| [`docs/PLAY_RELEASE_CHECKLIST.md`](docs/PLAY_RELEASE_CHECKLIST.md) | Play Store release pre-flight checklist and device verification walk |
-| [`RELEASE_GUIDE.md`](RELEASE_GUIDE.md) | Keystore configuration, signing, and production build guides |
-
----
-
-## 🛡️ License
+## License
 
 All rights reserved.

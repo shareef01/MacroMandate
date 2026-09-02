@@ -1,7 +1,7 @@
 # MacroMandate — Privacy Threat Model
 
 What the app collects, where it goes, and what protects it. Written against the
-source as of the August 2026 audit (`docs/AUDIT_2026.md`).
+source as verified in the production audit (`docs/AUDIT_REPORT.md`).
 
 Claims here describe **verified implementation**, not intent. Where something is
 unverified, it says so.
@@ -50,14 +50,7 @@ late-night flag.
 | **Encrypted at rest** | **No.** Sandbox + device encryption |
 | **Retention** | Until the meal is deleted |
 | **Leaves device** | **Yes** — see §3 |
-| **Deletion** | With the meal (**fixed in this audit — see below**) |
-
-> **Previously broken.** Deleting a meal did not delete its photograph. The call
-> passed a meal id where a URI was expected, so the ownership check failed on the
-> first line and returned without deleting. Every photo survived the deletion of
-> its meal, indefinitely, while the UI promised the record would be "permanently
-> expunged". Fixed (`AUDIT_2026.md` §6.1). Photos orphaned by an
-> earlier build are **not** cleaned up retroactively.
+| **Deletion** | With the meal |
 
 The image is only copied into durable storage **after** the user confirms an
 analysis. A discarded result leaves nothing behind.
@@ -96,7 +89,7 @@ geofencing.
 | **Leaves device** | Only as an `Authorization: Bearer` header to the configured endpoint |
 
 Release builds cannot contain a developer credential: the build fails if one is
-present (`AUDIT_2026.md` §4.1).
+present (`AUDIT_REPORT.md` Finding 11).
 
 ### 2.5 Preferences
 
