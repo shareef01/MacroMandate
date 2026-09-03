@@ -2,7 +2,6 @@ package com.sharek.macromandate.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -15,20 +14,13 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.sharek.macromandate.model.MealEntry
@@ -363,19 +355,13 @@ fun EditMealDialog(
     var isLiquid by rememberSaveable { mutableStateOf(meal.isLiquid) }
 
     val haptic = LocalHapticFeedback.current
-    val caloriesFocus = remember { FocusRequester() }
-    val proteinFocus = remember { FocusRequester() }
-    val carbsFocus = remember { FocusRequester() }
-    val fatFocus = remember { FocusRequester() }
-    val focusManager = LocalFocusManager.current
 
     // Same requirement as manual entry: a name and a calorie figure, typed
     // explicitly. This dialog previously fell back to the meal's existing
     // values on a blank field rather than defaulting to zero, which was safe,
     // but it meant clearing a field and tapping Save silently kept the old
     // value with no sign the intended edit hadn't taken effect.
-    val caloriesValue = parseCalories(caloriesStr)
-    val isValid = foodName.isNotBlank() && caloriesStr.isNotBlank() && caloriesValue != null
+    val isValid = isMealEntryValid(foodName, caloriesStr)
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -388,94 +374,21 @@ fun EditMealDialog(
             )
         },
         text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                OutlinedTextField(
-                    value = foodName,
-                    onValueChange = { foodName = it },
-                    label = { Text(stringResource(R.string.field_item_name)) },
-                    singleLine = true,
-                    shape = RectangleShape,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                    keyboardActions = KeyboardActions(onNext = { caloriesFocus.requestFocus() }),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = caloriesStr,
-                    onValueChange = { caloriesStr = it.filter { ch -> ch.isDigit() }.take(6) },
-                    label = { Text(stringResource(R.string.field_calories)) },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
-                    keyboardActions = KeyboardActions(onNext = { proteinFocus.requestFocus() }),
-                    shape = RectangleShape,
-                    modifier = Modifier.fillMaxWidth().focusRequester(caloriesFocus)
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    OutlinedTextField(
-                        value = proteinStr,
-                        onValueChange = { proteinStr = sanitizeDecimalInput(it) },
-                        label = { Text(stringResource(R.string.field_protein)) },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Next),
-                        keyboardActions = KeyboardActions(onNext = { carbsFocus.requestFocus() }),
-                        shape = RectangleShape,
-                        modifier = Modifier.weight(1f).focusRequester(proteinFocus)
-                    )
-                    OutlinedTextField(
-                        value = carbsStr,
-                        onValueChange = { carbsStr = sanitizeDecimalInput(it) },
-                        label = { Text(stringResource(R.string.field_carbs)) },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Next),
-                        keyboardActions = KeyboardActions(onNext = { fatFocus.requestFocus() }),
-                        shape = RectangleShape,
-                        modifier = Modifier.weight(1f).focusRequester(carbsFocus)
-                    )
-                    OutlinedTextField(
-                        value = fatStr,
-                        onValueChange = { fatStr = sanitizeDecimalInput(it) },
-                        label = { Text(stringResource(R.string.field_fat)) },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
-                        keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
-                        shape = RectangleShape,
-                        modifier = Modifier.weight(1f).focusRequester(fatFocus)
-                    )
-                }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { isLiquid = !isLiquid }
-                        .padding(vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Checkbox(
-                        checked = isLiquid,
-                        onCheckedChange = { isLiquid = it },
-                        colors = CheckboxDefaults.colors(
-                            checkedColor = MaterialTheme.colorScheme.primary
-                        )
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = stringResource(R.string.field_is_liquid),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.White
-                    )
-                }
-                Text(
-                    text = stringResource(R.string.manual_entry_required_hint),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.Gray
-                )
-            }
+            MealEntryFields(
+                foodName = foodName,
+                onFoodNameChange = { foodName = it },
+                caloriesStr = caloriesStr,
+                onCaloriesChange = { caloriesStr = it },
+                proteinStr = proteinStr,
+                onProteinChange = { proteinStr = it },
+                carbsStr = carbsStr,
+                onCarbsChange = { carbsStr = it },
+                fatStr = fatStr,
+                onFatChange = { fatStr = it },
+                isLiquid = isLiquid,
+                onLiquidChange = { isLiquid = it },
+                modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+            )
         },
         confirmButton = {
             Button(
@@ -484,7 +397,7 @@ fun EditMealDialog(
                     onSave(
                         meal.copy(
                             foodName = foodName,
-                            calories = (caloriesValue ?: meal.calories).coerceAtLeast(0),
+                            calories = (parseCalories(caloriesStr) ?: meal.calories).coerceAtLeast(0),
                             proteinGrams = parseGrams(proteinStr).coerceAtLeast(0f),
                             carbsGrams = parseGrams(carbsStr).coerceAtLeast(0f),
                             fatGrams = parseGrams(fatStr).coerceAtLeast(0f),
