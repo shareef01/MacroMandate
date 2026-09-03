@@ -44,7 +44,8 @@ import com.sharek.macromandate.R
 @Composable
 fun CameraCaptureScreen(
     onImageCaptured: (Uri) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    reduceVisualEffects: Boolean = false
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -61,27 +62,39 @@ fun CameraCaptureScreen(
 
     val primaryColor = MaterialTheme.colorScheme.primary
     val onPrimaryColor = MaterialTheme.colorScheme.onPrimary
-    val infiniteTransition = rememberInfiniteTransition(label = "HUD")
 
-    val scanningY by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "Scanner"
-    )
-
-    val pulsingColor by infiniteTransition.animateColor(
-        initialValue = primaryColor,
-        targetValue = primaryColor.copy(alpha = 0.3f),
-        animationSpec = infiniteRepeatable(
-            animation = tween(1000),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "Pulse"
-    )
+    // "Reduce visual effects" (Settings) skips the sweeping scan line and the
+    // border's pulse — the two remaining continuous animations in the app —
+    // in favor of a static frame. rememberInfiniteTransition itself is skipped
+    // rather than just discarding its output, so no animation actually runs.
+    val scanningY: Float
+    val pulsingColor: Color
+    if (reduceVisualEffects) {
+        scanningY = 0f
+        pulsingColor = primaryColor
+    } else {
+        val infiniteTransition = rememberInfiniteTransition(label = "HUD")
+        val scanningYAnim by infiniteTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(2000, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "Scanner"
+        )
+        val pulsingColorAnim by infiniteTransition.animateColor(
+            initialValue = primaryColor,
+            targetValue = primaryColor.copy(alpha = 0.3f),
+            animationSpec = infiniteRepeatable(
+                animation = tween(1000),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "Pulse"
+        )
+        scanningY = scanningYAnim
+        pulsingColor = pulsingColorAnim
+    }
 
     LaunchedEffect(Unit) {
         // Initial tactical readiness pulse on viewfinder activation
@@ -128,8 +141,10 @@ fun CameraCaptureScreen(
                 .hudFraming(pulsingColor, length = 40.dp, thickness = 4.dp)
         )
 
-        // Scanning Grid Overlay
-        Canvas(modifier = Modifier.fillMaxSize().padding(24.dp)) {
+        // Scanning Grid Overlay — skipped entirely under "Reduce visual
+        // effects" rather than drawn at a frozen position, so the preview is
+        // genuinely uncluttered, not just paused.
+        if (!reduceVisualEffects) Canvas(modifier = Modifier.fillMaxSize().padding(24.dp)) {
             val y = size.height * scanningY
             drawLine(
                 color = pulsingColor.copy(alpha = 0.8f),

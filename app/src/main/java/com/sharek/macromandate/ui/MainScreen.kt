@@ -78,7 +78,8 @@ fun MainScreen(
     viewModel: MainViewModel,
     onNavigateToDetail: (String) -> Unit,
     openManualEntryOnLaunch: Boolean = false,
-    onManualEntryLaunchConsumed: () -> Unit = {}
+    onManualEntryLaunchConsumed: () -> Unit = {},
+    reduceVisualEffects: Boolean = false
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -414,7 +415,8 @@ fun MainScreen(
                     },
                     onBack = {
                         screenState = ScreenState.DASHBOARD
-                    }
+                    },
+                    reduceVisualEffects = reduceVisualEffects
                 )
             }
         }

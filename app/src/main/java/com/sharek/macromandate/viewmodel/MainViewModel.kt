@@ -177,6 +177,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    val reduceVisualEffects: StateFlow<Boolean> = preferences.reduceVisualEffectsFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = false
+        )
+
+    fun toggleReduceVisualEffects(enabled: Boolean) {
+        viewModelScope.launch {
+            preferences.updateReduceVisualEffects(enabled)
+            logAudit("CONFIG", "VISUAL EFFECTS ${if (enabled) "REDUCED" else "RESTORED"}.")
+        }
+    }
+
     fun updateApiKey(key: String) {
         viewModelScope.launch {
             preferences.updateApiKey(key)

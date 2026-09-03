@@ -15,6 +15,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BlurOff
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Description
@@ -77,6 +78,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
     val recentAudits by viewModel.recentAudits.collectAsState()
     val apiKeyHint by viewModel.apiKeyHint.collectAsState()
     val terminalTheme by viewModel.terminalTheme.collectAsState()
+    val reduceVisualEffects by viewModel.reduceVisualEffects.collectAsState()
 
     var pendingRestoreUri by remember { mutableStateOf<Uri?>(null) }
     var showEraseConfirm by remember { mutableStateOf(false) }
@@ -343,6 +345,27 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                 currentTheme = terminalTheme,
                 onSelectTheme = { viewModel.updateTerminalTheme(it) }
             )
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            SettingsCard(title = stringResource(R.string.settings_visual_effects), icon = Icons.Default.BlurOff) {
+                Column {
+                    SettingRow(
+                        label = stringResource(R.string.settings_reduce_visual_effects_toggle),
+                        checked = reduceVisualEffects,
+                        onCheckedChange = {
+                            haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                            viewModel.toggleReduceVisualEffects(it)
+                        }
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = stringResource(R.string.settings_reduce_visual_effects_description),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.Gray
+                    )
+                }
+            }
 
             Spacer(modifier = Modifier.height(32.dp))
 

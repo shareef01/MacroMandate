@@ -61,25 +61,31 @@ fun Modifier.hudFraming(
  *
  * Now: drawn over the content so it is real, one repeating-gradient rect instead
  * of a loop, and a fixed, very low alpha that never depends on how someone ate.
+ *
+ * [enabled] backs the "Reduce visual effects" Settings toggle. The alpha here
+ * is already low enough that this isn't fixing a measured problem — it's a
+ * floor for anyone who wants every last bit of contrast, at any font scale,
+ * with zero overlay in the way.
  */
-fun Modifier.terminalOverlay(): Modifier = this.drawWithCache {
-    val lineHeight = 2.dp.toPx()
-    val spacing = 4.dp.toPx()
-    // One rect with a repeating gradient, rather than a drawRect per line.
-    val brush = Brush.verticalGradient(
-        0f to SCANLINE_COLOR,
-        (lineHeight / spacing) to SCANLINE_COLOR,
-        (lineHeight / spacing) to Color.Transparent,
-        1f to Color.Transparent,
-        startY = 0f,
-        endY = spacing,
-        tileMode = TileMode.Repeated
-    )
-    onDrawWithContent {
-        drawContent()
-        drawRect(brush = brush)
+fun Modifier.terminalOverlay(enabled: Boolean = true): Modifier =
+    if (!enabled) this else this.drawWithCache {
+        val lineHeight = 2.dp.toPx()
+        val spacing = 4.dp.toPx()
+        // One rect with a repeating gradient, rather than a drawRect per line.
+        val brush = Brush.verticalGradient(
+            0f to SCANLINE_COLOR,
+            (lineHeight / spacing) to SCANLINE_COLOR,
+            (lineHeight / spacing) to Color.Transparent,
+            1f to Color.Transparent,
+            startY = 0f,
+            endY = spacing,
+            tileMode = TileMode.Repeated
+        )
+        onDrawWithContent {
+            drawContent()
+            drawRect(brush = brush)
+        }
     }
-}
 
 /**
  * Low enough to read as phosphor texture rather than a grille. Anything heavier

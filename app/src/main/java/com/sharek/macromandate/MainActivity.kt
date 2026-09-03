@@ -118,9 +118,12 @@ fun MacroMandateApp(
     val complianceStatus by viewModel.complianceStatus.collectAsState()
 
     val items = remember { listOf(Screen.Dashboard, Screen.Analytics, Screen.ControlPanel) }
+    // "Reduce visual effects" in Settings — off by default, since the overlay
+    // is already tuned low enough not to need it for most people.
+    val reduceVisualEffects by viewModel.reduceVisualEffects.collectAsState()
 
     Scaffold(
-        modifier = Modifier.terminalOverlay(),
+        modifier = Modifier.terminalOverlay(enabled = !reduceVisualEffects),
         contentWindowInsets = WindowInsets(0.dp), // Handle insets manually in screens
         bottomBar = {
             if (currentRoute != Screen.Dashboard.route && currentRoute != Screen.Analytics.route && currentRoute != Screen.ControlPanel.route) {
@@ -179,6 +182,7 @@ fun MacroMandateApp(
                     viewModel = viewModel,
                     openManualEntryOnLaunch = openManualEntryOnLaunch,
                     onManualEntryLaunchConsumed = onManualEntryLaunchConsumed,
+                    reduceVisualEffects = reduceVisualEffects,
                     onNavigateToDetail = { mealId ->
                         navController.navigate("meal_detail/$mealId")
                     }

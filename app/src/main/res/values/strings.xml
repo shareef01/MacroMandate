@@ -240,6 +240,13 @@
     <string name="settings_theme_description">Select tactical phosphor rendering and interface palette.</string>
     <string name="content_description_theme_active">Active</string>
 
+    <string name="settings_visual_effects">Visual effects</string>
+    <string name="settings_reduce_visual_effects_toggle">Reduce visual effects</string>
+    <!-- Off by default: the scanline overlay and camera scan animation are
+         already low-intensity, so this is a floor for anyone who wants zero
+         overlay, not a fix for a measured problem. -->
+    <string name="settings_reduce_visual_effects_description">Turns off the scanline overlay and the camera screen\'s scanning animation. Effects are on by default; this switch doesn\'t change layout, color, or text size.</string>
+
     <string name="settings_calorie_target">Daily calorie target</string>
     <string name="settings_target_field">Target</string>
     <string name="settings_target_unit">kcal</string>

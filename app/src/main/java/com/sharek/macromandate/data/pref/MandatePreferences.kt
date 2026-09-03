@@ -18,6 +18,7 @@ class MandatePreferences(private val context: Context) {
         val LOCATION_TRACKING_ENABLED = booleanPreferencesKey("location_tracking_enabled")
         val API_KEY = stringPreferencesKey("api_key")
         val TERMINAL_THEME = stringPreferencesKey("terminal_theme")
+        val REDUCE_VISUAL_EFFECTS = booleanPreferencesKey("reduce_visual_effects")
     }
 
     /**
@@ -61,6 +62,17 @@ class MandatePreferences(private val context: Context) {
         TerminalTheme.fromId(preferences[TERMINAL_THEME])
     }
 
+    /**
+     * Off by default: the CRT scanline overlay and the camera screen's
+     * scanning animation are already tuned to a low, fixed alpha with no
+     * data-driven intensity, so this isn't fixing a measured problem — it's
+     * a floor for anyone sensitive to any overlay/motion at all, or who
+     * wants every last bit of contrast at a large accessibility font size.
+     */
+    val reduceVisualEffectsFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[REDUCE_VISUAL_EFFECTS] ?: false
+    }
+
     suspend fun updateCalorieTarget(target: Int) {
         context.dataStore.edit { preferences ->
             preferences[DAILY_CALORIE_TARGET] = target
@@ -88,6 +100,12 @@ class MandatePreferences(private val context: Context) {
     suspend fun updateApiKey(key: String) {
         context.dataStore.edit { preferences ->
             preferences[API_KEY] = key.trim()
+        }
+    }
+
+    suspend fun updateReduceVisualEffects(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[REDUCE_VISUAL_EFFECTS] = enabled
         }
     }
 }
