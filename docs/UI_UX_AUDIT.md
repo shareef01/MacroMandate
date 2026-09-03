@@ -1,20 +1,30 @@
 # MacroMandate — UI/UX & Usability Audit
 
-> **Implementation status (2026-09-03):** Top 10 items #1–#9, the full P1–P3
-> backlog, and I.2 (the shared meal-entry component) are implemented on branch
-> `ui-ux-audit-fixes` (commits `1caf3c2`, `72fe10f`). Verified by
-> `./gradlew testDebugUnitTest` (152 tests, 0 failures), `lintDebug` (0
-> errors, 22 warnings — unchanged baseline), and `assembleDebug` — **not** by
-> running the app; no emulator/device was available for implementation
-> either. Two self code-review passes each caught one issue before it shipped:
-> the widget-launched manual-entry dialog re-opening on every return to the
-> Today tab (first pass), and a validation-consistency gap between the three
-> meal-entry forms (also first pass, fixed by extending the fix rather than
-> waiting for I.2). The second pass, on the I.2 extraction itself, found
-> nothing. Left undone: the "reduce visual effects" toggle (F.6) and the
-> audit-log nested-scroll question (D.8), both explicitly low-priority in the
-> original audit. Status is also marked inline on the Top 10 table and the
-> P1/P2/P3 backlog.
+> **Implementation status (2026-09-03):** Every actionable finding in this
+> audit is now implemented or explicitly closed, on branch `ui-ux-audit-fixes`.
+> Top 10 items #1–#9, the full P1–P3 backlog, I.2 (the shared meal-entry
+> component), and F.6 (a "Reduce visual effects" Settings toggle) are done.
+> D.8 (a suspected audit-log nested-scroll issue) was investigated further
+> rather than patched — see F.6/D.8 note below — and closed as not a defect.
+> Verified by `./gradlew testDebugUnitTest` (152 tests, 0 failures), `lintDebug`
+> (0 errors, 22 warnings — unchanged baseline), and `assembleDebug` — **not**
+> by running the app; no emulator/device was available for implementation
+> either. Three self code-review passes each caught issues before they
+> shipped: the widget-launched manual-entry dialog re-opening on every return
+> to the Today tab and a validation-consistency gap between the three
+> meal-entry forms (both first pass, the latter fixed by extending the fix
+> rather than waiting for I.2); the I.2 and F.6 passes found nothing. Status
+> is also marked inline on the Top 10 table and the P1/P2/P3 backlog.
+>
+> **F.6/D.8 note:** F.6 shipped as designed — a switch, default off, that
+> skips the CRT scanline overlay and the camera screen's scan animation. D.8
+> did not ship a code change: on closer reading, a bounded-height `LazyColumn`
+> (120–220dp, capped at 50 rows) nested inside a scrolling `Column` is
+> standard, correctly-supported Compose behavior — not the unbounded-height
+> case that actually crashes — and disabling its own scroll to "fix" an
+> unconfirmed feel issue would trade away the only way to reach audit entries
+> past the visible ~8–10 rows. Closed without a change; see D.8 in section E
+> for the full reasoning.
 
 **Audit date:** 2026-09-03
 **Scope:** Product/UI/UX usability. Not a security or code-quality review — see [`AUDIT_REPORT.md`](AUDIT_REPORT.md) and [`PRIVACY_THREAT_MODEL.md`](PRIVACY_THREAT_MODEL.md) for those.
@@ -266,7 +276,7 @@ Covered fully in D.6. The map is currently the audit's single highest-priority c
 - **Three redundant controls for one number.** Calorie target exposes a typed field, a ± stepper, and a slider simultaneously (`ControlPanelScreen.kt:854-926`) — the code comment correctly explains *why* the slider-only precursor was a problem (29 reachable values, 100 kcal apart), but the fix added two more controls rather than replacing the constrained one. All three are always visible and always the same visual weight for a value most users set once and revisit rarely. This is a defensible trade shown to have real reasoning behind it — the recommendation is to de-emphasize the slider (e.g., a smaller/quieter "fine-tune" affordance) rather than remove it.
 - **The audit-log panel hardcodes category colors outside the theme**: `Color.Red` for SECURITY, `Color.Cyan` for MANDATE_SHIFT/CONFIG/PRIVACY, `Color.Gray` otherwise (`ControlPanelScreen.kt:732-736`) — in Stark Mono or Amber CRT this log will show fixed red/cyan lines that belong to no palette on screen.
 - **The CSV export button is the only one of three data-portability buttons not styled from the theme.** JSON export (filled, `MaterialTheme.colorScheme.primary`) and JSON restore (outlined, primary border) both respect the active theme; CSV export uses `border = BorderStroke(1.dp, Color.Gray)` and `contentColor = Color.White` (`ControlPanelScreen.kt:459-460`) — in any of the three non-Cyan themes it will visibly not match its two siblings.
-- **The audit-log `LazyColumn` is nested inside the screen's outer `verticalScroll` Column** (`ControlPanelScreen.kt:701-741`, height-constrained `120-220dp`) — a known Compose pattern that can produce a "sticky" scroll handoff where a fast scroll gesture that lands inside the log's bounds gets captured by the inner list instead of continuing the outer scroll. **Likely, requires runtime verification.**
+- **The audit-log `LazyColumn` is nested inside the screen's outer `verticalScroll` Column** (`ControlPanelScreen.kt:790-835`, height-constrained `120-220dp`). **Revisited 2026-09-03, closed — not a defect.** The concern was a "sticky" scroll handoff; on closer reading this is the standard, correctly-supported Compose pattern: a `LazyColumn` with a *bounded* height (not the unbounded-height case that actually crashes) nested in a vertically-scrolling `Column` dispatches unconsumed drag delta to the parent via Compose's built-in nested-scroll chaining — no extra wiring needed, and this is a common, working pattern elsewhere in the ecosystem (a fixed-height scrollable list inside a longer settings/detail screen). The list is also capped at 50 rows (`AuditDao.getRecentAudits()` — `LIMIT 50`), so there's no volume for it to be a performance concern either. No runtime device was available to confirm feel, but there is no code-level basis for a fix, and disabling the inner scroll to "solve" it would trade a real capability (reaching audit entries beyond the visible ~8-10 rows) for an unconfirmed problem. Left as-is.
 - **API key "Clear" has no confirmation and sits directly beside "Save."** A single mistap wipes a working key immediately (`ControlPanelScreen.kt:652-664`); recoverable (re-enter the key) but inconsistent with how carefully the Erase-everything flow guards against the equivalent mistake.
 
 **Accessibility**
@@ -365,6 +375,7 @@ Covered above — the app consistently pairs color with text/numbers for status 
 - The CRT scanline overlay (`terminalOverlay()`, `ModifierUtils.kt:65-89`) is a fixed, very low alpha (0.03) static gradient with **no animation** — a prior version's data-driven red "alarm wash" (proportional to how far over target the user was) was removed, and a prior GPU-wasting per-frame `drawRect` loop was replaced with one cached brush; both are documented fixes worth protecting. It is applied globally, with **no user-facing toggle to disable it**. Given how low the current alpha already is, this is not an urgent fix, but a "Reduce visual effects" preference in Settings would be a cheap, complete answer to the brief's accessibility question about CRT effects and is worth adding opportunistically rather than urgently.
 - The camera screen's animated scan-line/pulse (D.2) is the one remaining continuous animation in the app; it's contained to a single full-screen moment and isn't informational. No action required unless a future reduced-motion setting is added, in which case this is the other thing it should gate.
 - The typewriter-reveal effect on the Daily Briefing was removed specifically because a screen reader would re-announce it per character (`AnalyticsScreen.kt:398-402`, comment) — correct fix, don't reintroduce.
+- **Status:** ✅ Done (2026-09-03 follow-up). `Settings → Visual effects → Reduce visual effects` (default off). Turns off the scanline overlay entirely (`terminalOverlay(enabled = !reduceVisualEffects)`) and, per the note above, the camera screen's scan-line sweep and border pulse too — `rememberInfiniteTransition`/`animateFloat`/`animateColor` are skipped outright rather than just discarding their output, so no animation runs at all when the toggle is on. Default (off) reproduces prior behavior exactly.
 
 ### F.7 Keyboard/focus
 - `CalorieTargetControl` demonstrates the correct pattern (explicit `ImeAction.Done` + `KeyboardActions`, commit-on-blur) that the three meal-entry forms lack (D.4).
