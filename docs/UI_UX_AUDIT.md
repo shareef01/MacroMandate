@@ -435,6 +435,7 @@ Switches, theme-selection cards, and filter chips all communicate selected/check
 **Scope:** Extract one composable taking the shared fields (name, calories, P/C/F, liquid) plus screen-specific slots (the AI photo + caveat banner only appears in the review sheet; the "existing value on blank" vs. "zero on blank" policy should become one shared, explicit decision rather than three implicit ones).
 **Expected benefit:** the highest-frequency interaction in the app becomes consistent by construction, and D.4's whole finding cluster becomes a single fix instead of three.
 **Migration risk:** low-medium — this is the one recommendation in the audit where the reason to abstract is the stated bar in the brief ("only when it prevents visible inconsistency") — it already has, twice, in the current three-copy state.
+**Status:** Not done. The 2026-09-03 implementation pass fixed the specific drift this item warns about (all three forms now require the same explicit name+calories, and share one liquid-field label) by applying the same fix three times rather than extracting the shared component — a deliberate smaller-footprint choice for that pass, not an oversight. The underlying duplication (three copies of the field-and-focus-chain layout) is still there and this item's rationale still applies to future changes.
 
 ### I.3 A visible, non-cyclic sort control
 **Rationale:** D.1/C #4 — state invisibility is the core problem, not the three sort options themselves.
