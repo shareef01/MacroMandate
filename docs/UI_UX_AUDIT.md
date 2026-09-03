@@ -1,5 +1,18 @@
 # MacroMandate — UI/UX & Usability Audit
 
+> **Implementation status (2026-09-03):** Top 10 items #1–#9 and most of the
+> P1/P2 backlog below are implemented on branch `ui-ux-audit-fixes` (commit
+> `1caf3c2`). Verified by `./gradlew testDebugUnitTest` (152 tests, 0
+> failures), `lintDebug` (0 errors, 22 warnings — unchanged baseline), and
+> `assembleDebug` — **not** by running the app; no emulator/device was
+> available for implementation either. A self code-review pass caught one
+> regression (the widget-launched manual-entry dialog re-opening on every
+> return to the Today tab) before it shipped; it's fixed in the same commit.
+> Findings this pass did not touch: the "reduce visual effects" toggle (F.6),
+> the audit-log nested-scroll question (D.8), and the larger structural items
+> in section I. Status is also marked inline on the Top 10 table and the P1/P2
+> backlog.
+
 **Audit date:** 2026-09-03
 **Scope:** Product/UI/UX usability. Not a security or code-quality review — see [`AUDIT_REPORT.md`](AUDIT_REPORT.md) and [`PRIVACY_THREAT_MODEL.md`](PRIVACY_THREAT_MODEL.md) for those.
 **Method:** Full read of every `@Composable` file, the ViewModel, string resources, theme system, manifest, and both prior audit docs; visual inspection of the four physical-device screenshots in `docs/screenshots/` (captured on a Pixel 7, per `PLAY_RELEASE_CHECKLIST.md` §7). **No emulator or device was available to this audit** — nothing below is claimed as live interaction beyond what the four static screenshots actually show. Every finding is labelled:
@@ -93,18 +106,18 @@ The Today screen's layout roughly matches this ranking (log-meal actions above t
 
 ## C. Top 10 Highest-Priority Improvements
 
-| # | Finding | Screen/Flow | Severity | Impact | Effort | Why now |
-|---|---|---|---|---|---|---|
-| 1 | Manual/Edit meal dialogs silently save blank or unparseable calories as **0 kcal**; Save is never disabled | Manual entry, Edit meal | **P1** | Wrong daily totals, no warning — reproduced in a real screenshot | XS-S | Directly corrupts the number the whole app is built around |
-| 2 | `SurveillanceMap` plots the fractional part of lat/long only — pins bear no reliable relation to real position | Trends → Meal map | **P1** | A "privacy-forward" app ships a location feature that looks precise and isn't; undermines trust once discovered | M | Core promise of the feature is currently false |
-| 3 | Macro field labels (`Protein`/`Carbs`/`Fat`) hardcoded `10.sp`, `maxLines=1`, `softWrap=false` in three-column rows | Manual entry, Edit meal | **P1** | Clips/truncates at 1.3×–2× system font scale | XS | Direct, easily-reproduced accessibility failure in the highest-frequency form in the app |
-| 4 | Sort control cycles 3 states on tap with no visible menu of options | Today → filter row | **P2** | User must tap-and-read repeatedly to find "PROTEIN ↓"; state is invisible until landed on | S | Touches every session that searches history |
-| 5 | 6 filter chips + sort button in one horizontally-scrolling row, no scroll affordance | Today → filter row | **P2** | LIQUID and FLAGGED filters are undiscoverable without an accidental scroll | S | Same row as #4; fix together |
-| 6 | Hardcoded colors bypass the theme system in specific, visible spots (Daily Briefing cyan, CSV export button gray, audit-log red/cyan, weekly-chart grid/target line) | Trends, Settings | **P2** | Breaks visual coherence specifically in the 3 non-Cyan themes the app advertises | XS (per site) | Cheap, and it's the exact promise "4 terminal themes" makes |
-| 7 | `NutritionColors.Carbs` (#00E5FF) = `CYBER_CYAN.primaryColor` exactly; `NutritionColors.Protein` (#00FF66) = `MATRIX_GREEN.primaryColor` exactly | All screens showing macros, in 2 of 4 themes | **P2** | In the *default* theme, "this is cyan because it's carbs" and "this is cyan because it's a UI accent" collapse into one signal | S | Undercuts the one color-coding system the app has, in its default theme |
-| 8 | Haptic feedback type is inconsistent for identical gestures (`LongPress` vs `ContextClick` on two adjacent Settings switches; `LongPress` fired on ordinary single taps almost everywhere) | App-wide | **P2/P3** | Minor per-tap, but touches literally every interaction in the core logging loop | XS | Cheapest fix on this list relative to how many taps it touches |
-| 9 | "Daily summary" loading overlay has no Cancel; "Take photo" analysis loading does | Trends vs Today | **P2** | Inconsistent recovery from a slow/stuck network call | XS | Same underlying network call class, different guarantees |
-| 10 | `FLAGGED` filter and the red "FLAGGED" photo overlay can never trigger (`isRestricted` is hardcoded `false` everywhere it's constructed) | Today filter row, Meal Detail | **P2/P3** | Dead control costing a chip slot and a moment of "what does this mean" | XS | One-line-of-reasoning fix: remove or repurpose |
+| # | Finding | Screen/Flow | Severity | Impact | Effort | Why now | Status |
+|---|---|---|---|---|---|---|---|
+| 1 | Manual/Edit meal dialogs silently save blank or unparseable calories as **0 kcal**; Save is never disabled | Manual entry, Edit meal | **P1** | Wrong daily totals, no warning — reproduced in a real screenshot | XS-S | Directly corrupts the number the whole app is built around | ✅ Fixed — all three entry forms (manual, edit, AI review) now require an explicit name and calorie value before Save enables |
+| 2 | `SurveillanceMap` plots the fractional part of lat/long only — pins bear no reliable relation to real position | Trends → Meal map | **P1** | A "privacy-forward" app ships a location feature that looks precise and isn't; undermines trust once discovered | M | Core promise of the feature is currently false | ✅ Fixed — real centroid-relative meters projection with an on-screen scale legend |
+| 3 | Macro field labels (`Protein`/`Carbs`/`Fat`) hardcoded `10.sp`, `maxLines=1`, `softWrap=false` in three-column rows | Manual entry, Edit meal | **P1** | Clips/truncates at 1.3×–2× system font scale | XS | Direct, easily-reproduced accessibility failure in the highest-frequency form in the app | ✅ Fixed — constraints removed from all six sites |
+| 4 | Sort control cycles 3 states on tap with no visible menu of options | Today → filter row | **P2** | User must tap-and-read repeatedly to find "PROTEIN ↓"; state is invisible until landed on | S | Touches every session that searches history | ✅ Fixed — `DropdownMenu` listing all three, active one checked |
+| 5 | 6 filter chips + sort button in one horizontally-scrolling row, no scroll affordance | Today → filter row | **P2** | LIQUID and FLAGGED filters are undiscoverable without an accidental scroll | S | Same row as #4; fix together | ✅ Fixed — `FlowRow` wraps instead of scrolling |
+| 6 | Hardcoded colors bypass the theme system in specific, visible spots (Daily Briefing cyan, CSV export button gray, audit-log red/cyan, weekly-chart grid/target line) | Trends, Settings | **P2** | Breaks visual coherence specifically in the 3 non-Cyan themes the app advertises | XS (per site) | Cheap, and it's the exact promise "4 terminal themes" makes | ✅ Fixed — all four sites swapped to `MaterialTheme.colorScheme.*` |
+| 7 | `NutritionColors.Carbs` (#00E5FF) = `CYBER_CYAN.primaryColor` exactly; `NutritionColors.Protein` (#00FF66) = `MATRIX_GREEN.primaryColor` exactly | All screens showing macros, in 2 of 4 themes | **P2** | In the *default* theme, "this is cyan because it's carbs" and "this is cyan because it's a UI accent" collapse into one signal | S | Undercuts the one color-coding system the app has, in its default theme | ✅ Fixed — macro palette shifted off every theme's primary/secondary |
+| 8 | Haptic feedback type is inconsistent for identical gestures (`LongPress` vs `ContextClick` on two adjacent Settings switches; `LongPress` fired on ordinary single taps almost everywhere) | App-wide | **P2/P3** | Minor per-tap, but touches literally every interaction in the core logging loop | XS | Cheapest fix on this list relative to how many taps it touches | ✅ Fixed — light feedback for selection/navigation, heavy reserved for commit/destructive, applied at every call site; several destructive confirm buttons that had *no* haptic also fixed |
+| 9 | "Daily summary" loading overlay has no Cancel; "Take photo" analysis loading does | Trends vs Today | **P2** | Inconsistent recovery from a slow/stuck network call | XS | Same underlying network call class, different guarantees | ✅ Fixed — Cancel button added, backed by a cancellable ViewModel job |
+| 10 | `FLAGGED` filter and the red "FLAGGED" photo overlay can never trigger (`isRestricted` is hardcoded `false` everywhere it's constructed) | Today filter row, Meal Detail | **P2/P3** | Dead control costing a chip slot and a moment of "what does this mean" | XS | One-line-of-reasoning fix: remove or repurpose | ◐ Partial — filter chip kept (a restored backup can still carry `isRestricted`), but the full-photo red/yellow warning washes for both `isRestricted` and `isNightRefueling` are now small corner badges, not a color wash over the photo |
 
 ---
 
@@ -478,6 +491,7 @@ Switches, theme-selection cards, and filter chips all communicate selected/check
 - *Acceptance criteria:* Save is disabled until name is non-blank and calories parses to a positive integer; at 2.0× system font scale, no macro field label clips or truncates.
 - *Accessibility considerations:* Verify with TalkBack that the disabled-state reason is announced, not just visually implied.
 - *Estimated effort:* S
+- *Status:* ✅ Fixed, extended to all three entry forms (Manual/Edit/AI review) for consistency, not just Manual. TalkBack announcement of the disabled state — **requires runtime verification**.
 
 **2. `SurveillanceMap` does not plot real geographic position**
 - *Problem:* Pin placement uses only the fractional part of latitude/longitude (`% 1f`), discarding the whole degree.
@@ -487,6 +501,7 @@ Switches, theme-selection cards, and filter chips all communicate selected/check
 - *Acceptance criteria:* Two meals with known, distinct real-world coordinates render at visually distinguishable, correctly-relative positions on the map; two meals at nearly the same coordinates render close together regardless of whether they cross a whole-degree boundary.
 - *Accessibility considerations:* None beyond existing (map has no current TalkBack description — consider adding one describing relative distances once positions are real).
 - *Estimated effort:* M
+- *Status:* ✅ Fixed. Also added the TalkBack description this item flagged as a nice-to-have.
 
 ### P2
 
@@ -498,6 +513,7 @@ Switches, theme-selection cards, and filter chips all communicate selected/check
 - *Acceptance criteria:* All 3 sort options and all 6 filters are visible or discoverable without trial-and-error tapping; current sort/filter state is always legible without interaction.
 - *Accessibility considerations:* Menu/sheet items must be individually focusable with the active item announced as selected.
 - *Estimated effort:* S
+- *Status:* ✅ Fixed (`DropdownMenu` + `FlowRow`). Individual-focus/selected-announcement of menu items — **requires runtime verification**.
 
 **4. Hardcoded colors break the 4-theme promise in specific, named spots**
 - *Problem:* Daily Briefing (+ its spinner), the CSV export button, the audit-log category colors, and the weekly chart's grid/target line all use fixed `Color.*` literals instead of theme tokens.
@@ -507,6 +523,7 @@ Switches, theme-selection cards, and filter chips all communicate selected/check
 - *Acceptance criteria:* Switching theme visibly re-colors every element named above, in all 4 themes.
 - *Accessibility considerations:* Re-verify contrast of the new theme-derived colors against each theme's background.
 - *Estimated effort:* XS
+- *Status:* ✅ Fixed. Contrast re-check across all 4 themes — **requires runtime verification**.
 
 **5. Macro colors collide with theme primary in 2 of 4 themes**
 - *Problem:* `NutritionColors.Carbs` == `CYBER_CYAN.primaryColor`; `NutritionColors.Protein` == `MATRIX_GREEN.primaryColor`, exactly.
@@ -516,6 +533,7 @@ Switches, theme-selection cards, and filter chips all communicate selected/check
 - *Acceptance criteria:* In every theme, each macro's color is visually distinguishable from that theme's primary accent color at a glance.
 - *Accessibility considerations:* Re-run a color-blindness simulation across the revised palette per theme.
 - *Estimated effort:* S
+- *Status:* ✅ Fixed via the palette-shift approach (Protein → deeper emerald, Carbs → cool blue, Fat → warm orange-gold). Color-blindness simulation — **requires runtime/tooling verification**.
 
 **6. Inconsistent haptic feedback semantics**
 - *Problem:* `LongPress`-type haptics fire on ordinary single taps almost everywhere; `ContextClick` fires on visually identical taps elsewhere, including two adjacent Settings switches using different types for the same gesture.
@@ -524,6 +542,7 @@ Switches, theme-selection cards, and filter chips all communicate selected/check
 - *Relevant files:* `ui/MainScreen.kt`, `ui/ControlPanelScreen.kt`, `ui/AnalyticsScreen.kt`, `ui/MealDetailScreen.kt`, `ui/CameraCaptureScreen.kt`
 - *Acceptance criteria:* Every haptic call site maps to one of a small, named set of interaction categories, with no two visually-identical gestures using different types.
 - *Estimated effort:* XS
+- *Status:* ✅ Fixed across all ~35 call sites in `MainScreen.kt`, `ControlPanelScreen.kt`, `AnalyticsScreen.kt`, `MealDetailScreen.kt`, `CameraCaptureScreen.kt`. Also found and fixed 3 destructive confirm buttons (delete, restore, erase) that had no haptic at all. The policy is documented inline at each call site rather than as a shared helper — a small follow-up worth doing if a new destructive action is ever added.
 
 **7. `FLAGGED` filter and its red photo banner are dead UI**
 - *Problem:* `isRestricted` is hardcoded `false` everywhere a meal is constructed; the filter/banner tied to it can't fire from normal use.
@@ -532,6 +551,7 @@ Switches, theme-selection cards, and filter chips all communicate selected/check
 - *Relevant files:* `ui/MainScreen.kt`, `ui/MealDetailScreen.kt`, `res/values/strings.xml`
 - *Acceptance criteria:* No filter or visual state in the shipped app describes a condition that cannot occur from any current data-entry path.
 - *Estimated effort:* XS
+- *Status:* ◐ Partial. Kept the filter/field (a restored backup can still legitimately carry `isRestricted = true`, so it isn't strictly unreachable) but replaced the full-photo red/yellow warning washes for both `isRestricted` and `isNightRefueling` with small corner badges — the actively punitive-looking part of this finding.
 
 **8. Daily-summary loading has no Cancel; two charts risk duplicate TalkBack announcements**
 - *Problem:* `AnalyticsScreen`'s loading overlay lacks the Cancel button `MainScreen`'s equivalent has; `DailyComplianceChart`/`WeeklyBarChart` use non-merging semantics.
@@ -540,6 +560,7 @@ Switches, theme-selection cards, and filter chips all communicate selected/check
 - *Relevant files:* `ui/AnalyticsScreen.kt`
 - *Acceptance criteria:* Summary generation can be cancelled the same way photo analysis can; TalkBack announces each chart's description exactly once per interaction, verified on-device.
 - *Estimated effort:* S
+- *Status:* ✅ Fixed (Cancel button + `cancelDailyBriefing()`; both charts switched to `clearAndSetSemantics`). Single-announcement claim — **requires runtime verification with TalkBack**.
 
 ### P3
 
@@ -550,6 +571,7 @@ Switches, theme-selection cards, and filter chips all communicate selected/check
 - *Relevant files:* `ui/MainScreen.kt`, `ui/MealDetailScreen.kt`, `ui/ControlPanelScreen.kt`, `res/values/strings.xml`
 - *Acceptance criteria:* One label per field concept; consistent destructive-confirmation copy for the same action regardless of entry point.
 - *Estimated effort:* S (bundle)
+- *Status:* ✅ All four fixed.
 
 **10. Settings screen has no visible section grouping; widget doesn't deep-link its own CTA; API-key Clear has no confirmation**
 - *Problem:* See D.8, D.15.
@@ -557,6 +579,7 @@ Switches, theme-selection cards, and filter chips all communicate selected/check
 - *Relevant files:* `ui/ControlPanelScreen.kt`, `widget/MandateWidget.kt`
 - *Acceptance criteria:* Settings sections are visually distinguishable; tapping the widget's CTA opens directly into a logging action; clearing the API key requires a deliberate second step or offers undo.
 - *Estimated effort:* S (bundle)
+- *Status:* ✅ All three fixed. The widget deep-link required more than the "S" estimate suggested — `MainActivity` needed `launchMode="singleTop"` plus an `onNewIntent` override so a widget tap while the app is already running updates the same Activity instance instead of stacking a second one, and the "open manual entry" flag needed a proper consume-once pattern (a first attempt re-opened the dialog on every return to the Today tab — caught by self code-review, fixed before landing). API-key Clear got a tap-to-arm/tap-to-confirm pattern rather than a full modal, given the key is recoverable by re-entering it.
 
 ---
 
