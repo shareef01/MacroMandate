@@ -1,17 +1,20 @@
 # MacroMandate — UI/UX & Usability Audit
 
-> **Implementation status (2026-09-03):** Top 10 items #1–#9 and most of the
-> P1/P2 backlog below are implemented on branch `ui-ux-audit-fixes` (commit
-> `1caf3c2`). Verified by `./gradlew testDebugUnitTest` (152 tests, 0
-> failures), `lintDebug` (0 errors, 22 warnings — unchanged baseline), and
-> `assembleDebug` — **not** by running the app; no emulator/device was
-> available for implementation either. A self code-review pass caught one
-> regression (the widget-launched manual-entry dialog re-opening on every
-> return to the Today tab) before it shipped; it's fixed in the same commit.
-> Findings this pass did not touch: the "reduce visual effects" toggle (F.6),
-> the audit-log nested-scroll question (D.8), and the larger structural items
-> in section I. Status is also marked inline on the Top 10 table and the P1/P2
-> backlog.
+> **Implementation status (2026-09-03):** Top 10 items #1–#9, the full P1–P3
+> backlog, and I.2 (the shared meal-entry component) are implemented on branch
+> `ui-ux-audit-fixes` (commits `1caf3c2`, `72fe10f`). Verified by
+> `./gradlew testDebugUnitTest` (152 tests, 0 failures), `lintDebug` (0
+> errors, 22 warnings — unchanged baseline), and `assembleDebug` — **not** by
+> running the app; no emulator/device was available for implementation
+> either. Two self code-review passes each caught one issue before it shipped:
+> the widget-launched manual-entry dialog re-opening on every return to the
+> Today tab (first pass), and a validation-consistency gap between the three
+> meal-entry forms (also first pass, fixed by extending the fix rather than
+> waiting for I.2). The second pass, on the I.2 extraction itself, found
+> nothing. Left undone: the "reduce visual effects" toggle (F.6) and the
+> audit-log nested-scroll question (D.8), both explicitly low-priority in the
+> original audit. Status is also marked inline on the Top 10 table and the
+> P1/P2/P3 backlog.
 
 **Audit date:** 2026-09-03
 **Scope:** Product/UI/UX usability. Not a security or code-quality review — see [`AUDIT_REPORT.md`](AUDIT_REPORT.md) and [`PRIVACY_THREAT_MODEL.md`](PRIVACY_THREAT_MODEL.md) for those.
@@ -435,7 +438,7 @@ Switches, theme-selection cards, and filter chips all communicate selected/check
 **Scope:** Extract one composable taking the shared fields (name, calories, P/C/F, liquid) plus screen-specific slots (the AI photo + caveat banner only appears in the review sheet; the "existing value on blank" vs. "zero on blank" policy should become one shared, explicit decision rather than three implicit ones).
 **Expected benefit:** the highest-frequency interaction in the app becomes consistent by construction, and D.4's whole finding cluster becomes a single fix instead of three.
 **Migration risk:** low-medium — this is the one recommendation in the audit where the reason to abstract is the stated bar in the brief ("only when it prevents visible inconsistency") — it already has, twice, in the current three-copy state.
-**Status:** Not done. The 2026-09-03 implementation pass fixed the specific drift this item warns about (all three forms now require the same explicit name+calories, and share one liquid-field label) by applying the same fix three times rather than extracting the shared component — a deliberate smaller-footprint choice for that pass, not an oversight. The underlying duplication (three copies of the field-and-focus-chain layout) is still there and this item's rationale still applies to future changes.
+**Status:** ✅ Done (follow-up commit, same date). `ui/MealEntryFields.kt` now owns the field layout, focus chain, and macro-field accents shared by all three forms; each dialog keeps its own state/keying, `AlertDialog` chrome, and save mapping. `isMealEntryValid()` extracted alongside it. One accessibility fix fell out of the extraction: Manual entry and Edit's liquid checkbox used a separate clickable row + `Checkbox` (double-announced by TalkBack) where the AI review sheet already used a single `Role.Checkbox` row — all three now use the better pattern. Net -230 lines. Verified by a second self code-review pass (no findings) plus the same build/test/lint gate.
 
 ### I.3 A visible, non-cyclic sort control
 **Rationale:** D.1/C #4 — state invisibility is the core problem, not the three sort options themselves.
