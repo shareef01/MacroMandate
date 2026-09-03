@@ -149,7 +149,7 @@ fun CameraCaptureScreen(
             title = { Text(stringResource(R.string.camera_title), fontWeight = FontWeight.Black) },
             navigationIcon = {
                 IconButton(onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
                     onBack()
                 }) {
                     Icon(

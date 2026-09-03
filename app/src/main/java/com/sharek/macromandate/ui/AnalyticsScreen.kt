@@ -27,6 +27,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
@@ -45,6 +46,13 @@ import java.text.SimpleDateFormat
 import java.util.*
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.pluralStringResource
+import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.floor
+import kotlin.math.log10
+import kotlin.math.max
+import kotlin.math.pow
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -72,6 +80,11 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
     var showMap by remember { mutableStateOf(false) }
     var activeReport by remember { mutableStateOf<String?>(null) }
 
+    val reportExported = stringResource(R.string.trends_report_exported)
+    val reportExportFailed = stringResource(R.string.trends_report_export_failed)
+    val reportCopied = stringResource(R.string.trends_report_copied)
+    val briefingCopied = stringResource(R.string.trends_briefing_copied)
+
     val exportReportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/markdown"),
         onResult = { uri ->
@@ -80,7 +93,7 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
                 viewModel.exportReportTo(context, targetUri, text) { succeeded ->
                     scope.launch {
                         snackbarHostState.showSnackbar(
-                            if (succeeded) "Weekly dossier debrief exported." else "Export failed."
+                            if (succeeded) reportExported else reportExportFailed
                         )
                     }
                 }
@@ -111,7 +124,7 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
     Box(modifier = Modifier.fillMaxSize()) {
         if (showMap) {
             SurveillanceMap(todayMeals) {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
                 showMap = false
             }
         } else {
@@ -160,7 +173,7 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
                             showMap = true
                         },
                         modifier = Modifier.weight(1f),
@@ -187,7 +200,7 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
 
                     Button(
                         onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
                             viewModel.generateDailyBriefing()
                         },
                         modifier = Modifier.weight(1f),
@@ -236,13 +249,34 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
                     fontWeight = FontWeight.Black,
                     modifier = Modifier.align(Alignment.Start)
                 )
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(4.dp))
+                // The chart's contentDescription already states the target in
+                // words for TalkBack; sighted users got a line on the chart
+                // with no on-screen key saying what it was.
+                Row(
+                    modifier = Modifier.align(Alignment.Start),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(12.dp)
+                            .height(TARGET_LINE_STROKE)
+                            .background(MaterialTheme.colorScheme.error)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = stringResource(R.string.trends_target_line_legend),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.Gray
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
                 WeeklyBarChart(weeklyMeals, target)
 
                 Spacer(modifier = Modifier.height(32.dp))
                 Button(
                     onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
                         activeReport = viewModel.generateWeeklyReport()
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -321,7 +355,7 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
                     Button(
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            exportReportLauncher.launch("MacroMandate_Weekly_Debrief_${System.currentTimeMillis()}.md")
+                            exportReportLauncher.launch("MacroMandate_Weekly_Debrief_${exportTimestamp()}.md")
                         },
                         shape = RectangleShape,
                         colors = ButtonDefaults.buttonColors(
@@ -341,10 +375,10 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
                 dismissButton = {
                     OutlinedButton(
                         onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
                             clipboardManager.setText(AnnotatedString(reportText))
                             scope.launch {
-                                snackbarHostState.showSnackbar("Dossier copied to clipboard.")
+                                snackbarHostState.showSnackbar(reportCopied)
                             }
                         },
                         shape = RectangleShape,
@@ -384,17 +418,40 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .hudFraming(Color(0xFF00E5FF), length = 40.dp, thickness = 4.dp)
-                        .background(Color(0xFF001A1A))
+                        // Theme-derived, not a fixed cyan: this panel used to stay
+                        // cyan regardless of which of the four themes was active.
+                        .hudFraming(MaterialTheme.colorScheme.primary, length = 40.dp, thickness = 4.dp)
+                        .background(MaterialTheme.colorScheme.primaryContainer)
                         .padding(24.dp)
                 ) {
-                    Text(
-                        stringResource(R.string.trends_daily_summary),
-                        color = Color(0xFF00E5FF),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Black
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            stringResource(R.string.trends_daily_summary),
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Black
+                        )
+                        // Parity with the weekly dossier dialog, which already has
+                        // a copy action — this summary previously had no way to
+                        // keep a copy of what the model said.
+                        IconButton(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                            clipboardManager.setText(AnnotatedString(briefing))
+                            scope.launch { snackbarHostState.showSnackbar(briefingCopied) }
+                        }) {
+                            Icon(
+                                imageVector = Icons.Default.ContentCopy,
+                                contentDescription = stringResource(R.string.trends_copy),
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
                     // Was a character-by-character typewriter reveal with a
                     // blinking block cursor driven by an endless loop. A summary
                     // the user has to wait to finish reading, and which a screen
@@ -403,7 +460,7 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
                     Text(
                         text = briefing,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(24.dp))
@@ -424,14 +481,32 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(color = Color(0xFF00E5FF), strokeWidth = 4.dp)
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary, strokeWidth = 4.dp)
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
                             stringResource(R.string.trends_writing_summary),
-                            color = Color(0xFF00E5FF),
+                            color = MaterialTheme.colorScheme.primary,
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Black
                         )
+                        Spacer(modifier = Modifier.height(24.dp))
+                        // The photo-analysis loading overlay on Today has always
+                        // had a way out of a slow request; this one previously
+                        // trapped the user until the network call resolved.
+                        OutlinedButton(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                                viewModel.cancelDailyBriefing()
+                            },
+                            shape = RectangleShape,
+                            border = BorderStroke(1.dp, Color.Gray)
+                        ) {
+                            Text(
+                                stringResource(R.string.action_cancel_operation),
+                                color = Color.Gray,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }
@@ -453,13 +528,20 @@ fun DailyComplianceChart(current: Int, target: Int) {
     val progress = (current.toFloat() / safeTarget).coerceIn(0f, 1f)
     val isOverTarget = current > target
     val color = if (isOverTarget) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-    val chartDescription = "Daily compliance: $current of $target calories consumed, ${if (isOverTarget) "${current - target} calories over target" else "${target - current} calories remaining"}."
+    val chartDescription = if (isOverTarget) {
+        stringResource(R.string.chart_daily_description_over, current, target, current - target)
+    } else {
+        stringResource(R.string.chart_daily_description_remaining, current, target, target - current)
+    }
 
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .size(220.dp)
-            .semantics { contentDescription = chartDescription }
+            // clearAndSetSemantics, not semantics: without it, TalkBack visits
+            // this description *and then* the current/target/delta Text nodes
+            // inside it, reading the same numbers twice.
+            .clearAndSetSemantics { contentDescription = chartDescription }
     ) {
         Canvas(modifier = Modifier.size(220.dp)) {
             drawArc(
@@ -615,11 +697,17 @@ fun WeeklyBarChart(meals: List<MealEntry>, target: Int) {
         )
     }
 
+    val gridColor = MaterialTheme.colorScheme.onSurface
+    val targetLineColor = MaterialTheme.colorScheme.error
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(220.dp)
-            .semantics { contentDescription = weeklyDescription }
+            // clearAndSetSemantics, not semantics: without it, TalkBack visits
+            // this description and then each day/value Text below it, reading
+            // the same seven numbers twice.
+            .clearAndSetSemantics { contentDescription = weeklyDescription }
     ) {
         // Grid, plus the target reference line.
         //
@@ -635,7 +723,7 @@ fun WeeklyBarChart(meals: List<MealEntry>, target: Int) {
             for (i in 0..gridCount) {
                 val y = baseline - (BAR_MAX_HEIGHT.toPx() / gridCount) * i
                 drawLine(
-                    color = Color.White.copy(alpha = 0.08f),
+                    color = gridColor.copy(alpha = 0.08f),
                     start = Offset(0f, y),
                     end = Offset(size.width, y),
                     strokeWidth = 1.dp.toPx()
@@ -643,10 +731,10 @@ fun WeeklyBarChart(meals: List<MealEntry>, target: Int) {
             }
             val targetY = baseline - (target.toFloat() / maxVal) * BAR_MAX_HEIGHT.toPx()
             drawLine(
-                color = Color.Red.copy(alpha = 0.35f),
+                color = targetLineColor.copy(alpha = 0.35f),
                 start = Offset(0f, targetY),
                 end = Offset(size.width, targetY),
-                strokeWidth = 1.dp.toPx()
+                strokeWidth = TARGET_LINE_STROKE.toPx()
             )
         }
 
@@ -694,10 +782,96 @@ fun WeeklyBarChart(meals: List<MealEntry>, target: Int) {
     }
 }
 
+/**
+ * The centroid-relative projection this map plots meals with.
+ *
+ * The previous version placed each pin at `(longitude % 1f, latitude % 1f)` —
+ * the fractional part of the coordinate, with the whole degree discarded. Two
+ * meals eaten a block apart, or on different continents, could render in the
+ * same place; two meals eaten in the same room could render far apart if a
+ * whole-degree boundary happened to sit between them. This computes each
+ * meal's real offset from the group's center in meters (an equirectangular
+ * approximation — accurate at the city scale this feature is used at) so
+ * relative position is actually meaningful, and exposes [gridStepMeters] so
+ * the screen can state its own scale instead of implying a precision the old
+ * version didn't have.
+ */
+private class MapReference(
+    val refLat: Double,
+    val refLon: Double,
+    val metersPerDegLon: Double,
+    val maxDeltaMeters: Double
+) {
+    val gridStepMeters: Int = niceGridStepMeters(maxDeltaMeters)
+
+    fun offsetMeters(lat: Double, lon: Double): Pair<Double, Double> {
+        val dx = (lon - refLon) * metersPerDegLon
+        val dy = (lat - refLat) * METERS_PER_DEGREE_LAT
+        return dx to dy
+    }
+
+    companion object {
+        private const val METERS_PER_DEGREE_LAT = 111_320.0
+
+        /** Never zoom in past this span, so a single pin or a tight cluster still shows a real, legible scale. */
+        private const val MIN_SPAN_METERS = 25.0
+
+        /**
+         * Filters to geotagged meals itself rather than trusting the caller
+         * to have done so — [SurveillanceMap] already pre-filters before
+         * calling this, but a `!!` on a field the type system says is
+         * nullable should not also depend on every future call site
+         * remembering to filter first.
+         */
+        fun of(meals: List<MealEntry>): MapReference? {
+            val coordinates = meals.mapNotNull { meal ->
+                val lat = meal.latitude
+                val lon = meal.longitude
+                if (lat != null && lon != null) lat to lon else null
+            }
+            if (coordinates.isEmpty()) return null
+            val refLat = coordinates.map { it.first }.average()
+            val refLon = coordinates.map { it.second }.average()
+            val metersPerDegLon = METERS_PER_DEGREE_LAT * cos(Math.toRadians(refLat))
+            val maxDelta = coordinates.maxOf { (lat, lon) ->
+                val dx = (lon - refLon) * metersPerDegLon
+                val dy = (lat - refLat) * METERS_PER_DEGREE_LAT
+                max(abs(dx), abs(dy))
+            }.coerceAtLeast(MIN_SPAN_METERS)
+            return MapReference(refLat, refLon, metersPerDegLon, maxDelta)
+        }
+
+        /** Snaps a raw distance to a 1/2/5 x 10^n step so the on-screen scale reads as a real number. */
+        private fun niceGridStepMeters(maxDeltaMeters: Double): Int {
+            val rawStep = (maxDeltaMeters / 3.0).coerceAtLeast(1.0)
+            val magnitude = 10.0.pow(floor(log10(rawStep)))
+            val normalized = rawStep / magnitude
+            val niceNormalized = when {
+                normalized < 1.5 -> 1.0
+                normalized < 3.5 -> 2.0
+                normalized < 7.5 -> 5.0
+                else -> 10.0
+            }
+            return (niceNormalized * magnitude).roundToInt().coerceAtLeast(1)
+        }
+    }
+}
+
 @Composable
 fun SurveillanceMap(meals: List<MealEntry>, onBack: () -> Unit) {
     val geotaggedMeals = remember(meals) { meals.filter { it.latitude != null && it.longitude != null } }
     val primaryColor = MaterialTheme.colorScheme.primary
+    val mapRef = remember(geotaggedMeals) { MapReference.of(geotaggedMeals) }
+    val mapDescription = if (mapRef != null) {
+        pluralStringResource(
+            R.plurals.trends_map_description,
+            geotaggedMeals.size,
+            geotaggedMeals.size,
+            mapRef.gridStepMeters * 3
+        )
+    } else {
+        stringResource(R.string.empty_no_map_points)
+    }
 
     Box(
         modifier = Modifier
@@ -706,22 +880,33 @@ fun SurveillanceMap(meals: List<MealEntry>, onBack: () -> Unit) {
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            // Draw grid
-            val step = 50.dp.toPx()
-            for (x in 0..(size.width / step).toInt()) {
-                drawLine(Color.DarkGray.copy(alpha = 0.3f), Offset(x * step, 0f), Offset(x * step, size.height))
-            }
-            for (y in 0..(size.height / step).toInt()) {
-                drawLine(Color.DarkGray.copy(alpha = 0.3f), Offset(0f, y * step), Offset(size.width, y * step))
-            }
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .semantics { contentDescription = mapDescription }
+        ) {
+            if (mapRef != null) {
+                // Fit the widest spread of points inside a circle around the
+                // canvas center, leaving room for the crosshair glyphs at the edge.
+                val usableRadiusPx = (minOf(size.width, size.height) / 2f) - 40.dp.toPx()
+                val pxPerMeter = (usableRadiusPx / mapRef.maxDeltaMeters.toFloat()).coerceAtLeast(0.001f)
+                val gridStepPx = mapRef.gridStepMeters * pxPerMeter
 
-            // Plot meals
-            geotaggedMeals.forEach { meal ->
-                if (meal.latitude != null && meal.longitude != null) {
-                    val x = (size.width / 2) + (meal.longitude.toFloat() % 1f) * size.width * 2
-                    val y = (size.height / 2) - (meal.latitude.toFloat() % 1f) * size.height * 2
+                if (gridStepPx > 1f) {
+                    val cols = (size.width / gridStepPx).toInt() + 1
+                    val rows = (size.height / gridStepPx).toInt() + 1
+                    for (x in 0..cols) {
+                        drawLine(Color.DarkGray.copy(alpha = 0.3f), Offset(x * gridStepPx, 0f), Offset(x * gridStepPx, size.height))
+                    }
+                    for (y in 0..rows) {
+                        drawLine(Color.DarkGray.copy(alpha = 0.3f), Offset(0f, y * gridStepPx), Offset(size.width, y * gridStepPx))
+                    }
+                }
 
+                geotaggedMeals.forEach { meal ->
+                    val (dxMeters, dyMeters) = mapRef.offsetMeters(meal.latitude!!, meal.longitude!!)
+                    val x = (size.width / 2) + (dxMeters * pxPerMeter).toFloat()
+                    val y = (size.height / 2) - (dyMeters * pxPerMeter).toFloat()
                     val center = Offset(x.coerceIn(20f, size.width - 20f), y.coerceIn(20f, size.height - 20f))
 
                     // Crosshair
@@ -760,6 +945,15 @@ fun SurveillanceMap(meals: List<MealEntry>, onBack: () -> Unit) {
                 fontWeight = FontWeight.Black,
                 style = MaterialTheme.typography.titleMedium
             )
+            if (mapRef != null) {
+                // States the map's own scale rather than implying a precision
+                // that a grid with no legend would only pretend to have.
+                Text(
+                    text = stringResource(R.string.trends_map_scale, mapRef.gridStepMeters),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.Gray
+                )
+            }
             Spacer(modifier = Modifier.weight(1f))
             Button(
                 onClick = onBack,
@@ -787,3 +981,6 @@ private val BAR_MAX_HEIGHT = 140.dp
 
 /** Space below the bars for the weekday labels. */
 private val BASELINE_INSET = 28.dp
+
+/** Shared by the target line's Canvas stroke and its on-screen legend swatch, so the two can't drift apart. */
+private val TARGET_LINE_STROKE = 1.dp

@@ -14,11 +14,13 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.EditNote
@@ -29,15 +31,19 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -70,18 +76,17 @@ enum class MealFilter(@StringRes val labelRes: Int) {
 enum class MealSortOrder(@StringRes val labelRes: Int) {
     NEWEST(R.string.sort_newest),
     HIGHEST_CAL(R.string.sort_calories),
-    HIGHEST_PROTEIN(R.string.sort_protein);
-
-    fun next(): MealSortOrder = when (this) {
-        NEWEST -> HIGHEST_CAL
-        HIGHEST_CAL -> HIGHEST_PROTEIN
-        HIGHEST_PROTEIN -> NEWEST
-    }
+    HIGHEST_PROTEIN(R.string.sort_protein)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
+fun MainScreen(
+    viewModel: MainViewModel,
+    onNavigateToDetail: (String) -> Unit,
+    openManualEntryOnLaunch: Boolean = false,
+    onManualEntryLaunchConsumed: () -> Unit = {}
+) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -95,6 +100,19 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
     var screenState by remember { mutableStateOf(ScreenState.DASHBOARD) }
     var showManualEntryDialog by remember { mutableStateOf(false) }
     var mealToDelete by remember { mutableStateOf<MealEntry?>(null) }
+
+    // Seeding showManualEntryDialog's initial value directly from
+    // openManualEntryOnLaunch re-opened the dialog every time this screen
+    // re-entered composition — including an ordinary switch back to the Today
+    // tab, long after the widget tap that set the flag. onManualEntryLaunchConsumed
+    // clears the flag at its source (MainActivity) the moment it's acted on,
+    // so a later recomposition of this screen sees it already consumed.
+    LaunchedEffect(openManualEntryOnLaunch) {
+        if (openManualEntryOnLaunch) {
+            showManualEntryDialog = true
+            onManualEntryLaunchConsumed()
+        }
+    }
     var searchQuery by remember { mutableStateOf("") }
     var selectedFilter by remember { mutableStateOf(MealFilter.ALL) }
     var sortOrder by remember { mutableStateOf(MealSortOrder.NEWEST) }
@@ -211,7 +229,12 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
 
                         ActionRow(
                             onCaptureMeal = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                // Light feedback, matching Choose photo/Log
+                                // manually below: all three are frequent,
+                                // everyday entry points into logging a meal,
+                                // not a commit — LongPress is reserved for the
+                                // action that actually writes or destroys data.
+                                haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
                                 // Location is only requested once the user has opted in
                                 // from Settings — bundling it with CAMERA gave no
                                 // context for the request.
@@ -307,7 +330,7 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
                                 selectedFilter = selectedFilter,
                                 onSelectFilter = { selectedFilter = it },
                                 sortOrder = sortOrder,
-                                onToggleSortOrder = { sortOrder = sortOrder.next() }
+                                onSelectSort = { sortOrder = it }
                             )
 
                             Spacer(modifier = Modifier.height(12.dp))
@@ -356,6 +379,11 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
                         confirmButton = {
                             Button(
                                 onClick = {
+                                    // This button had no haptic at all — the one
+                                    // place in the app that actually destroys
+                                    // data gave less tactile confirmation than
+                                    // an ordinary filter tap did.
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     val id = targetMeal.id
                                     mealToDelete = null
                                     viewModel.deleteMealEntry(id)
@@ -671,6 +699,20 @@ fun ManualMealDialog(
 
     val haptic = LocalHapticFeedback.current
 
+    // A blank calorie field used to save as a real 0 with no indication that
+    // anything had been defaulted — a meal with macros but no calorie figure
+    // read as accurate. Zero itself is a legitimate value (black coffee,
+    // water), so the requirement is that the user typed *something*, not that
+    // the number is positive.
+    val caloriesValue = parseCalories(caloriesStr)
+    val isValid = foodName.isNotBlank() && caloriesStr.isNotBlank() && caloriesValue != null
+
+    val caloriesFocus = remember { FocusRequester() }
+    val proteinFocus = remember { FocusRequester() }
+    val carbsFocus = remember { FocusRequester() }
+    val fatFocus = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -694,6 +736,8 @@ fun ManualMealDialog(
                     label = { Text(stringResource(R.string.field_item_name)) },
                     singleLine = true,
                     shape = RectangleShape,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    keyboardActions = KeyboardActions(onNext = { caloriesFocus.requestFocus() }),
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
@@ -701,9 +745,10 @@ fun ManualMealDialog(
                     onValueChange = { caloriesStr = it.filter { ch -> ch.isDigit() }.take(6) },
                     label = { Text(stringResource(R.string.field_calories)) },
                     singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    keyboardActions = KeyboardActions(onNext = { proteinFocus.requestFocus() }),
                     shape = RectangleShape,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth().focusRequester(caloriesFocus)
                 )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -712,29 +757,32 @@ fun ManualMealDialog(
                     OutlinedTextField(
                         value = proteinStr,
                         onValueChange = { proteinStr = sanitizeDecimalInput(it) },
-                        label = { Text(stringResource(R.string.field_protein), maxLines = 1, softWrap = false, fontSize = 10.sp) },
+                        label = { Text(stringResource(R.string.field_protein)) },
                         singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Next),
+                        keyboardActions = KeyboardActions(onNext = { carbsFocus.requestFocus() }),
                         shape = RectangleShape,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f).focusRequester(proteinFocus)
                     )
                     OutlinedTextField(
                         value = carbsStr,
                         onValueChange = { carbsStr = sanitizeDecimalInput(it) },
-                        label = { Text(stringResource(R.string.field_carbs), maxLines = 1, softWrap = false, fontSize = 10.sp) },
+                        label = { Text(stringResource(R.string.field_carbs)) },
                         singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Next),
+                        keyboardActions = KeyboardActions(onNext = { fatFocus.requestFocus() }),
                         shape = RectangleShape,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f).focusRequester(carbsFocus)
                     )
                     OutlinedTextField(
                         value = fatStr,
                         onValueChange = { fatStr = sanitizeDecimalInput(it) },
-                        label = { Text(stringResource(R.string.field_fat), maxLines = 1, softWrap = false, fontSize = 10.sp) },
+                        label = { Text(stringResource(R.string.field_fat)) },
                         singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
                         shape = RectangleShape,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f).focusRequester(fatFocus)
                     )
                 }
                 Row(
@@ -758,18 +806,20 @@ fun ManualMealDialog(
                         color = Color.White
                     )
                 }
+                Text(
+                    text = stringResource(R.string.manual_entry_required_hint),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.Gray
+                )
             }
         },
         confirmButton = {
             Button(
                 onClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    val cal = parseCalories(caloriesStr) ?: 0
-                    val p = parseGrams(proteinStr)
-                    val c = parseGrams(carbsStr)
-                    val f = parseGrams(fatStr)
-                    onSave(foodName.ifBlank { "MANUAL REFUELING" }, cal, p, c, f, isLiquid)
+                    onSave(foodName, caloriesValue ?: 0, parseGrams(proteinStr), parseGrams(carbsStr), parseGrams(fatStr), isLiquid)
                 },
+                enabled = isValid,
                 shape = RectangleShape,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary,
@@ -828,7 +878,9 @@ fun MealEntryItem(
         modifier = Modifier
             .fillMaxWidth()
             .clickable {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                // Light feedback: this navigates to the meal's detail screen,
+                // it doesn't write or destroy anything.
+                haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
                 onClick()
             },
         shape = RectangleShape,
@@ -872,7 +924,10 @@ fun MealEntryItem(
                     modifier = Modifier.padding(horizontal = 8.dp)
                 )
                 IconButton(
-                    onClick = onDelete,
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                        onDelete()
+                    },
                     // Every row's delete button announced the bare word "DELETE",
                     // giving no way to tell which meal was about to go.
                     modifier = Modifier.semantics {
@@ -948,7 +1003,7 @@ fun MealSearchBar(
         trailingIcon = {
             if (query.isNotEmpty()) {
                 IconButton(onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
                     onQueryChange("")
                 }) {
                     Icon(
@@ -979,47 +1034,74 @@ fun MealFilterChipRow(
     selectedFilter: MealFilter,
     onSelectFilter: (MealFilter) -> Unit,
     sortOrder: MealSortOrder,
-    onToggleSortOrder: () -> Unit,
+    onSelectSort: (MealSortOrder) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val haptic = LocalHapticFeedback.current
 
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
+    // FlowRow, not a horizontalScroll Row: six filter chips plus the sort
+    // control used to share one scrolling row with no scroll affordance, so
+    // LIQUID and FLAGGED were routinely off-screen and undiscoverable.
+    // Wrapping to a second row means every filter is visible without a
+    // sideways gesture the user has no reason to expect is there.
+    FlowRow(
+        modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // Sort toggle button
-        Surface(
-            modifier = Modifier
-                .defaultMinSize(minHeight = 44.dp)
-                .clickable {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onToggleSortOrder()
-                },
-            shape = RectangleShape,
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
+        // Sort control: a menu listing all three orders with the active one
+        // checked, not a button that cycles blind through them on tap. The
+        // old version required tapping and reading repeatedly to find a
+        // specific order, and gave no way to see the other options without
+        // landing on them first.
+        var sortMenuOpen by remember { mutableStateOf(false) }
+        Box {
+            Surface(
+                modifier = Modifier
+                    .defaultMinSize(minHeight = 48.dp)
+                    .clickable {
+                        haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                        sortMenuOpen = true
+                    },
+                shape = RectangleShape,
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
             ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.Sort,
-                    contentDescription = stringResource(R.string.content_description_sort),
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(14.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = stringResource(sortOrder.labelRes),
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Black,
-                    color = MaterialTheme.colorScheme.primary
-                )
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.Sort,
+                        contentDescription = stringResource(R.string.content_description_sort),
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = stringResource(sortOrder.labelRes),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Black,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+            DropdownMenu(expanded = sortMenuOpen, onDismissRequest = { sortMenuOpen = false }) {
+                MealSortOrder.entries.forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(stringResource(option.labelRes)) },
+                        leadingIcon = {
+                            if (option == sortOrder) {
+                                Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            }
+                        },
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                            onSelectSort(option)
+                            sortMenuOpen = false
+                        }
+                    )
+                }
             }
         }
 
@@ -1028,9 +1110,9 @@ fun MealFilterChipRow(
             val isSelected = filter == selectedFilter
             Surface(
                 modifier = Modifier
-                    .defaultMinSize(minHeight = 44.dp)
+                    .defaultMinSize(minHeight = 48.dp)
                     .clickable {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
                         onSelectFilter(filter)
                     },
                 shape = RectangleShape,
@@ -1089,7 +1171,7 @@ fun EmptySearchResultView(
             Spacer(modifier = Modifier.height(16.dp))
             OutlinedButton(
                 onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
                     onReset()
                 },
                 shape = RectangleShape,
@@ -1142,6 +1224,7 @@ private fun MacroReadout(@StringRes labelRes: Int, grams: Int, accent: Color) {
  */
 @Composable
 private fun AnalysisLoadingOverlay(onCancel: () -> Unit) {
+    val haptic = LocalHapticFeedback.current
     Surface(
         color = Color.Black.copy(alpha = 0.85f),
         modifier = Modifier.fillMaxSize()
@@ -1170,12 +1253,15 @@ private fun AnalysisLoadingOverlay(onCancel: () -> Unit) {
                 )
                 Spacer(modifier = Modifier.height(24.dp))
                 OutlinedButton(
-                    onClick = onCancel,
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                        onCancel()
+                    },
                     shape = RectangleShape,
                     border = BorderStroke(1.dp, Color.Gray)
                 ) {
                     Text(
-                        stringResource(R.string.settings_erase_cancel),
+                        stringResource(R.string.action_cancel_operation),
                         color = Color.Gray,
                         fontWeight = FontWeight.Bold
                     )

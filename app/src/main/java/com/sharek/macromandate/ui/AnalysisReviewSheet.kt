@@ -4,6 +4,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -13,13 +14,17 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
@@ -57,6 +62,20 @@ fun AnalysisReviewSheet(
     var carbsStr by rememberSaveable(pending.capturedAt) { mutableStateOf(formatGramsValue(pending.nutrition.carbsGrams)) }
     var fatStr by rememberSaveable(pending.capturedAt) { mutableStateOf(formatGramsValue(pending.nutrition.fatGrams)) }
     var isLiquid by rememberSaveable(pending.capturedAt) { mutableStateOf(pending.nutrition.isLiquid) }
+
+    val caloriesFocus = remember { FocusRequester() }
+    val proteinFocus = remember { FocusRequester() }
+    val carbsFocus = remember { FocusRequester() }
+    val fatFocus = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
+
+    // Same requirement as manual entry and edit: a name and a calorie figure,
+    // typed explicitly. This previously fell back to the model's original
+    // estimate on a blank field rather than defaulting to zero, which was
+    // safe, but it meant clearing a field and tapping Save silently kept the
+    // AI's number with no sign the correction hadn't taken effect.
+    val caloriesValue = caloriesStr.toIntOrNull()
+    val isValid = foodName.isNotBlank() && caloriesStr.isNotBlank() && caloriesValue != null
 
     AlertDialog(
         // Not dismissible by an outside tap: the result is not saved anywhere yet,
@@ -129,6 +148,8 @@ fun AnalysisReviewSheet(
                     label = { Text(stringResource(R.string.field_item_name)) },
                     singleLine = true,
                     shape = RectangleShape,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    keyboardActions = KeyboardActions(onNext = { caloriesFocus.requestFocus() }),
                     modifier = Modifier.fillMaxWidth()
                 )
 
@@ -137,18 +158,19 @@ fun AnalysisReviewSheet(
                     onValueChange = { caloriesStr = it.filter { ch -> ch.isDigit() }.take(6) },
                     label = { Text(stringResource(R.string.field_calories)) },
                     singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    keyboardActions = KeyboardActions(onNext = { proteinFocus.requestFocus() }),
                     shape = RectangleShape,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth().focusRequester(caloriesFocus)
                 )
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    MacroField(R.string.field_protein, proteinStr, NutritionColors.Protein, Modifier.weight(1f)) { proteinStr = it }
-                    MacroField(R.string.field_carbs, carbsStr, NutritionColors.Carbs, Modifier.weight(1f)) { carbsStr = it }
-                    MacroField(R.string.field_fat, fatStr, NutritionColors.Fat, Modifier.weight(1f)) { fatStr = it }
+                    MacroField(R.string.field_protein, proteinStr, NutritionColors.Protein, Modifier.weight(1f).focusRequester(proteinFocus), ImeAction.Next, { carbsFocus.requestFocus() }) { proteinStr = it }
+                    MacroField(R.string.field_carbs, carbsStr, NutritionColors.Carbs, Modifier.weight(1f).focusRequester(carbsFocus), ImeAction.Next, { fatFocus.requestFocus() }) { carbsStr = it }
+                    MacroField(R.string.field_fat, fatStr, NutritionColors.Fat, Modifier.weight(1f).focusRequester(fatFocus), ImeAction.Done, { focusManager.clearFocus() }) { fatStr = it }
                 }
 
                 Row(
@@ -167,11 +189,19 @@ fun AnalysisReviewSheet(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = stringResource(R.string.field_is_drink),
+                        // Same field as the manual-entry and edit dialogs; kept on
+                        // one shared string (field_is_liquid) so the three forms
+                        // don't describe one checkbox three different ways.
+                        text = stringResource(R.string.field_is_liquid),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                 }
+                Text(
+                    text = stringResource(R.string.manual_entry_required_hint),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.Gray
+                )
             }
         },
         confirmButton = {
@@ -180,7 +210,7 @@ fun AnalysisReviewSheet(
                     onConfirm(
                         pending.nutrition.copy(
                             foodName = foodName,
-                            calories = caloriesStr.toIntOrNull() ?: pending.nutrition.calories,
+                            calories = caloriesValue ?: pending.nutrition.calories,
                             proteinGrams = parseGrams(proteinStr),
                             carbsGrams = parseGrams(carbsStr),
                             fatGrams = parseGrams(fatStr),
@@ -188,6 +218,7 @@ fun AnalysisReviewSheet(
                         )
                     )
                 },
+                enabled = isValid,
                 shape = RectangleShape,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary,
@@ -213,6 +244,8 @@ private fun MacroField(
     value: String,
     accent: Color,
     modifier: Modifier = Modifier,
+    imeAction: ImeAction = ImeAction.Default,
+    onImeAction: () -> Unit = {},
     onValueChange: (String) -> Unit
 ) {
     val label = stringResource(labelRes)
@@ -222,7 +255,11 @@ private fun MacroField(
         onValueChange = { onValueChange(sanitizeDecimalInput(it)) },
         label = { Text(label, color = accent) },
         singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = imeAction),
+        keyboardActions = KeyboardActions(
+            onNext = { onImeAction() },
+            onDone = { onImeAction() }
+        ),
         shape = RectangleShape,
         suffix = { Text(stringResource(R.string.field_grams_suffix), style = MaterialTheme.typography.labelSmall) },
         // "Protein" alone reads as a heading; the unit belongs in the description

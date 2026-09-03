@@ -66,6 +66,11 @@
     <!-- ==================== Analysis ==================== -->
     <string name="analysis_in_progress">Analysing photo</string>
     <string name="analysis_may_take_a_minute">This can take up to a minute.</string>
+    <!-- Shared by every "cancel this in-progress request" overlay (photo
+         analysis, daily summary) — not the erase-confirmation dialog's
+         cancel, which has its own string so the two can't drift apart by
+         accident. -->
+    <string name="action_cancel_operation">Cancel</string>
     <string name="analysis_review_title">Check this estimate</string>
     <string name="analysis_review_subtitle">Estimated from your photo by AI. Correct anything that looks wrong before saving.</string>
     <string name="analysis_save">Save to log</string>
@@ -83,12 +88,16 @@
     <string name="field_fat">Fat</string>
     <string name="field_grams_suffix">g</string>
     <string name="field_grams_description">%1$s in grams</string>
-    <string name="field_is_drink">Drink rather than food</string>
+    <!-- Shared by manual entry, edit, and the AI review sheet — previously three
+         screens described this one checkbox two different ways. -->
     <string name="field_is_liquid">Liquid consumption (beverage or shake)</string>
 
     <!-- ==================== Manual entry / edit ==================== -->
     <string name="manual_entry_title">MANUAL REFUELING ENTRY</string>
     <string name="manual_entry_save">LOG RECORD</string>
+    <!-- Save is disabled until both are filled in; this says why, rather than
+         silently substituting a placeholder name or a zero calorie figure. -->
+    <string name="manual_entry_required_hint">Item name and calories are required.</string>
     <string name="edit_meal_title">CORRECT DOSSIER ENTRY</string>
     <string name="edit_meal_save">SAVE CORRECTIONS</string>
     <!--
@@ -121,7 +130,6 @@
     <!-- ==================== Delete confirmation ==================== -->
     <string name="delete_meal_title">DELETE DOSSIER RECORD?</string>
     <string name="delete_meal_body" tools:ignore="PluralsCandidate">Are you sure you want to delete \'%1$s\' (%2$d kcal)? This will update daily and weekly totals.</string>
-    <string name="delete_meal_body_detail">This meal and its photo will be permanently deleted.</string>
     <string name="delete_meal_confirm">DELETE</string>
     <string name="delete_meal_confirm_detail">EXPUNGE RECORD</string>
 
@@ -160,18 +168,35 @@
     <!-- ==================== Trends ==================== -->
     <string name="trends_macros_today">Macros today</string>
     <string name="trends_last_7_days">Last 7 days</string>
+    <string name="trends_target_line_legend">Daily target</string>
     <string name="trends_daily_summary">Daily summary</string>
     <string name="trends_meal_map">Meal map (%1$d)</string>
     <string name="trends_no_geotagged">No geotagged meals</string>
     <string name="trends_close_map">Close map</string>
     <string name="trends_where_you_ate">Where you ate</string>
+    <!-- States the map's own scale rather than implying a precision the grid
+         doesn't otherwise declare. -->
+    <string name="trends_map_scale">Grid: ≈%1$d m per square</string>
+    <plurals name="trends_map_description">
+        <item quantity="one">Meal map: %1$d meal plotted, spanning approximately %2$d meters from the shared center point.</item>
+        <item quantity="other">Meal map: %1$d meals plotted, spanning approximately %2$d meters from the shared center point.</item>
+    </plurals>
     <string name="trends_title">Trends</string>
     <string name="trends_todays_progress">Today\'s progress</string>
     <string name="trends_of_target" tools:ignore="PluralsCandidate">of %1$d kcal</string>
+    <!-- Screen-reader description for the daily-progress donut chart. Read
+         verbatim by TalkBack, so kcal (a unit symbol) stays unpluralized, same
+         as everywhere else this app measures calories. -->
+    <string name="chart_daily_description_over" tools:ignore="PluralsCandidate">Daily progress: %1$d of %2$d calories consumed, %3$d calories over target.</string>
+    <string name="chart_daily_description_remaining" tools:ignore="PluralsCandidate">Daily progress: %1$d of %2$d calories consumed, %3$d calories remaining.</string>
     <string name="trends_debrief_title">INTELLIGENCE DEBRIEF</string>
     <string name="trends_export_file">EXPORT FILE</string>
     <string name="trends_copy">COPY</string>
     <string name="trends_writing_summary">Writing your summary…</string>
+    <string name="trends_report_exported">Weekly dossier debrief exported.</string>
+    <string name="trends_report_export_failed">Export failed.</string>
+    <string name="trends_report_copied">Dossier copied to clipboard.</string>
+    <string name="trends_briefing_copied">Summary copied to clipboard.</string>
     <string name="content_description_close">Close</string>
     <string name="macro_amount_with_share">%1$sg (%2$s)</string>
     <string name="trends_geotag_marker">· GEOTAGGED</string>
@@ -192,12 +217,20 @@
 
     <!-- ==================== Settings ==================== -->
     <string name="settings_title">Settings</string>
+    <!-- Section headings that group related cards on the Settings screen —
+         previously only "Your data" below had one, so nothing signalled why
+         six other cards were ordered the way they were. -->
+    <string name="settings_section_analysis">Analysis</string>
+    <string name="settings_section_appearance">Appearance &amp; tracking</string>
     <string name="settings_api_key">Analysis API key</string>
     <string name="settings_api_key_present">A key is saved (%1$s). Enter a new one to replace it.</string>
     <string name="settings_api_key_absent">Meal analysis needs a Hugging Face access token. Paste one here to turn it on — it is stored only on this device.</string>
     <string name="settings_api_key_hint">hf_…</string>
     <string name="settings_api_key_save">Save key</string>
     <string name="settings_api_key_clear">Clear</string>
+    <!-- Shown on the same button after a first tap; a second tap within a
+         few seconds actually clears the key. -->
+    <string name="settings_api_key_clear_confirm">Confirm clear?</string>
     <string name="settings_api_key_saved">API key saved.</string>
     <string name="settings_api_key_cleared">API key cleared.</string>
     <string name="content_description_show_key">Show key</string>

@@ -15,17 +15,21 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.sharek.macromandate.model.MealEntry
 import com.sharek.macromandate.ui.theme.NutritionColors
@@ -74,7 +78,7 @@ fun MealDetailScreen(
                 title = { Text(stringResource(R.string.nav_meal), fontWeight = FontWeight.Black) },
                 navigationIcon = {
                     IconButton(onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
                         onBack()
                     }) {
                         Icon(
@@ -96,7 +100,7 @@ fun MealDetailScreen(
                     .fillMaxWidth()
                     .height(300.dp)
                     .padding(16.dp)
-                    .hudFraming(if (meal.isRestricted) Color.Red else MaterialTheme.colorScheme.primary, length = 40.dp, thickness = 4.dp)
+                    .hudFraming(if (meal.isRestricted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary, length = 40.dp, thickness = 4.dp)
             ) {
                 AsyncImage(
                     model = meal.imageUri,
@@ -106,37 +110,30 @@ fun MealDetailScreen(
                     contentScale = ContentScale.Crop
                 )
 
-                if (meal.isRestricted) {
-                    Box(
+                // Small corner badges, not a full-photo color wash. A
+                // caution-yellow or alarm-red fill stamped across the user's
+                // own food photo reads as a penalty regardless of how neutral
+                // the text underneath it is — the same problem the scoring
+                // penalties tied to these flags were already fixed for
+                // (isNightRefueling carries no score penalty; isRestricted
+                // can no longer be set by any current capture, manual entry,
+                // or edit — see MainViewModel — and only still describes a
+                // meal restored from an older backup). The flag stays
+                // visible; it no longer dominates the photo.
+                if (meal.isRestricted || meal.isNightRefueling) {
+                    Column(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Red.copy(alpha = 0.3f)),
-                        contentAlignment = Alignment.Center
+                            .align(Alignment.TopEnd)
+                            .padding(8.dp),
+                        horizontalAlignment = Alignment.End,
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Text(
-                            stringResource(R.string.filter_flagged),
-                            color = Color.White,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Black,
-                            modifier = Modifier.background(Color.Red).padding(4.dp)
-                        )
-                    }
-                }
-
-                if (meal.isNightRefueling) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Yellow.copy(alpha = 0.2f)),
-                        contentAlignment = Alignment.TopCenter
-                    ) {
-                        Text(
-                            stringResource(R.string.detail_late_night),
-                            color = Color.Black,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Black,
-                            modifier = Modifier.background(Color.Yellow).padding(4.dp)
-                        )
+                        if (meal.isRestricted) {
+                            PhotoBadge(stringResource(R.string.filter_flagged), MaterialTheme.colorScheme.error)
+                        }
+                        if (meal.isNightRefueling) {
+                            PhotoBadge(stringResource(R.string.detail_late_night), Color.Black.copy(alpha = 0.65f))
+                        }
                     }
                 }
             }
@@ -253,7 +250,7 @@ fun MealDetailScreen(
                 ) {
                     Button(
                         onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
                             showEditDialog = true
                         },
                         modifier = Modifier.weight(1f),
@@ -270,7 +267,7 @@ fun MealDetailScreen(
 
                     OutlinedButton(
                         onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
                             showDeleteConfirmDialog = true
                         },
                         modifier = Modifier.weight(1f),
@@ -309,14 +306,20 @@ fun MealDetailScreen(
                     )
                 },
                 text = {
+                    // Same wording as the list-view delete dialog (name,
+                    // calories, and the totals consequence) — this used to say
+                    // only "this meal and its photo will be permanently
+                    // deleted," describing the same action differently
+                    // depending on which screen it was triggered from.
                     Text(
-                        stringResource(R.string.delete_meal_body_detail),
+                        stringResource(R.string.delete_meal_body, meal.foodName, meal.calories),
                         color = MaterialTheme.colorScheme.onSurface
                     )
                 },
                 confirmButton = {
                     Button(
                         onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             showDeleteConfirmDialog = false
                             viewModel.deleteMealEntry(meal.id)
                             onBack()
@@ -360,6 +363,19 @@ fun EditMealDialog(
     var isLiquid by rememberSaveable { mutableStateOf(meal.isLiquid) }
 
     val haptic = LocalHapticFeedback.current
+    val caloriesFocus = remember { FocusRequester() }
+    val proteinFocus = remember { FocusRequester() }
+    val carbsFocus = remember { FocusRequester() }
+    val fatFocus = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
+
+    // Same requirement as manual entry: a name and a calorie figure, typed
+    // explicitly. This dialog previously fell back to the meal's existing
+    // values on a blank field rather than defaulting to zero, which was safe,
+    // but it meant clearing a field and tapping Save silently kept the old
+    // value with no sign the intended edit hadn't taken effect.
+    val caloriesValue = parseCalories(caloriesStr)
+    val isValid = foodName.isNotBlank() && caloriesStr.isNotBlank() && caloriesValue != null
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -384,6 +400,8 @@ fun EditMealDialog(
                     label = { Text(stringResource(R.string.field_item_name)) },
                     singleLine = true,
                     shape = RectangleShape,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    keyboardActions = KeyboardActions(onNext = { caloriesFocus.requestFocus() }),
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
@@ -391,9 +409,10 @@ fun EditMealDialog(
                     onValueChange = { caloriesStr = it.filter { ch -> ch.isDigit() }.take(6) },
                     label = { Text(stringResource(R.string.field_calories)) },
                     singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    keyboardActions = KeyboardActions(onNext = { proteinFocus.requestFocus() }),
                     shape = RectangleShape,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth().focusRequester(caloriesFocus)
                 )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -402,29 +421,32 @@ fun EditMealDialog(
                     OutlinedTextField(
                         value = proteinStr,
                         onValueChange = { proteinStr = sanitizeDecimalInput(it) },
-                        label = { Text(stringResource(R.string.field_protein), maxLines = 1, softWrap = false, fontSize = 10.sp) },
+                        label = { Text(stringResource(R.string.field_protein)) },
                         singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Next),
+                        keyboardActions = KeyboardActions(onNext = { carbsFocus.requestFocus() }),
                         shape = RectangleShape,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f).focusRequester(proteinFocus)
                     )
                     OutlinedTextField(
                         value = carbsStr,
                         onValueChange = { carbsStr = sanitizeDecimalInput(it) },
-                        label = { Text(stringResource(R.string.field_carbs), maxLines = 1, softWrap = false, fontSize = 10.sp) },
+                        label = { Text(stringResource(R.string.field_carbs)) },
                         singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Next),
+                        keyboardActions = KeyboardActions(onNext = { fatFocus.requestFocus() }),
                         shape = RectangleShape,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f).focusRequester(carbsFocus)
                     )
                     OutlinedTextField(
                         value = fatStr,
                         onValueChange = { fatStr = sanitizeDecimalInput(it) },
-                        label = { Text(stringResource(R.string.field_fat), maxLines = 1, softWrap = false, fontSize = 10.sp) },
+                        label = { Text(stringResource(R.string.field_fat)) },
                         singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
                         shape = RectangleShape,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f).focusRequester(fatFocus)
                     )
                 }
                 Row(
@@ -448,27 +470,29 @@ fun EditMealDialog(
                         color = Color.White
                     )
                 }
+                Text(
+                    text = stringResource(R.string.manual_entry_required_hint),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.Gray
+                )
             }
         },
         confirmButton = {
             Button(
                 onClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    val cal = parseCalories(caloriesStr) ?: meal.calories
-                    val p = parseGrams(proteinStr)
-                    val c = parseGrams(carbsStr)
-                    val f = parseGrams(fatStr)
                     onSave(
                         meal.copy(
-                            foodName = foodName.ifBlank { meal.foodName },
-                            calories = cal.coerceAtLeast(0),
-                            proteinGrams = p.coerceAtLeast(0f),
-                            carbsGrams = c.coerceAtLeast(0f),
-                            fatGrams = f.coerceAtLeast(0f),
+                            foodName = foodName,
+                            calories = (caloriesValue ?: meal.calories).coerceAtLeast(0),
+                            proteinGrams = parseGrams(proteinStr).coerceAtLeast(0f),
+                            carbsGrams = parseGrams(carbsStr).coerceAtLeast(0f),
+                            fatGrams = parseGrams(fatStr).coerceAtLeast(0f),
                             isLiquid = isLiquid
                         )
                     )
                 },
+                enabled = isValid,
                 shape = RectangleShape,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary,
@@ -486,6 +510,20 @@ fun EditMealDialog(
         shape = RectangleShape,
         containerColor = Color(0xFF141414)
     )
+}
+
+/** A small tag over a corner of the meal photo — a fact, not a warning wash. */
+@Composable
+private fun PhotoBadge(text: String, background: Color) {
+    Surface(color = background, shape = RectangleShape) {
+        Text(
+            text = text,
+            color = Color.White,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+        )
+    }
 }
 
 @Composable

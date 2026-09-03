@@ -1,5 +1,6 @@
 package com.sharek.macromandate
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.activity.compose.setContent
@@ -14,7 +15,9 @@ import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -30,6 +33,7 @@ import com.sharek.macromandate.ui.MealDetailScreen
 import com.sharek.macromandate.ui.terminalOverlay
 import com.sharek.macromandate.ui.theme.MacroMandateTheme
 import com.sharek.macromandate.viewmodel.MainViewModel
+import com.sharek.macromandate.widget.EXTRA_OPEN_MANUAL_ENTRY
 import androidx.fragment.app.FragmentActivity
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -40,6 +44,11 @@ import androidx.compose.ui.res.stringResource
 
 class MainActivity : FragmentActivity() {
     private val viewModel: MainViewModel by viewModels()
+
+    // Whether the widget's "Log a meal" button launched this instance. Held as
+    // Compose state, not a local val read once in onCreate, because
+    // onNewIntent (below) needs to update it for an already-running Activity.
+    private var openManualEntryPending by mutableStateOf(false)
 
     // POST_NOTIFICATIONS is not requested here.
     //
@@ -53,13 +62,34 @@ class MainActivity : FragmentActivity() {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        openManualEntryPending = readOpenManualEntry(intent)
         setContent {
             val terminalTheme by viewModel.terminalTheme.collectAsState()
             MacroMandateTheme(terminalTheme = terminalTheme) {
-                MacroMandateApp(viewModel = viewModel)
+                MacroMandateApp(
+                    viewModel = viewModel,
+                    openManualEntryOnLaunch = openManualEntryPending,
+                    onManualEntryLaunchConsumed = { openManualEntryPending = false }
+                )
             }
         }
     }
+
+    // launchMode="singleTop" (manifest) routes a widget tap while the app is
+    // already running here instead of stacking a second Activity instance on
+    // top of it — without this, the app briefly had two dashboards on the back
+    // stack, one of which knew to open manual entry and one of which didn't.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        openManualEntryPending = readOpenManualEntry(intent)
+    }
+
+    // The widget's "Log a meal" button used to open the app to the bare
+    // dashboard — one more tap away from the action its own label promised.
+    // This extra lets it open straight into manual entry.
+    private fun readOpenManualEntry(intent: Intent?): Boolean =
+        intent?.getBooleanExtra(EXTRA_OPEN_MANUAL_ENTRY, false) ?: false
 }
 
 // Nav labels are single words: three long labels overflowed their items and ran
@@ -72,7 +102,11 @@ sealed class Screen(val route: String, @StringRes val titleRes: Int, val icon: I
 }
 
 @Composable
-fun MacroMandateApp(viewModel: MainViewModel) {
+fun MacroMandateApp(
+    viewModel: MainViewModel,
+    openManualEntryOnLaunch: Boolean = false,
+    onManualEntryLaunchConsumed: () -> Unit = {}
+) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
@@ -141,9 +175,14 @@ fun MacroMandateApp(viewModel: MainViewModel) {
             modifier = Modifier.padding(innerPadding)
         ) {
             composable(Screen.Dashboard.route) {
-                MainScreen(viewModel = viewModel, onNavigateToDetail = { mealId ->
-                    navController.navigate("meal_detail/$mealId")
-                })
+                MainScreen(
+                    viewModel = viewModel,
+                    openManualEntryOnLaunch = openManualEntryOnLaunch,
+                    onManualEntryLaunchConsumed = onManualEntryLaunchConsumed,
+                    onNavigateToDetail = { mealId ->
+                        navController.navigate("meal_detail/$mealId")
+                    }
+                )
             }
             composable(Screen.Analytics.route) {
                 AnalyticsScreen(viewModel = viewModel)

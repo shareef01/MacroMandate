@@ -6,6 +6,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.*
+import androidx.glance.action.ActionParameters
+import androidx.glance.action.actionParametersOf
 import androidx.glance.action.actionStartActivity
 import androidx.glance.appwidget.*
 import androidx.glance.layout.*
@@ -18,6 +20,10 @@ import com.sharek.macromandate.data.pref.MandatePreferences
 import com.sharek.macromandate.data.repository.MealRepository
 import kotlinx.coroutines.flow.first
 import com.sharek.macromandate.R
+
+/** Also the Intent extra key `MainActivity.onCreate` reads to open manual entry directly. */
+const val EXTRA_OPEN_MANUAL_ENTRY = "open_manual_entry"
+private val OpenManualEntryKey = ActionParameters.Key<Boolean>(EXTRA_OPEN_MANUAL_ENTRY)
 
 class MandateWidget : GlanceAppWidget() {
 
@@ -86,7 +92,14 @@ class MandateWidget : GlanceAppWidget() {
 
             Button(
                 text = context.getString(R.string.widget_log_meal),
-                onClick = actionStartActivity(ComponentName(context, MainActivity::class.java)),
+                // Previously opened the app to the dashboard, one more tap
+                // away from the action the button's own label promised. The
+                // extra is read in MainActivity.onCreate and opens the manual
+                // entry dialog directly.
+                onClick = actionStartActivity(
+                    ComponentName(context, MainActivity::class.java),
+                    actionParametersOf(OpenManualEntryKey to true)
+                ),
                 modifier = GlanceModifier.fillMaxWidth()
             )
         }
