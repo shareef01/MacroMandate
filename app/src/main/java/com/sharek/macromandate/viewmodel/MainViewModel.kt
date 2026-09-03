@@ -177,6 +177,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    val reduceVisualEffects: StateFlow<Boolean> = preferences.reduceVisualEffectsFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = false
+        )
+
+    fun toggleReduceVisualEffects(enabled: Boolean) {
+        viewModelScope.launch {
+            preferences.updateReduceVisualEffects(enabled)
+            logAudit("CONFIG", "VISUAL EFFECTS ${if (enabled) "REDUCED" else "RESTORED"}.")
+        }
+    }
+
     fun updateApiKey(key: String) {
         viewModelScope.launch {
             preferences.updateApiKey(key)
@@ -231,8 +245,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _dailyBriefing = MutableStateFlow<String?>(null)
     val dailyBriefing: StateFlow<String?> = _dailyBriefing.asStateFlow()
 
+    /**
+     * The running "Daily summary" request, so it can be cancelled the same way
+     * photo analysis can. It used to be an untracked `viewModelScope.launch`,
+     * so its loading overlay had no way to offer a way out of a slow request.
+     */
+    private var briefingJob: Job? = null
+
     fun generateDailyBriefing() {
-        viewModelScope.launch {
+        briefingJob = viewModelScope.launch {
             val meals = todayMeals.value
             if (meals.isEmpty()) {
                 _uiState.value = UiState.Error(R.string.error_no_meals_today)
@@ -295,6 +316,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun dismissBriefing() {
         _dailyBriefing.value = null
+    }
+
+    /** Cancels an in-flight "Daily summary" request; cancelling the coroutine cancels the HTTP call. */
+    fun cancelDailyBriefing() {
+        briefingJob?.cancel()
+        briefingJob = null
+        _uiState.value = UiState.Idle
     }
 
     fun updateCalorieTarget(target: Int) {

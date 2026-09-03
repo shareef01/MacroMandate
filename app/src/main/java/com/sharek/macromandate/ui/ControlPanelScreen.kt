@@ -15,6 +15,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BlurOff
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Description
@@ -55,6 +56,7 @@ import androidx.core.content.ContextCompat
 import com.sharek.macromandate.data.local.AuditEntity
 import com.sharek.macromandate.ui.theme.TerminalTheme
 import com.sharek.macromandate.viewmodel.MainViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
@@ -76,6 +78,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
     val recentAudits by viewModel.recentAudits.collectAsState()
     val apiKeyHint by viewModel.apiKeyHint.collectAsState()
     val terminalTheme by viewModel.terminalTheme.collectAsState()
+    val reduceVisualEffects by viewModel.reduceVisualEffects.collectAsState()
 
     var pendingRestoreUri by remember { mutableStateOf<Uri?>(null) }
     var showEraseConfirm by remember { mutableStateOf(false) }
@@ -175,6 +178,11 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
             confirmButton = {
                 Button(
                     onClick = {
+                        // This button writes every record in the file into the
+                        // live database — a real commit — but had no haptic at
+                        // all, less tactile confirmation than an ordinary
+                        // filter chip.
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         val uri = pendingRestoreUri
                         pendingRestoreUri = null
                         if (uri != null) {
@@ -243,6 +251,9 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
             confirmButton = {
                 Button(
                     onClick = {
+                        // The single most destructive action in the app had no
+                        // haptic confirmation at all.
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         showEraseConfirm = false
                         viewModel.deleteAllData { succeeded ->
                             scope.launch {
@@ -306,6 +317,13 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                     .padding(horizontal = 16.dp)
                     .padding(top = 16.dp)
             ) {
+                // Six cards used to sit in one undifferentiated column with only
+                // "Your data" below marked as its own section — nothing signalled
+                // why the order was what it was. Two more headers turn one long
+                // scroll into three legible zones.
+                SectionHeading(stringResource(R.string.settings_section_analysis))
+                Spacer(modifier = Modifier.height(16.dp))
+
                 ApiKeyCard(
                     keyHint = apiKeyHint,
                     onSave = { key ->
@@ -320,10 +338,34 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
 
             Spacer(modifier = Modifier.height(32.dp))
 
+            SectionHeading(stringResource(R.string.settings_section_appearance))
+            Spacer(modifier = Modifier.height(16.dp))
+
             TerminalThemeCard(
                 currentTheme = terminalTheme,
                 onSelectTheme = { viewModel.updateTerminalTheme(it) }
             )
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            SettingsCard(title = stringResource(R.string.settings_visual_effects), icon = Icons.Default.BlurOff) {
+                Column {
+                    SettingRow(
+                        label = stringResource(R.string.settings_reduce_visual_effects_toggle),
+                        checked = reduceVisualEffects,
+                        onCheckedChange = {
+                            haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                            viewModel.toggleReduceVisualEffects(it)
+                        }
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = stringResource(R.string.settings_reduce_visual_effects_description),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.Gray
+                    )
+                }
+            }
 
             Spacer(modifier = Modifier.height(32.dp))
 
@@ -381,7 +423,11 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                         label = stringResource(R.string.settings_location_toggle),
                         checked = locationTrackingEnabled,
                         onCheckedChange = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            // Matches the Reminders switch above: same
+                            // component, same gesture, same feedback. This one
+                            // used to fire LongPress while Reminders fired
+                            // ContextClick for an identical toggle tap.
+                            haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
                             viewModel.toggleLocationTracking(it)
                         }
                     )
@@ -397,11 +443,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            Text(
-                text = stringResource(R.string.settings_your_data),
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Black
-            )
+            SectionHeading(stringResource(R.string.settings_your_data))
             Spacer(modifier = Modifier.height(16.dp))
 
             SettingsCard(title = stringResource(R.string.settings_data_portability), icon = Icons.Default.Storage) {
@@ -416,7 +458,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                     Button(
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            createJsonLauncher.launch("MacroMandate_Backup_${System.currentTimeMillis()}.json")
+                            createJsonLauncher.launch("MacroMandate_Backup_${exportTimestamp()}.json")
                         },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RectangleShape,
@@ -430,10 +472,12 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                         Text(text = stringResource(R.string.settings_export_json), fontWeight = FontWeight.Black)
                     }
 
-                    // Import JSON Button
+                    // Import JSON Button. Light feedback: this only opens the
+                    // file picker and then a confirmation dialog — the actual
+                    // restore commit is the RESTORE button in that dialog.
                     OutlinedButton(
                         onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
                             openJsonLauncher.launch(arrayOf("application/json", "text/*", "*/*"))
                         },
                         modifier = Modifier.fillMaxWidth(),
@@ -448,16 +492,18 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                         Text(text = stringResource(R.string.settings_restore_json), fontWeight = FontWeight.Black)
                     }
 
-                    // Export CSV Button
+                    // Export CSV Button. Theme-derived, matching its two
+                    // siblings above — this was the one button styled with fixed
+                    // gray/white regardless of the active theme.
                     OutlinedButton(
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            createCsvLauncher.launch("MacroMandate_Export_${System.currentTimeMillis()}.csv")
+                            createCsvLauncher.launch("MacroMandate_Export_${exportTimestamp()}.csv")
                         },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RectangleShape,
-                        border = BorderStroke(1.dp, Color.Gray),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary)
                     ) {
                         Icon(Icons.Default.Description, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
@@ -582,6 +628,20 @@ private fun ApiKeyCard(
     var draft by remember { mutableStateOf("") }
     var revealed by remember { mutableStateOf(false) }
     val hasKey = keyHint.isNotBlank()
+    val haptic = LocalHapticFeedback.current
+
+    // Clear used to fire on a single tap, immediately, right beside Save —
+    // one mistap wiped a working key with no confirmation, unlike every other
+    // destructive control in this screen. A second tap within a few seconds
+    // arms it, without the weight of a full modal dialog for something the
+    // user can recover from just by re-entering the key.
+    var confirmingClear by remember { mutableStateOf(false) }
+    LaunchedEffect(confirmingClear) {
+        if (confirmingClear) {
+            delay(3000)
+            confirmingClear = false
+        }
+    }
 
     SettingsCard(title = stringResource(R.string.settings_api_key), icon = Icons.Default.Key) {
         Column {
@@ -650,21 +710,50 @@ private fun ApiKeyCard(
                     Text(stringResource(R.string.settings_api_key_save), fontWeight = FontWeight.Bold)
                 }
                 if (hasKey) {
+                    // One derived color and one derived label for the armed
+                    // state, read by both the button's styling and its text,
+                    // rather than three separate if/else branches that could
+                    // drift out of sync with each other.
+                    val clearColor = if (confirmingClear) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline
+                    val clearLabel = if (confirmingClear) {
+                        stringResource(R.string.settings_api_key_clear_confirm)
+                    } else {
+                        stringResource(R.string.settings_api_key_clear)
+                    }
                     OutlinedButton(
                         onClick = {
-                            onSave("")
-                            draft = ""
-                            revealed = false
+                            if (confirmingClear) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onSave("")
+                                draft = ""
+                                revealed = false
+                                confirmingClear = false
+                            } else {
+                                haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                                confirmingClear = true
+                            }
                         },
                         modifier = Modifier.weight(1f),
-                        shape = RectangleShape
+                        shape = RectangleShape,
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = clearColor),
+                        border = BorderStroke(1.dp, clearColor)
                     ) {
-                        Text(stringResource(R.string.settings_api_key_clear), fontWeight = FontWeight.Bold)
+                        Text(clearLabel, fontWeight = FontWeight.Bold)
                     }
                 }
             }
         }
     }
+}
+
+/** A section boundary inside the Settings scroll — groups related cards, doesn't title any one of them. */
+@Composable
+private fun SectionHeading(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.titleLarge,
+        fontWeight = FontWeight.Black
+    )
 }
 
 @Composable
@@ -729,9 +818,13 @@ fun AuditBufferHud(audits: List<AuditEntity>) {
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontSize = 11.sp
                         ),
+                        // Theme-derived rather than fixed red/cyan: this log
+                        // used to show the same two hardcoded colors regardless
+                        // of the active theme, so it never matched Phosphor
+                        // Green, Amber CRT, or Stark Mono.
                         color = when (audit.category) {
-                            "SECURITY", "SECURITY_JUDGMENT" -> Color.Red
-                            "MANDATE_SHIFT", "CONFIG", "PRIVACY" -> Color.Cyan
+                            "SECURITY", "SECURITY_JUDGMENT" -> MaterialTheme.colorScheme.error
+                            "MANDATE_SHIFT", "CONFIG", "PRIVACY" -> MaterialTheme.colorScheme.primary
                             else -> Color.Gray
                         }
                     )
@@ -764,7 +857,10 @@ private fun TerminalThemeCard(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                // A selection from a list, like a sort or
+                                // filter choice — light feedback, not the
+                                // heavier commit/destructive cue.
+                                haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
                                 onSelectTheme(theme)
                             },
                         shape = RectangleShape,

@@ -67,9 +67,21 @@ val WarningYellow = Color(0xFFFFEA00)
 val SubversiveRed = Color(0xFFFF1744)
 
 // Semantic Nutrition Tokens (Consistent Across Themes)
+//
+// These used to be pixel-identical to two of the four themes' primary accent
+// color: Carbs (#00E5FF) equaled Cyber Cyan's primary exactly, and Protein
+// (#00FF66) equaled Phosphor Green's primary exactly. In those themes — the
+// first two in the list, so the ones most people see — a carbs or protein
+// figure was visually indistinguishable from ordinary UI chrome colored with
+// the theme accent; the one piece of color-coding the app relies on for macro
+// identification collapsed exactly where it mattered most. Each value below
+// is now shifted off every theme's primaryColor/secondaryColor while staying
+// in the same hue family (green stays green, blue stays cool-toned, gold
+// stays warm), so the "consistent across themes" identity holds without
+// colliding with any single theme's own palette.
 object NutritionColors {
-    val Protein = Color(0xFF00FF66)      // Phosphor Green
-    val Carbs = Color(0xFF00E5FF)        // Cyber Cyan / Ice Blue
-    val Fat = Color(0xFFFFD600)          // Amber Gold
+    val Protein = Color(0xFF00C853)      // Deeper emerald green — reads as "green" without matching Phosphor Green's primary
+    val Carbs = Color(0xFF2979FF)        // Cool blue — reads as "cyan family" without matching Cyber Cyan's primary
+    val Fat = Color(0xFFFF6D00)          // Warm orange-gold — distinct from Amber CRT's more yellow primary
     val OverTarget = SubversiveRed       // Alert Crimson
 }
