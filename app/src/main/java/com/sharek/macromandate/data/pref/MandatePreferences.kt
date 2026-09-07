@@ -6,7 +6,9 @@ import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
 import com.sharek.macromandate.ui.theme.TerminalTheme
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
+import java.io.IOException
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "mandate_prefs")
 
@@ -16,10 +18,25 @@ class MandatePreferences(private val context: Context) {
         val DAILY_CALORIE_TARGET = intPreferencesKey("daily_calorie_target")
         val ENFORCEMENT_ENABLED = booleanPreferencesKey("enforcement_enabled")
         val LOCATION_TRACKING_ENABLED = booleanPreferencesKey("location_tracking_enabled")
+        val INCLUDE_LOCATION_IN_AI = booleanPreferencesKey("include_location_in_ai")
+        val LOCATION_DISCLOSURE_ACKNOWLEDGED = booleanPreferencesKey("location_disclosure_acknowledged")
         val API_KEY = stringPreferencesKey("api_key")
         val TERMINAL_THEME = stringPreferencesKey("terminal_theme")
         val REDUCE_VISUAL_EFFECTS = booleanPreferencesKey("reduce_visual_effects")
     }
+
+    /**
+     * Catches DataStore IOExceptions on disk read and falls back to emptyPreferences()
+     * so that transient file issues do not crash the UI StateFlow collection.
+     */
+    private val safePreferencesFlow: Flow<Preferences> = context.dataStore.data
+        .catch { exception ->
+            if (exception is IOException) {
+                emit(emptyPreferences())
+            } else {
+                throw exception
+            }
+        }
 
     /**
      * The analysis credential, entered by the user in Settings.
@@ -29,47 +46,51 @@ class MandatePreferences(private val context: Context) {
      * non-rooted device and does not hold against physical access with an
      * unlocked bootloader or a rooted OS. `android:allowBackup="false"` keeps it
      * out of cloud backups, and it is excluded from every export.
-     *
-     * Documenting this accurately matters more than hardening it further: a
-     * Keystore-wrapped value would still be readable by the same process, so it
-     * would raise the effort for an attacker only marginally while inviting the
-     * claim that the token is "encrypted".
      */
-    val apiKeyFlow: Flow<String> = context.dataStore.data.map { preferences ->
+    val apiKeyFlow: Flow<String> = safePreferencesFlow.map { preferences ->
         preferences[API_KEY] ?: ""
     }
 
     /**
      * Opt-in, and deliberately defaulted to false.
      *
-     * Enabling this sends precise coordinates off-device: they are stored on the
-     * meal record, burned into the evidence image as a visible watermark, and that
-     * watermarked image is then uploaded for analysis. Nobody gets that by default.
+     * Enables saving local GPS coordinates to meal records.
      */
-    val locationTrackingEnabledFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
+    val locationTrackingEnabledFlow: Flow<Boolean> = safePreferencesFlow.map { preferences ->
         preferences[LOCATION_TRACKING_ENABLED] ?: false
     }
 
-    val calorieTargetFlow: Flow<Int> = context.dataStore.data.map { preferences ->
+    /**
+     * Separate explicit opt-in: include location coordinates in the image sent to
+     * the AI provider. Defaults to false.
+     */
+    val includeLocationInAiFlow: Flow<Boolean> = safePreferencesFlow.map { preferences ->
+        preferences[INCLUDE_LOCATION_IN_AI] ?: false
+    }
+
+    val locationDisclosureAcknowledgedFlow: Flow<Boolean> = safePreferencesFlow.map { preferences ->
+        preferences[LOCATION_DISCLOSURE_ACKNOWLEDGED] ?: false
+    }
+
+    val calorieTargetFlow: Flow<Int> = safePreferencesFlow.map { preferences ->
         preferences[DAILY_CALORIE_TARGET] ?: 2500
     }
 
-    val enforcementEnabledFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
-        preferences[ENFORCEMENT_ENABLED] ?: true
+    /**
+     * Reminders are genuinely optional and default to false on new installs.
+     */
+    val enforcementEnabledFlow: Flow<Boolean> = safePreferencesFlow.map { preferences ->
+        preferences[ENFORCEMENT_ENABLED] ?: false
     }
 
-    val terminalThemeFlow: Flow<TerminalTheme> = context.dataStore.data.map { preferences ->
+    val terminalThemeFlow: Flow<TerminalTheme> = safePreferencesFlow.map { preferences ->
         TerminalTheme.fromId(preferences[TERMINAL_THEME])
     }
 
     /**
-     * Off by default: the CRT scanline overlay and the camera screen's
-     * scanning animation are already tuned to a low, fixed alpha with no
-     * data-driven intensity, so this isn't fixing a measured problem — it's
-     * a floor for anyone sensitive to any overlay/motion at all, or who
-     * wants every last bit of contrast at a large accessibility font size.
+     * Off by default: provides a toggle for reduced animation and visual overlays.
      */
-    val reduceVisualEffectsFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
+    val reduceVisualEffectsFlow: Flow<Boolean> = safePreferencesFlow.map { preferences ->
         preferences[REDUCE_VISUAL_EFFECTS] ?: false
     }
 
@@ -94,6 +115,18 @@ class MandatePreferences(private val context: Context) {
     suspend fun updateLocationTrackingEnabled(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[LOCATION_TRACKING_ENABLED] = enabled
+        }
+    }
+
+    suspend fun updateIncludeLocationInAi(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[INCLUDE_LOCATION_IN_AI] = enabled
+        }
+    }
+
+    suspend fun updateLocationDisclosureAcknowledged(acknowledged: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[LOCATION_DISCLOSURE_ACKNOWLEDGED] = acknowledged
         }
     }
 

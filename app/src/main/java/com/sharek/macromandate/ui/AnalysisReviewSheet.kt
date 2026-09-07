@@ -14,13 +14,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.sharek.macromandate.util.ParsedNutrition
-import com.sharek.macromandate.viewmodel.PendingAnalysis
-import androidx.compose.ui.res.stringResource
 import com.sharek.macromandate.R
+import com.sharek.macromandate.util.ParsedNutrition
+import com.sharek.macromandate.viewmodel.AnalysisCommitState
+import com.sharek.macromandate.viewmodel.PendingAnalysis
 
 /**
  * The confirmation step between a model's answer and the user's meal log.
@@ -31,18 +32,18 @@ import com.sharek.macromandate.R
  * is editable in place, the origin of the figures is stated plainly, and
  * discarding costs one tap and leaves nothing behind.
  *
- * The dystopian voice deliberately stays out of this screen. Everywhere else the
- * chrome can be theatrical; here the user is deciding what is true about what
- * they ate, and the copy has to get out of the way.
+ * Now handles an explicit [commitState] state machine: while saving, buttons are
+ * disabled to prevent duplicate writes and race conditions; if Room or disk
+ * persistence fails, entered corrections remain visible and the error is surfaced
+ * so the user can retry without losing their analysis.
  */
 @Composable
 fun AnalysisReviewSheet(
     pending: PendingAnalysis,
+    commitState: AnalysisCommitState = AnalysisCommitState.Idle,
     onConfirm: (ParsedNutrition) -> Unit,
     onDiscard: () -> Unit
 ) {
-    // rememberSaveable so a rotation mid-review does not throw away corrections
-    // the user has already typed — and, with them, the analysis itself.
     var foodName by rememberSaveable(pending.capturedAt) { mutableStateOf(pending.nutrition.foodName) }
     var caloriesStr by rememberSaveable(pending.capturedAt) { mutableStateOf(pending.nutrition.calories.toString()) }
     var proteinStr by rememberSaveable(pending.capturedAt) { mutableStateOf(formatGramsValue(pending.nutrition.proteinGrams)) }
@@ -50,16 +51,10 @@ fun AnalysisReviewSheet(
     var fatStr by rememberSaveable(pending.capturedAt) { mutableStateOf(formatGramsValue(pending.nutrition.fatGrams)) }
     var isLiquid by rememberSaveable(pending.capturedAt) { mutableStateOf(pending.nutrition.isLiquid) }
 
-    // Same requirement as manual entry and edit: a name and a calorie figure,
-    // typed explicitly. This previously fell back to the model's original
-    // estimate on a blank field rather than defaulting to zero, which was
-    // safe, but it meant clearing a field and tapping Save silently kept the
-    // AI's number with no sign the correction hadn't taken effect.
-    val isValid = isMealEntryValid(foodName, caloriesStr)
+    val isSaving = commitState is AnalysisCommitState.Saving
+    val isValid = isMealEntryValid(foodName, caloriesStr) && !isSaving
 
     AlertDialog(
-        // Not dismissible by an outside tap: the result is not saved anywhere yet,
-        // so a stray touch would silently lose the analysis the user just paid for.
         onDismissRequest = {},
         title = {
             Column {
@@ -86,14 +81,28 @@ fun AnalysisReviewSheet(
             ) {
                 AsyncImage(
                     model = pending.sourceImage,
-                    // The photo is context for the numbers beside it, not
-                    // information on its own; TalkBack should skip it.
                     contentDescription = null,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(140.dp),
                     contentScale = ContentScale.Crop
                 )
+
+                if (commitState is AnalysisCommitState.Failed) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
+                        shape = RectangleShape,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = stringResource(commitState.messageRes),
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(10.dp)
+                        )
+                    }
+                }
 
                 pending.caveatRes?.let { caveatRes ->
                     Surface(
@@ -124,17 +133,17 @@ fun AnalysisReviewSheet(
 
                 MealEntryFields(
                     foodName = foodName,
-                    onFoodNameChange = { foodName = it },
+                    onFoodNameChange = { if (!isSaving) foodName = it },
                     caloriesStr = caloriesStr,
-                    onCaloriesChange = { caloriesStr = it },
+                    onCaloriesChange = { if (!isSaving) caloriesStr = it },
                     proteinStr = proteinStr,
-                    onProteinChange = { proteinStr = it },
+                    onProteinChange = { if (!isSaving) proteinStr = it },
                     carbsStr = carbsStr,
-                    onCarbsChange = { carbsStr = it },
+                    onCarbsChange = { if (!isSaving) carbsStr = it },
                     fatStr = fatStr,
-                    onFatChange = { fatStr = it },
+                    onFatChange = { if (!isSaving) fatStr = it },
                     isLiquid = isLiquid,
-                    onLiquidChange = { isLiquid = it }
+                    onLiquidChange = { if (!isSaving) isLiquid = it }
                 )
             }
         },
@@ -159,11 +168,25 @@ fun AnalysisReviewSheet(
                     contentColor = MaterialTheme.colorScheme.onPrimary
                 )
             ) {
-                Text(stringResource(R.string.analysis_save), fontWeight = FontWeight.Black)
+                if (isSaving) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(stringResource(R.string.action_saving), fontWeight = FontWeight.Black)
+                } else {
+                    Text(stringResource(R.string.analysis_save), fontWeight = FontWeight.Black)
+                }
             }
         },
         dismissButton = {
-            OutlinedButton(onClick = onDiscard, shape = RectangleShape) {
+            OutlinedButton(
+                onClick = onDiscard,
+                enabled = !isSaving,
+                shape = RectangleShape
+            ) {
                 Text(stringResource(R.string.analysis_discard), color = Color.Gray)
             }
         },

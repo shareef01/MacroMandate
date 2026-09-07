@@ -5,56 +5,51 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
-import java.text.SimpleDateFormat
-import java.util.*
+import java.io.File
+import java.net.URI
 
+/**
+ * Summary of a parsed JSON backup file for preview before committing to Room.
+ */
+data class BackupParseSummary(
+    val version: Int,
+    val exportedAt: Long?,
+    val totalInArchive: Int,
+    val validMeals: List<MealEntry>,
+    val skippedCount: Int,
+    val hasImages: Boolean
+)
+
+/**
+ * Writes and reads meal history for export and restore.
+ *
+ * This handles **meal-record history**, not full database snapshots (API keys,
+ * settings, and raw image binaries are intentionally excluded).
+ */
 object DossierExporter {
 
     const val BACKUP_VERSION = 1
-
-    // Excel/Sheets evaluate a cell as a formula when it opens with one of these.
-    private val FORMULA_TRIGGERS = charArrayOf('=', '+', '-', '@', '\t')
-
-    /**
-     * Restore reads the whole file into memory, so it needs a ceiling. ~16M chars
-     * is far beyond any real export (a 10-year log is a few MB) while staying well
-     * inside the heap a mid-range device gives a single app.
-     */
-    internal const val MAX_BACKUP_CHARS = 16 * 1024 * 1024
-
-    private const val UNKNOWN_MEAL_NAME = "Untitled meal"
-    private const val MAX_URI_LENGTH = 512
+    private const val MAX_BACKUP_CHARS = 10 * 1024 * 1024 // 10 MB
+    private const val UNKNOWN_MEAL_NAME = "RESTORED MEAL"
     private const val EVIDENCE_DIR_NAME = "evidence"
+    private const val MAX_URI_LENGTH = 512
     private const val MAX_LATITUDE = 90.0
     private const val MAX_LONGITUDE = 180.0
+    private val FORMULA_TRIGGERS = charArrayOf('=', '+', '-', '@')
 
-    /** 2000-01-01. Anything older is a corrupt or fabricated timestamp, not history. */
-    private const val EARLIEST_PLAUSIBLE_TIMESTAMP = 946_684_800_000L
+    // 2020-01-01 00:00:00 UTC. The app did not exist before this; any timestamp
+    // earlier is corrupted data, not history.
+    private const val EARLIEST_PLAUSIBLE_TIMESTAMP = 1577836800000L
 
-    /** Escaped, not literal: a raw BOM mid-file is itself a lint error. */
-    private const val UTF8_BOM = "\uFEFF"
-
-    /**
-     * A spreadsheet-facing export. Deliberately excludes coordinates, the stored
-     * image path and the model's assessment prose: a CSV is the artefact people
-     * mail to themselves and open on a shared machine, so it carries the
-     * nutrition record and nothing that reveals where they were.
-     *
-     * Use the JSON backup for a complete, restorable archive.
-     */
     suspend fun generateCsv(meals: List<MealEntry>): String = withContext(Dispatchers.IO) {
-        // ISO-8601 with a UTC offset, so a reader can place the row in time
-        // instead of guessing which zone the exporting device was in.
-        val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.US)
         val sb = StringBuilder()
-        // Excel on Windows assumes the system codepage without a BOM and mangles
-        // any non-ASCII dish name.
-        sb.append(UTF8_BOM)
-        sb.append("ID,Timestamp,FoodName,Calories,ProteinGrams,CarbsGrams,FatGrams,IsLiquid\r\n")
+        // UTF-8 BOM so Excel opens accented characters without manual import steps.
+        sb.append('\uFEFF')
+        sb.append("id,timestamp,foodName,calories,proteinGrams,carbsGrams,fatGrams,isLiquid\r\n")
 
         meals.forEach { meal ->
             sb.append(csvCell(meal.id)).append(',')
-            sb.append(csvCell(dateFormat.format(Date(meal.timestamp)))).append(',')
+            sb.append(meal.timestamp).append(',')
             sb.append(csvCell(meal.foodName)).append(',')
             sb.append(meal.calories).append(',')
             sb.append(meal.proteinGrams).append(',')
@@ -106,15 +101,15 @@ object DossierExporter {
     }
 
     /**
-     * Reads a backup file. Returns the meals on success, or a [RestoreError].
+     * Reads a backup file and produces a structured [BackupParseSummary].
      *
-     * This is a hostile-input boundary: the file is arbitrary bytes chosen by
-     * whoever hands it to the picker, so nothing in it is trusted. Every numeric
-     * field is clamped through [NutritionBounds] — the same gate the entry
-     * dialogs use — because a restore that skipped validation was a way to write
-     * values into Room that no screen would ever accept.
+     * Validates bounds, enforces deterministic legacy IDs for missing IDs,
+     * and nullifies dead image paths that don't exist on disk if [fileVerifier] is provided.
      */
-    suspend fun parseJsonBackup(jsonString: String): Result<List<MealEntry>> = withContext(Dispatchers.IO) {
+    suspend fun parseJsonBackupSummary(
+        jsonString: String,
+        fileVerifier: ((String) -> Boolean)? = null
+    ): Result<BackupParseSummary> = withContext(Dispatchers.IO) {
         if (jsonString.length > MAX_BACKUP_CHARS) {
             return@withContext Result.failure(RestoreException(RestoreError.TooLarge))
         }
@@ -129,8 +124,6 @@ object DossierExporter {
         if (version <= 0) {
             return@withContext Result.failure(RestoreException(RestoreError.NotAnArchive))
         }
-        // A newer file may carry fields this build cannot represent. Silently
-        // dropping them would look like a successful restore that lost data.
         if (version > BACKUP_VERSION) {
             return@withContext Result.failure(RestoreException(RestoreError.UnsupportedVersion(version)))
         }
@@ -138,17 +131,38 @@ object DossierExporter {
         val array = root.optJSONArray("meals")
             ?: return@withContext Result.failure(RestoreException(RestoreError.NotAnArchive))
 
-        val meals = ArrayList<MealEntry>(array.length())
-        val seenIds = HashSet<String>(array.length())
+        val exportedAt = if (root.has("exportedAt")) root.optLong("exportedAt") else null
+        val totalCount = array.length()
+        val meals = ArrayList<MealEntry>(totalCount)
+        val seenIds = HashSet<String>(totalCount)
+        var skipped = 0
+        var hasImages = false
 
-        for (i in 0 until array.length()) {
-            val obj = array.optJSONObject(i) ?: continue
+        for (i in 0 until totalCount) {
+            val obj = array.optJSONObject(i)
+            if (obj == null) {
+                skipped++
+                continue
+            }
 
-            // A file may repeat an id; Room would REPLACE, so the last one would
-            // silently win. Keep the first and drop the rest, deterministically.
             val declaredId = obj.optString("id").trim()
-            val id = if (declaredId.isEmpty()) UUID.randomUUID().toString() else declaredId
-            if (!seenIds.add(id)) continue
+            // Deterministic legacy identity based on stable canonical fields
+            val id = if (declaredId.isEmpty()) {
+                val canonicalKey = "${obj.optLong("timestamp", 0L)}_${obj.optString("foodName", "").trim()}_${obj.optInt("calories", 0)}"
+                "legacy_" + canonicalKey.hashCode().toUInt().toString(16)
+            } else declaredId
+
+            // Duplicate ID within archive: keep the first, drop duplicate deterministically
+            if (!seenIds.add(id)) {
+                skipped++
+                continue
+            }
+
+            val rawImageUri = obj.optString("imageUri", "")
+            val sanitizedImageUri = sanitizeImageUri(rawImageUri, fileVerifier)
+            if (sanitizedImageUri != null) {
+                hasImages = true
+            }
 
             val protein = NutritionBounds.clampGrams(obj.optDouble("proteinGrams", 0.0).toFloat())
             val carbs = NutritionBounds.clampGrams(obj.optDouble("carbsGrams", 0.0).toFloat())
@@ -158,10 +172,7 @@ object DossierExporter {
                 MealEntry(
                     id = id,
                     timestamp = clampTimestamp(obj.optLong("timestamp", System.currentTimeMillis())),
-                    // Only paths this app owns are honoured. A backup could otherwise
-                    // point a record at any URI on the device and have the detail
-                    // screen render it — and have deletion act on it.
-                    imageUri = sanitizeImageUri(obj.optString("imageUri", "")),
+                    imageUri = sanitizedImageUri,
                     foodName = NutritionBounds.clampName(obj.optString("foodName", ""), UNKNOWN_MEAL_NAME),
                     calories = NutritionBounds.clampCalories(obj.optDouble("calories", 0.0)),
                     proteinGrams = protein,
@@ -176,17 +187,27 @@ object DossierExporter {
                 )
             )
         }
-        Result.success(meals)
+
+        Result.success(
+            BackupParseSummary(
+                version = version,
+                exportedAt = exportedAt,
+                totalInArchive = totalCount,
+                validMeals = meals,
+                skippedCount = skipped,
+                hasImages = hasImages
+            )
+        )
     }
+
+    /**
+     * Legacy entry point returning just the meal entries. Preserves backward compatibility.
+     */
+    suspend fun parseJsonBackup(jsonString: String): Result<List<MealEntry>> =
+        parseJsonBackupSummary(jsonString).map { it.validMeals }
 
     class RestoreException(val error: RestoreError) : Exception(error.toString())
 
-    /**
-     * Keeps a restored timestamp inside a range the rest of the app can reason
-     * about. A far-future timestamp is the worst case: "today" is an open-ended
-     * `timestamp >= startOfDay` query, so one bad row would be counted in every
-     * daily total from now on.
-     */
     private fun clampTimestamp(value: Long): Long {
         val now = System.currentTimeMillis()
         return value.coerceIn(EARLIEST_PLAUSIBLE_TIMESTAMP, now)
@@ -203,22 +224,35 @@ object DossierExporter {
      * Accepts only `file://` URIs under the app's own evidence directory name.
      * Anything else — a `content://` provider, an absolute path elsewhere, a
      * traversal — is dropped and the record restores without an image.
+     *
+     * If [fileVerifier] is provided, verifies that the file exists on the current device.
      */
-    private fun sanitizeImageUri(raw: String): String? {
+    internal fun sanitizeImageUri(raw: String, fileVerifier: ((String) -> Boolean)? = null): String? {
         val value = raw.trim()
         if (value.isEmpty()) return null
         if (!value.startsWith("file:///")) return null
         if (value.contains("..")) return null
         if (!value.contains("/$EVIDENCE_DIR_NAME/")) return null
-        return value.take(MAX_URI_LENGTH)
+        val safeUri = value.take(MAX_URI_LENGTH)
+        if (fileVerifier != null && !fileVerifier(safeUri)) {
+            return null
+        }
+        return safeUri
+    }
+
+    /** Helper verifier checking actual file existence on disk */
+    fun createFileExistenceVerifier(): (String) -> Boolean = { uriString ->
+        try {
+            val uri = URI(uriString)
+            val file = File(uri.path)
+            file.exists() && file.isFile
+        } catch (e: Exception) {
+            false
+        }
     }
 
     internal fun escapeCsvField(field: String): String {
-        // LLM-generated food names can contain quotes and line breaks; quotes are
-        // doubled (RFC-4180) and newlines stripped so each record stays on one row.
         val flattened = field.replace("\r", " ").replace("\n", " ").replace("\"", "\"\"")
-        // foodName comes back from the model, so it is attacker-influencable via the
-        // photo. Neutralize spreadsheet formula injection with a leading apostrophe.
         return if (flattened.isNotEmpty() && flattened[0] in FORMULA_TRIGGERS) {
             "'$flattened"
         } else {

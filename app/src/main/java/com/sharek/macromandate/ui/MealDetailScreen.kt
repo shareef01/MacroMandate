@@ -20,16 +20,19 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import com.sharek.macromandate.R
 import com.sharek.macromandate.model.MealEntry
 import com.sharek.macromandate.ui.theme.NutritionColors
 import com.sharek.macromandate.viewmodel.MainViewModel
+import com.sharek.macromandate.viewmodel.SaveResult
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
-import androidx.compose.ui.res.stringResource
-import com.sharek.macromandate.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -39,10 +42,9 @@ fun MealDetailScreen(
     onBack: () -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
-    val mealEntries by viewModel.mealEntries.collectAsState()
+    val coroutineScope = rememberCoroutineScope()
+    val mealEntries by viewModel.mealEntries.collectAsStateWithLifecycle()
     val meal = mealEntries.find { it.id == mealId }
-    // Local time, honestly labelled. The old format string appended a literal
-    // 'UTC' to a device-local timestamp.
     val dateFormat = remember { SimpleDateFormat("EEEE d MMMM, HH:mm z", Locale.getDefault()) }
     var showEditDialog by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
@@ -63,7 +65,6 @@ fun MealDetailScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                // Edge-to-edge: the app bar would otherwise sit under the status bar.
                 .statusBarsPadding()
         ) {
             TopAppBar(
@@ -96,58 +97,58 @@ fun MealDetailScreen(
             ) {
                 AsyncImage(
                     model = meal.imageUri,
-                    // The photo repeats what the fields below already state.
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
                 )
 
-                // Small corner badges, not a full-photo color wash. A
-                // caution-yellow or alarm-red fill stamped across the user's
-                // own food photo reads as a penalty regardless of how neutral
-                // the text underneath it is — the same problem the scoring
-                // penalties tied to these flags were already fixed for
-                // (isNightRefueling carries no score penalty; isRestricted
-                // can no longer be set by any current capture, manual entry,
-                // or edit — see MainViewModel — and only still describes a
-                // meal restored from an older backup). The flag stays
-                // visible; it no longer dominates the photo.
-                if (meal.isRestricted || meal.isNightRefueling) {
-                    Column(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(8.dp),
-                        horizontalAlignment = Alignment.End,
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = stringResource(R.string.detail_sensor_telemetry),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.8f),
+                        fontWeight = FontWeight.Bold
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         if (meal.isRestricted) {
-                            PhotoBadge(stringResource(R.string.filter_flagged), MaterialTheme.colorScheme.error)
+                            PhotoBadge(
+                                stringResource(R.string.badge_restricted),
+                                MaterialTheme.colorScheme.error
+                            )
                         }
                         if (meal.isNightRefueling) {
-                            PhotoBadge(stringResource(R.string.detail_late_night), Color.Black.copy(alpha = 0.65f))
+                            PhotoBadge(
+                                stringResource(R.string.badge_late_refueling),
+                                Color(0xFFFFB300)
+                            )
                         }
                     }
                 }
             }
 
             Column(modifier = Modifier.padding(16.dp)) {
-                meal.assessment?.let {
+                if (meal.assessment != null) {
                     Surface(
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
                         shape = RectangleShape,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Text(
                                 stringResource(R.string.detail_assessment),
                                 color = MaterialTheme.colorScheme.primary,
-                                style = MaterialTheme.typography.labelSmall,
+                                style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Black
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                it,
+                                meal.assessment,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Bold
@@ -189,8 +190,6 @@ fun MealDetailScreen(
                 )
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // .toInt() truncated: 12.7 g of protein displayed as "12 g", and
-                // every macro read low by up to a gram everywhere in the app.
                 DetailRow(
                     stringResource(R.string.detail_calories),
                     stringResource(R.string.detail_kcal, meal.calories),
@@ -218,10 +217,6 @@ fun MealDetailScreen(
                 )
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Read from the configuration, not Locale.getDefault(): the latter
-                // is invisible to Compose, so a locale change would leave these
-                // coordinates formatted for the previous one until something else
-                // happened to recompose them.
                 val locale = LocalConfiguration.current.locales[0]
                 val coordText = if (meal.latitude != null && meal.longitude != null) {
                     stringResource(
@@ -281,7 +276,6 @@ fun MealDetailScreen(
                 meal = meal,
                 onDismiss = { showEditDialog = false },
                 onSave = { updated ->
-                    showEditDialog = false
                     viewModel.updateMealEntry(updated)
                 }
             )
@@ -298,11 +292,6 @@ fun MealDetailScreen(
                     )
                 },
                 text = {
-                    // Same wording as the list-view delete dialog (name,
-                    // calories, and the totals consequence) — this used to say
-                    // only "this meal and its photo will be permanently
-                    // deleted," describing the same action differently
-                    // depending on which screen it was triggered from.
                     Text(
                         stringResource(R.string.delete_meal_body, meal.foodName, meal.calories),
                         color = MaterialTheme.colorScheme.onSurface
@@ -312,9 +301,11 @@ fun MealDetailScreen(
                     Button(
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            showDeleteConfirmDialog = false
-                            viewModel.deleteMealEntry(meal.id)
-                            onBack()
+                            coroutineScope.launch {
+                                viewModel.deleteMealEntry(meal.id)
+                                showDeleteConfirmDialog = false
+                                onBack()
+                            }
                         },
                         shape = RectangleShape,
                         colors = ButtonDefaults.buttonColors(
@@ -337,7 +328,6 @@ fun MealDetailScreen(
                 containerColor = Color(0xFF181818)
             )
         }
-
     }
 }
 
@@ -345,7 +335,7 @@ fun MealDetailScreen(
 fun EditMealDialog(
     meal: MealEntry,
     onDismiss: () -> Unit,
-    onSave: (MealEntry) -> Unit
+    onSave: suspend (MealEntry) -> SaveResult
 ) {
     var foodName by rememberSaveable { mutableStateOf(meal.foodName) }
     var caloriesStr by rememberSaveable { mutableStateOf(meal.calories.toString()) }
@@ -354,17 +344,17 @@ fun EditMealDialog(
     var fatStr by rememberSaveable { mutableStateOf(formatGramsValue(meal.fatGrams)) }
     var isLiquid by rememberSaveable { mutableStateOf(meal.isLiquid) }
 
-    val haptic = LocalHapticFeedback.current
+    var isSaving by rememberSaveable { mutableStateOf(false) }
+    var errorMessageRes by rememberSaveable { mutableStateOf<Int?>(null) }
 
-    // Same requirement as manual entry: a name and a calorie figure, typed
-    // explicitly. This dialog previously fell back to the meal's existing
-    // values on a blank field rather than defaulting to zero, which was safe,
-    // but it meant clearing a field and tapping Save silently kept the old
-    // value with no sign the intended edit hadn't taken effect.
-    val isValid = isMealEntryValid(foodName, caloriesStr)
+    val haptic = LocalHapticFeedback.current
+    val coroutineScope = rememberCoroutineScope()
+    val isValid = isMealEntryValid(foodName, caloriesStr) && !isSaving
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            if (!isSaving) onDismiss()
+        },
         title = {
             Text(
                 text = stringResource(R.string.edit_meal_title),
@@ -374,28 +364,52 @@ fun EditMealDialog(
             )
         },
         text = {
-            MealEntryFields(
-                foodName = foodName,
-                onFoodNameChange = { foodName = it },
-                caloriesStr = caloriesStr,
-                onCaloriesChange = { caloriesStr = it },
-                proteinStr = proteinStr,
-                onProteinChange = { proteinStr = it },
-                carbsStr = carbsStr,
-                onCarbsChange = { carbsStr = it },
-                fatStr = fatStr,
-                onFatChange = { fatStr = it },
-                isLiquid = isLiquid,
-                onLiquidChange = { isLiquid = it },
-                modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
-            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                errorMessageRes?.let { errRes ->
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
+                        shape = RectangleShape,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = stringResource(errRes),
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(10.dp)
+                        )
+                    }
+                }
+
+                MealEntryFields(
+                    foodName = foodName,
+                    onFoodNameChange = { if (!isSaving) foodName = it },
+                    caloriesStr = caloriesStr,
+                    onCaloriesChange = { if (!isSaving) caloriesStr = it },
+                    proteinStr = proteinStr,
+                    onProteinChange = { if (!isSaving) proteinStr = it },
+                    carbsStr = carbsStr,
+                    onCarbsChange = { if (!isSaving) carbsStr = it },
+                    fatStr = fatStr,
+                    onFatChange = { if (!isSaving) fatStr = it },
+                    isLiquid = isLiquid,
+                    onLiquidChange = { if (!isSaving) isLiquid = it }
+                )
+            }
         },
         confirmButton = {
             Button(
                 onClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onSave(
-                        meal.copy(
+                    isSaving = true
+                    errorMessageRes = null
+                    coroutineScope.launch {
+                        val updated = meal.copy(
                             foodName = foodName,
                             calories = (parseCalories(caloriesStr) ?: meal.calories).coerceAtLeast(0),
                             proteinGrams = parseGrams(proteinStr).coerceAtLeast(0f),
@@ -403,7 +417,13 @@ fun EditMealDialog(
                             fatGrams = parseGrams(fatStr).coerceAtLeast(0f),
                             isLiquid = isLiquid
                         )
-                    )
+                        val result = onSave(updated)
+                        isSaving = false
+                        when (result) {
+                            is SaveResult.Success -> onDismiss()
+                            is SaveResult.Failure -> errorMessageRes = result.messageRes
+                        }
+                    }
                 },
                 enabled = isValid,
                 shape = RectangleShape,
@@ -412,11 +432,25 @@ fun EditMealDialog(
                     contentColor = MaterialTheme.colorScheme.onPrimary
                 )
             ) {
-                Text(stringResource(R.string.edit_meal_save), fontWeight = FontWeight.Black)
+                if (isSaving) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(stringResource(R.string.action_saving), fontWeight = FontWeight.Black)
+                } else {
+                    Text(stringResource(R.string.edit_meal_save), fontWeight = FontWeight.Black)
+                }
             }
         },
         dismissButton = {
-            OutlinedButton(onClick = onDismiss, shape = RectangleShape) {
+            OutlinedButton(
+                onClick = onDismiss,
+                enabled = !isSaving,
+                shape = RectangleShape
+            ) {
                 Text(stringResource(R.string.action_cancel), color = Color.Gray)
             }
         },
@@ -440,14 +474,28 @@ private fun PhotoBadge(text: String, background: Color) {
 }
 
 @Composable
-fun DetailRow(label: String, value: String, valueColor: Color = Color.White) {
+private fun DetailRow(
+    label: String,
+    value: String,
+    accentColor: Color = Color.White
+) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        // Label is prose, value is data: the value keeps the terminal face so the
-        // numbers stay aligned down the column.
-        Text(label, color = Color.Gray, style = MaterialTheme.typography.bodyMedium)
-        Text(value, color = valueColor, style = MaterialTheme.typography.labelLarge)
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.Gray
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Bold,
+            color = accentColor
+        )
     }
 }

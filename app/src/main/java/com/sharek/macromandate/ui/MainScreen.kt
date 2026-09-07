@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.sharek.macromandate.R
 import com.sharek.macromandate.model.MealEntry
+import kotlinx.coroutines.launch
 import com.sharek.macromandate.ui.theme.NutritionColors
 import com.sharek.macromandate.viewmodel.ComplianceStatus
 import com.sharek.macromandate.viewmodel.MainViewModel
@@ -83,6 +84,7 @@ fun MainScreen(
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val uiState by viewModel.uiState.collectAsState()
     val complianceStatus by viewModel.complianceStatus.collectAsState()
@@ -198,7 +200,10 @@ fun MainScreen(
                         onDismiss = { showManualEntryDialog = false },
                         onSave = { name, cal, p, c, f, isLiquid ->
                             showManualEntryDialog = false
-                            viewModel.logManualMeal(name, cal, p, c, f, isLiquid)
+                            // Wrap suspend call in outer coroutine scope
+                            scope.launch {
+                                viewModel.logManualMeal(name, cal, p, c, f, isLiquid)
+                            }
                         }
                     )
                 }
@@ -373,15 +378,17 @@ fun MainScreen(
                         confirmButton = {
                             Button(
                                 onClick = {
-                                    // This button had no haptic at all — the one
-                                    // place in the app that actually destroys
-                                    // data gave less tactile confirmation than
-                                    // an ordinary filter tap did.
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    val id = targetMeal.id
-                                    mealToDelete = null
-                                    viewModel.deleteMealEntry(id)
-                                },
+                                     // This button had no haptic at all — the one
+                                     // place in the app that actually destroys
+                                     // data gave less tactile confirmation than
+                                     // an ordinary filter tap did.
+                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                     val id = targetMeal.id
+                                     mealToDelete = null
+                                     scope.launch {
+                                         viewModel.deleteMealEntry(id)
+                                     }
+                                 },
                                 shape = RectangleShape,
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = MaterialTheme.colorScheme.error,

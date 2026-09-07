@@ -122,12 +122,9 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
         contract = ActivityResultContracts.CreateDocument("text/csv"),
         onResult = { uri ->
             uri?.let { target ->
-                viewModel.exportDataTo(context, target) { succeeded ->
-                    scope.launch {
-                        snackbarHostState.showSnackbar(
-                            if (succeeded) csvExported else csvFailed
-                        )
-                    }
+                scope.launch {
+                    val succeeded = viewModel.exportDataTo(target)
+                    snackbarHostState.showSnackbar(if (succeeded) csvExported else csvFailed)
                 }
             }
         }
@@ -137,12 +134,9 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
         contract = ActivityResultContracts.CreateDocument("application/json"),
         onResult = { uri ->
             uri?.let { target ->
-                viewModel.exportJsonBackupTo(context, target) { succeeded ->
-                    scope.launch {
-                        snackbarHostState.showSnackbar(
-                            if (succeeded) jsonExported else jsonFailed
-                        )
-                    }
+                scope.launch {
+                    val succeeded = viewModel.exportJsonBackupTo(target)
+                    snackbarHostState.showSnackbar(if (succeeded) jsonExported else jsonFailed)
                 }
             }
         }
@@ -177,37 +171,32 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
             },
             confirmButton = {
                 Button(
-                    onClick = {
-                        // This button writes every record in the file into the
-                        // live database — a real commit — but had no haptic at
-                        // all, less tactile confirmation than an ordinary
-                        // filter chip.
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        val uri = pendingRestoreUri
-                        pendingRestoreUri = null
-                        if (uri != null) {
-                            viewModel.importJsonBackupFrom(context, uri) { result ->
-                                scope.launch {
-                                    result.fold(
-                                        onSuccess = { count ->
-                                            snackbarHostState.showSnackbar(
-                                                resources.getQuantityString(R.plurals.restore_success, count, count)
-                                            )
-                                        },
-                                        onFailure = { error ->
-                                            // The reason is a resource id on RestoreFailure;
-                                                // anything else stays generic rather than
-                                                // surfacing an exception string.
-                                                val message = (error as? MainViewModel.RestoreFailure)
-                                                    ?.let { resources.getString(it.messageRes) }
-                                                    ?: restoreFallbackError
-                                                snackbarHostState.showSnackbar(message)
-                                        }
-                                    )
+                        onClick = {
+                            // Wrap suspend import call in coroutine scope
+                            scope.launch {
+                                pendingRestoreUri?.let { uri ->
+                                    viewModel.importJsonBackupFrom(uri) { result ->
+                                        result.fold(
+                                            onSuccess = { count ->
+                                                scope.launch {
+                                                    snackbarHostState.showSnackbar(
+                                                        resources.getQuantityString(R.plurals.restore_success, count, count)
+                                                    )
+                                                }
+                                            },
+                                            onFailure = { error ->
+                                                val message = (error as? MainViewModel.RestoreFailure)?.let { resources.getString(it.messageRes) } ?: restoreFallbackError
+                                                scope.launch {
+                                                    snackbarHostState.showSnackbar(message)
+                                                }
+                                            }
+                                        )
+                                    }
                                 }
+                                // Close dialog after handling
+                                pendingRestoreUri = null
                             }
-                        }
-                    },
+                        },
                     shape = RectangleShape,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary,
@@ -327,8 +316,8 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                 ApiKeyCard(
                     keyHint = apiKeyHint,
                     onSave = { key ->
-                        viewModel.updateApiKey(key)
                         scope.launch {
+                            viewModel.updateApiKey(key)
                             snackbarHostState.showSnackbar(
                                 if (key.isBlank()) keyCleared else keySaved
                             )
@@ -343,7 +332,9 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
 
             TerminalThemeCard(
                 currentTheme = terminalTheme,
-                onSelectTheme = { viewModel.updateTerminalTheme(it) }
+                onSelectTheme = { theme ->
+        scope.launch { viewModel.updateTerminalTheme(theme) }
+    }
             )
 
             Spacer(modifier = Modifier.height(32.dp))
@@ -355,7 +346,9 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                         checked = reduceVisualEffects,
                         onCheckedChange = {
                             haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
-                            viewModel.toggleReduceVisualEffects(it)
+                            scope.launch {
+                                viewModel.toggleReduceVisualEffects(it)
+                            }
                         }
                     )
                     Spacer(modifier = Modifier.height(8.dp))
@@ -372,7 +365,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
             SettingsCard(title = stringResource(R.string.settings_calorie_target), icon = Icons.Default.Settings) {
                 CalorieTargetControl(
                     target = calorieTarget,
-                    onTargetChange = { viewModel.updateCalorieTarget(it) }
+                    onTargetChange = { scope.launch { viewModel.updateCalorieTarget(it) } }
                 )
             }
 
@@ -385,7 +378,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                         checked = enforcementEnabled,
                         onCheckedChange = { enabled ->
                             haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
-                            viewModel.toggleEnforcement(enabled)
+                            scope.launch { viewModel.toggleEnforcement(enabled) }
                             // Asked for here, where the user has just said they
                             // want notifications — not on first launch before
                             // they know the feature exists.
@@ -428,7 +421,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                             // used to fire LongPress while Reminders fired
                             // ContextClick for an identical toggle tap.
                             haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
-                            viewModel.toggleLocationTracking(it)
+                            scope.launch { viewModel.toggleLocationTracking(it) }
                         }
                     )
                     Spacer(modifier = Modifier.height(8.dp))

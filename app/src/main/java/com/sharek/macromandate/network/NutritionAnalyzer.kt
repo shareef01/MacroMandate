@@ -64,27 +64,102 @@ class NutritionAnalyzer(
     /**
      * Extracts one nutrition object from a free-form reply.
      *
-     * Takes the span between the first `{` and the last `}`. That is deliberately
-     * permissive: providers wrap the object in prose, in markdown fences, or in
-     * both, and a stricter parse would reject replies that plainly contain the
-     * answer. It also means a reply with two objects yields the outermost span,
-     * which [NutritionSanitizer] then either reads or rejects — no partial
-     * result is ever constructed.
+     * Tries markdown fences first, then balanced brace matching (respecting quotes
+     * and escape characters), and falls back to outermost `{...}` span if needed.
      */
     internal fun readNutrition(replyText: String): Result<ParsedNutrition> {
-        val start = replyText.indexOf('{')
-        val end = replyText.lastIndexOf('}')
-        if (start == -1 || end <= start) {
-            debugLog("No JSON object in reply: $replyText")
+        val candidates = extractCandidates(replyText)
+        if (candidates.isEmpty()) {
+            debugLog("No JSON object candidate in reply: $replyText")
             return failure(AnalysisError.UnreadableResult)
         }
 
-        return try {
-            Result.success(NutritionSanitizer.parseAndSanitize(replyText.substring(start, end + 1)))
-        } catch (e: Exception) {
-            debugLog("Unparsable nutrition object: $e")
-            failure(AnalysisError.UnreadableResult)
+        for (candidate in candidates) {
+            try {
+                val parsed = NutritionSanitizer.parseAndSanitize(candidate)
+                return Result.success(parsed)
+            } catch (e: Exception) {
+                debugLog("Candidate failed sanitization: $e")
+            }
         }
+
+        return failure(AnalysisError.UnreadableResult)
+    }
+
+    /**
+     * Gathers potential JSON candidate substrings from the reply text in priority order:
+     * 1. Inside markdown code block ```json ... ``` or ``` ... ```
+     * 2. Balanced brace substring from first '{' to its matching '}'
+     * 3. Span between first '{' and last '}'
+     */
+    internal fun extractCandidates(text: String): List<String> {
+        val candidates = mutableListOf<String>()
+
+        // 1. Markdown code block
+        val markdownRegex = """```(?:json)?\s*([\s\S]*?)\s*```""".toRegex(RegexOption.IGNORE_CASE)
+        markdownRegex.find(text)?.let { match ->
+            val block = match.groupValues[1].trim()
+            val blockStart = block.indexOf('{')
+            val blockEnd = block.lastIndexOf('}')
+            if (blockStart != -1 && blockEnd > blockStart) {
+                candidates.add(block.substring(blockStart, blockEnd + 1))
+            }
+        }
+
+        // 2. Balanced brace object
+        extractBalancedBraceObject(text)?.let { balanced ->
+            if (!candidates.contains(balanced)) {
+                candidates.add(balanced)
+            }
+        }
+
+        // 3. Outermost first '{' to last '}'
+        val first = text.indexOf('{')
+        val last = text.lastIndexOf('}')
+        if (first != -1 && last > first) {
+            val outermost = text.substring(first, last + 1)
+            if (!candidates.contains(outermost)) {
+                candidates.add(outermost)
+            }
+        }
+
+        return candidates
+    }
+
+    private fun extractBalancedBraceObject(text: String): String? {
+        val start = text.indexOf('{')
+        if (start == -1) return null
+
+        var depth = 0
+        var inString = false
+        var escape = false
+
+        for (i in start until text.length) {
+            val c = text[i]
+            if (escape) {
+                escape = false
+                continue
+            }
+            if (c == '\\') {
+                if (inString) escape = true
+                continue
+            }
+            if (c == '"') {
+                inString = !inString
+                continue
+            }
+            if (!inString) {
+                if (c == '{') {
+                    depth++
+                } else if (c == '}') {
+                    depth--
+                    if (depth == 0) {
+                        return text.substring(start, i + 1)
+                    }
+                }
+            }
+        }
+        return null
     }
 
     private fun imageRequest(prompt: String, base64Jpeg: String) = ChatRequest(

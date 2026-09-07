@@ -90,11 +90,13 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
         onResult = { uri ->
             uri?.let { targetUri ->
                 val text = activeReport ?: return@let
-                viewModel.exportReportTo(context, targetUri, text) { succeeded ->
-                    scope.launch {
-                        snackbarHostState.showSnackbar(
-                            if (succeeded) reportExported else reportExportFailed
-                        )
+                scope.launch {
+                    viewModel.exportReportTo(context, targetUri, text) { succeeded ->
+                        scope.launch {
+                            snackbarHostState.showSnackbar(
+                                if (succeeded) reportExported else reportExportFailed
+                            )
+                        }
                     }
                 }
             }
@@ -277,7 +279,18 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
                 Button(
                     onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
-                        activeReport = viewModel.generateWeeklyReport()
+                        scope.launch {
+                            val result = viewModel.generateWeeklyReport()
+                            result.fold(
+                                onSuccess = { report ->
+                                    activeReport = report
+                                },
+                                onFailure = {
+                                    // Show a simple error snackbar; you can replace with a string resource later
+                                    snackbarHostState.showSnackbar("Failed to generate weekly report")
+                                }
+                            )
+                        }
                     },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = weeklyMeals.isNotEmpty(),

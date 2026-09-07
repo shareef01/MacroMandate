@@ -4,6 +4,7 @@ import android.app.Application
 import com.sharek.macromandate.data.pref.MandatePreferences
 import com.sharek.macromandate.notification.NotificationManagerHelper
 import com.sharek.macromandate.worker.EnforcementScheduler
+import com.sharek.macromandate.worker.MidnightWidgetRefreshWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -17,6 +18,10 @@ class MandateApplication : Application() {
         super.onCreate()
         // Initialize notification channels before any system module posts notifications
         NotificationManagerHelper.createNotificationChannel(this)
+
+        // Schedule midnight glance widget refresh
+        MidnightWidgetRefreshWorker.schedule(this)
+
         // Schedule the periodic enforcement check (persists across reboots via WorkManager),
         // but respect a user who explicitly disabled enforcement — otherwise re-scheduling
         // here would undo their choice on every launch.

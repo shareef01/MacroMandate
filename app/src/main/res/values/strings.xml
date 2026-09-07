@@ -336,5 +336,24 @@
     <string name="widget_progress_no_target" tools:ignore="PluralsCandidate">%1$d kcal</string>
     <string name="widget_log_meal">Log a meal</string>
 
-    <!-- ==================== Fallback content ==================== -->
+    <!-- ==================== Integrity & Privacy Additions ==================== -->
+    <string name="error_persistence_failed">Failed to save meal record. Please try again.</string>
+    <string name="error_settings_save_failed">Failed to save settings. Please try again.</string>
+    <string name="restore_preview_title">Restore Meal History</string>
+    <string name="restore_preview_body">Found %1$d valid meals (%2$d skipped). This will merge records into your current log. Existing meals with matching IDs will be updated; other meals remain intact. Note: evidence photos are not included in JSON backups.</string>
+    <string name="restore_confirm_button">Merge Into Log</string>
+    <string name="location_disclosure_title">Geospatial Tagging Opt-In</string>
+    <string name="location_disclosure_body">Enabling location tagging attaches coordinates to your meal entries. By default, coordinates remain local on your device. You can optionally allow coordinates to be watermarked onto images sent to your configured AI analysis provider. Turning location off stops future collection; saved records retain existing coordinates.</string>
+    <string name="location_disclosure_confirm">Acknowledge &amp; Enable</string>
+    <string name="settings_location_ai_toggle">Include location in AI analysis image</string>
+    <string name="settings_location_ai_description">When enabled, burns coordinates onto the image sent to your configured analysis provider.</string>
+    <string name="action_saving">Saving…</string>
+    <string name="settings_orphan_cleanup">Clean Unreferenced Photos</string>
+    <string name="settings_orphan_cleanup_description">Removes internal image files no longer linked to any meal record.</string>
+    <string name="settings_orphan_cleanup_result">Cleaned %1$d unreferenced photo(s).</string>
+    <string name="erase_partial_warning">Records purged, but some local photos could not be deleted.</string>
+    <string name="notice_analysis_no_location">Location unavailable; continuing analysis without GPS.</string>
+<string name="detail_sensor_telemetry">Sensor telemetry</string>
+<string name="badge_restricted">Restricted</string>
+<string name="badge_late_refueling">Late refueling</string>
 </resources>
