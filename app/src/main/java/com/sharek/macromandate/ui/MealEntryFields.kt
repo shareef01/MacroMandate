@@ -161,7 +161,16 @@ private fun MacroField(
     OutlinedTextField(
         value = value,
         onValueChange = { onValueChange(sanitizeDecimalInput(it)) },
-        label = { Text(label, color = accent) },
+        // Removing the old maxLines=1/softWrap=false/10.sp constraints fixed
+        // the large-font clipping risk (P1 finding) but, verified on a real
+        // device, exposed a worse-than-expected default: at 1.0x scale the
+        // resting (unfocused) label already wrapped to two lines in this
+        // narrow a field, because the unfocused label uses bodyLarge-ish
+        // sizing. bodyMedium is small enough to sit on one line at rest and
+        // still floats/shrinks further on focus; it's still `.sp`, so it
+        // still scales with system font size and still wraps — never
+        // clips — if a large enough scale needs more than one line.
+        label = { Text(label, color = accent, style = MaterialTheme.typography.bodyMedium) },
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = imeAction),
         keyboardActions = KeyboardActions(
