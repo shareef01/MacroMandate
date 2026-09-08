@@ -29,13 +29,13 @@ data class BackupParseSummary(
 object DossierExporter {
 
     const val BACKUP_VERSION = 1
-    private const val MAX_BACKUP_CHARS = 10 * 1024 * 1024 // 10 MB
+    internal const val MAX_BACKUP_CHARS = 10 * 1024 * 1024 // 10 MB
     private const val UNKNOWN_MEAL_NAME = "RESTORED MEAL"
     private const val EVIDENCE_DIR_NAME = "evidence"
     private const val MAX_URI_LENGTH = 512
     private const val MAX_LATITUDE = 90.0
     private const val MAX_LONGITUDE = 180.0
-    private val FORMULA_TRIGGERS = charArrayOf('=', '+', '-', '@')
+    private val FORMULA_TRIGGERS = charArrayOf('=', '+', '-', '@', '\t', '\r')
 
     // 2020-01-01 00:00:00 UTC. The app did not exist before this; any timestamp
     // earlier is corrupted data, not history.
@@ -45,7 +45,7 @@ object DossierExporter {
         val sb = StringBuilder()
         // UTF-8 BOM so Excel opens accented characters without manual import steps.
         sb.append('\uFEFF')
-        sb.append("id,timestamp,foodName,calories,proteinGrams,carbsGrams,fatGrams,isLiquid\r\n")
+        sb.append("ID,Timestamp,FoodName,Calories,ProteinGrams,CarbsGrams,FatGrams,IsLiquid\r\n")
 
         meals.forEach { meal ->
             sb.append(csvCell(meal.id)).append(',')
