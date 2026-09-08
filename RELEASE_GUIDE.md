@@ -124,3 +124,9 @@ The debug build is unaffected.
 > `MigrationTest`.** Destructive fallback is now debug-only, so a missing
 > migration fails the release build's database open rather than silently
 > deleting the user's meals — but a failed open is still a broken app.
+>
+> **Note on legacy schemas (pre-v6):** Room schema exports exist from version 6
+> onwards (`6.json`, `7.json`). Fresh installs start directly at v7, and upgrades
+> from v6 to v7 are fully non-destructive and guarded by `MigrationTest`.
+> Users upgrading from an unsupported legacy pre-v6 release build will encounter
+> a database open failure rather than silent data erasure.

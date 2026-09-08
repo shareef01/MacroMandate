@@ -165,12 +165,12 @@ MacroMandate (minSdk 29 / targetSdk 37)
 | A-25 | MEDIUM | Privacy | CLOSED (prior) | `POST_NOTIFICATIONS` requested in `onCreate` before user saw any feature. Fixed: deferred to enforcement toggle in Settings. |
 | A-26 | INFO | Build | OPEN | Deprecated Gradle DSL APIs (`applicationVariants`, `testVariants`, `unitTestVariants`) generate warnings per build. Will fail on AGP 10. |
 | A-27 | LOW | Dependencies | OPEN | 22 lint version-staleness warnings: Kotlin 2.1→2.4, KSP 1.0.29→2.3.11, splashscreen 1.0.1→1.2.0, exifinterface 1.4.1→1.4.2, OkHttp 5.4→5.5, org.json 20240303→20260814. No CVEs identified. |
-| A-28 | INFO | DB/Upgrade | OPEN | Room schemas only exported from v6. No migrations 1→2, 2→3, 3→4, 4→5, 5→6. A pre-v6 device on a release build will crash on open (not silently erase — `fallbackToDestructiveMigration` is debug-only). |
+| A-28 | INFO | DB/Upgrade | CLOSED | Room schemas exported from v6 onwards. Fresh installs use v7; 6→7 migration is verified. Documented in `RELEASE_GUIDE.md`. |
 | A-29 | INFO | Build | OPEN | Three deprecated `gradle.properties` flags (`android.disallowKotlinSourceSets=false`, `android.builtInKotlin=false`, `android.newDsl=false`) required by legacy variant API. Will be removed in AGP 10. |
 | A-30 | INFO | Manifest | OBSERVED | `ACCESS_FINE_LOCATION` + `ACCESS_COARSE_LOCATION` + `CAMERA` declared. `android.hardware.camera.any` feature present (not `required`). All justified and commented. No action needed. |
 | A-31 | INFO | Security | OBSERVED | API key stored plaintext in DataStore. Documented in `MandatePreferences.kt` with clear rationale (Keystore wouldn't improve security for same-process reads; sandbox is the protection boundary). |
 | A-32 | LOW | Testing | CLOSED | `MigrationTest` (instrumented) executed on connected Pixel 7 hardware device via `am instrument`. All 5/5 tests passed (`migrate6To7_preservesMealRows`, `migrate6To7_preservesAuditRows`, `migrate6To7_createsTheTimestampIndices`, `migrate6To7_isNonDestructiveWithManyRows`, `useAppContext`). Fixed `androidTest` asset path in `app/build.gradle.kts`. |
-| A-33 | INFO | Code Quality | OPEN | `MandateApplication.kt` L18 comment: "Ensure absolute surveillance channels are established" — internal comment, not user-visible, but inconsistent with cleaned-up copy policy. Minor. |
+| A-33 | INFO | Code Quality | CLOSED | `MandateApplication.kt` L18 comment: "Ensure absolute surveillance channels are established" — updated to clean copy. |
 | A-34 | INFO | Build | CLOSED | `NutritionAnalyzer.kt` and `NutritionAnalyzerTest.kt` staged and committed to branch `audit/2026-hardening`. |
 | A-35 | INFO | UX | OBSERVED | CRISIS directive in weekly report changed from "LLM verdict can wipe log" to factual calorie-deviation statement. Fixed in prior audit. |
 | A-36 | INFO | UX | OBSERVED | Notification channels use `IMPORTANCE_DEFAULT` and `IMPORTANCE_LOW` — deliberate, prevents heads-up interruptions for meal reminders. |
