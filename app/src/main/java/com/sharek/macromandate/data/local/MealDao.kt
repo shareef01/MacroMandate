@@ -25,6 +25,12 @@ interface MealDao {
     @Query("SELECT * FROM meal_entries ORDER BY timestamp DESC")
     fun getAllMeals(): Flow<List<MealEntity>>
 
+    @Query("SELECT * FROM meal_entries ORDER BY timestamp DESC")
+    suspend fun getAllMealsSnapshot(): List<MealEntity>
+
+    @Query("SELECT * FROM meal_entries WHERE id = :id LIMIT 1")
+    suspend fun getMealById(id: String): MealEntity?
+
     @Query("SELECT * FROM meal_entries WHERE timestamp >= :startOfDay ORDER BY timestamp DESC")
     fun getTodayMeals(startOfDay: Long): Flow<List<MealEntity>>
 

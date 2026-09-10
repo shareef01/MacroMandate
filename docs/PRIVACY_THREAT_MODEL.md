@@ -62,15 +62,15 @@ analysis. A discarded result leaves nothing behind.
 | **Collected** | Only when "Tag meals with location" is on **and** the user takes/picks a photo |
 | **Default** | **Off** |
 | **Why** | Optional meal geotagging and the map view |
-| **Stored** | On the meal row, and drawn into the uploaded image as a watermark |
+| **Stored** | On the meal row; drawn into the uploaded image only under the separate AI-location opt-in |
 | **Precision** | Full device precision; displayed at 6 decimal places (~0.1 m) |
 | **Retention** | With the meal |
 | **Exported** | JSON backup **yes**; CSV **no** (deliberate — see §5) |
-| **Leaves device** | **Yes, when the setting is on** — burned into the uploaded photo |
+| **Leaves device** | Only when the separate AI-location option is on — burned into the re-encoded upload |
 
 Requested at capture time, never at launch. Meal logging is never gated on it.
-`lastLocation` only — no continuous tracking, no background location, no
-geofencing.
+The current-location API is constrained by timeout, maximum age, and maximum
+accuracy. There is no continuous tracking, background location, or geofencing.
 
 > **Known gap.** There is no way to strip coordinates from an existing meal
 > without deleting the whole record.
@@ -139,8 +139,9 @@ Default endpoint: `https://router.huggingface.co/`. Overridable at build time vi
 `MANDATE_API_BASE_URL`, which is the supported route for pointing the app at a
 self-hosted proxy.
 
-**What is sent:** the downsampled photograph, a fixed prompt, the model id, and
-the user's bearer token.
+**What is sent:** a decoded, downsampled, re-encoded JPEG, a fixed prompt, the
+model id, and the user's bearer token. The original file is not uploaded
+byte-for-byte; source EXIF (including GPS/device/camera tags) is not copied.
 
 ### 3b. The second path — "Daily summary"
 
@@ -178,9 +179,9 @@ Three places, all verified present:
 
 1. Under the capture buttons, where the decision is made: *"Photos are sent to
    your configured analysis provider. Manual entry stays on this device."*
-2. On the location toggle: *"When on, your precise coordinates are saved with
-   each meal, printed onto the photo, and that photo is sent to the analysis
-   service. Off by default."*
+2. The local-location toggle explains local storage. A separate opt-in controls
+   whether location is rendered into the AI image, and the UI reports when the
+   required Android permission is missing.
 3. Beside the Daily summary button: *"'Daily summary' sends today's meal names
    and totals to your analysis provider."*
 
@@ -300,7 +301,7 @@ For Play Console. **Verify against the shipping build before submitting.**
 | Photos — processed ephemerally | **No** — stored on device with the meal |
 | Photos — required | **No** — manual entry is a full alternative |
 | Location — collected | Yes, **optional**, off by default |
-| Location — shared | **Yes**, when tagging is on (watermarked into the uploaded photo) |
+| Location — shared | **Yes only under the separate AI-location opt-in** (watermarked into the re-encoded upload) |
 | Health & fitness — collected | Yes (meals, calories, macros) |
 | Health & fitness — shared | No |
 | Personal identifiers | None. No accounts, no ads id, no analytics |

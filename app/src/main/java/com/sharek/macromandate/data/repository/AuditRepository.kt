@@ -5,6 +5,7 @@ import com.sharek.macromandate.data.local.AuditEntity
 import kotlinx.coroutines.flow.Flow
 import java.util.concurrent.atomic.AtomicInteger
 
+/** Best-effort, user-visible activity history; it is not a durable security audit log. */
 class AuditRepository(private val auditDao: AuditDao) {
 
     private companion object {

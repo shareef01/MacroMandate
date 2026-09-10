@@ -136,10 +136,53 @@ class BackupRestoreHostileInputTest {
     @Test
     fun anEvidenceStoreUriIsPreserved() = runBlocking {
         val uri = "file:///data/user/0/com.sharek.macromandate/files/evidence/abc.jpg"
-        val meals = DossierExporter.parseJsonBackup(
-            archive("""{"id":"a","foodName":"X","imageUri":"$uri"}""")
-        ).getOrThrow()
+        val meals = DossierExporter.parseJsonBackupSummary(
+            archive("""{"id":"a","foodName":"X","imageUri":"$uri"}"""),
+            fileVerifier = { it == uri }
+        ).getOrThrow().validMeals
         assertEquals(uri, meals[0].imageUri)
+    }
+
+    @Test
+    fun excessiveJsonNestingIsRejectedBeforeParserRecursion() = runBlocking {
+        val nested = "[".repeat(DossierExporter.MAX_JSON_NESTING + 1) +
+            "]".repeat(DossierExporter.MAX_JSON_NESTING + 1)
+        assertTrue(DossierExporter.parseJsonBackup(nested).isFailure)
+    }
+
+    @Test
+    fun restore_excessiveMealCount_rejected() = runBlocking {
+        val body = buildString {
+            repeat(DossierExporter.MAX_MEAL_COUNT + 1) { index ->
+                if (index > 0) append(',')
+                append("{}")
+            }
+        }
+        val result = DossierExporter.parseJsonBackupSummary(archive(body))
+        assertTrue(result.isFailure)
+        assertTrue(
+            (result.exceptionOrNull() as? DossierExporter.RestoreException)?.error
+                is DossierExporter.RestoreError.TooManyMeals
+        )
+    }
+
+    @Test
+    fun restore_overlongUri_rejectedNotTruncated() = runBlocking {
+        val uri = "file:///data/user/0/com.sharek.macromandate/files/evidence/${"a".repeat(600)}.jpg"
+        val meals = DossierExporter.parseJsonBackupSummary(
+            archive("""{"id":"a","foodName":"X","imageUri":"$uri"}"""),
+            fileVerifier = { true }
+        ).getOrThrow().validMeals
+        assertNull(meals.single().imageUri)
+    }
+
+    @Test
+    fun restore_externalFileOutsideEvidenceRoot_rejected() = runBlocking {
+        val meals = DossierExporter.parseJsonBackupSummary(
+            archive("""{"id":"a","foodName":"X","imageUri":"file:///data/local/tmp/a.jpg"}"""),
+            fileVerifier = { false }
+        ).getOrThrow().validMeals
+        assertNull(meals.single().imageUri)
     }
 
     // ---- deduplication -------------------------------------------------------

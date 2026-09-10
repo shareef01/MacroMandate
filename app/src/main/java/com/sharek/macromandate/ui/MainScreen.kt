@@ -86,12 +86,15 @@ fun MainScreen(
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    val deleteEvidenceFailed = stringResource(R.string.delete_meal_evidence_failed)
+    val deleteFailed = stringResource(R.string.delete_meal_failed)
     val uiState by viewModel.uiState.collectAsState()
     val complianceStatus by viewModel.complianceStatus.collectAsState()
     val locationTrackingEnabled by viewModel.locationTrackingEnabled.collectAsState()
     val hasApiKey by viewModel.hasApiKey.collectAsState()
     val target by viewModel.calorieTarget.collectAsState()
     val pendingAnalysis by viewModel.pendingAnalysis.collectAsState()
+    val analysisCommitState by viewModel.analysisCommitState.collectAsState()
 
     var screenState by remember { mutableStateOf(ScreenState.DASHBOARD) }
     var showManualEntryDialog by remember { mutableStateOf(false) }
@@ -121,6 +124,16 @@ fun MainScreen(
             }
         }
     )
+
+    val pickerLocationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        // A denial means analysis continues without a geotag; Settings exposes
+        // the resulting PermissionRequired state instead of pretending it worked.
+        photoPickerLauncher.launch(
+            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+        )
+    }
 
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
@@ -252,9 +265,19 @@ fun MainScreen(
                             },
                             onImportImage = {
                                 haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
-                                photoPickerLauncher.launch(
-                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                )
+                                val hasLocationPermission =
+                                    ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                                        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                                if (locationTrackingEnabled && !hasLocationPermission) {
+                                    pickerLocationPermissionLauncher.launch(arrayOf(
+                                        Manifest.permission.ACCESS_FINE_LOCATION,
+                                        Manifest.permission.ACCESS_COARSE_LOCATION
+                                    ))
+                                } else {
+                                    photoPickerLauncher.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
+                                }
                             },
                             onManualEntry = {
                                 haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
@@ -386,7 +409,12 @@ fun MainScreen(
                                      val id = targetMeal.id
                                      mealToDelete = null
                                      scope.launch {
-                                         viewModel.deleteMealEntry(id)
+                                         val result = viewModel.deleteMealEntry(id)
+                                         if (!result.isCompleteSuccess) {
+                                             snackbarHostState.showSnackbar(
+                                                 if (result.databaseDeleted) deleteEvidenceFailed else deleteFailed
+                                             )
+                                         }
                                      }
                                  },
                                 shape = RectangleShape,
@@ -437,6 +465,7 @@ fun MainScreen(
         pendingAnalysis?.let { pending ->
             AnalysisReviewSheet(
                 pending = pending,
+                commitState = analysisCommitState,
                 onConfirm = { corrected -> viewModel.confirmPendingAnalysis(corrected) },
                 onDiscard = { viewModel.discardPendingAnalysis() }
             )

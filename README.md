@@ -15,7 +15,7 @@ A local-first Android calorie and macro tracker with a retro tactical terminal i
 - **Manual logging & editing**: Log meals manually without needing an API key or internet connection, and edit any logged meal's name, calories, macros, or beverage status at any time.
 - **Daily progress & targets**: Track calories against a daily target with remaining calorie calculations and macro progress bars.
 - **Weekly trends**: View seven-day consumption charts, macro distribution breakdown, and weekly summaries.
-- **Optional geotagging**: Disabled by default. When enabled, location coordinates are saved alongside meals and rendered as an overlay on uploaded images.
+- **Optional geotagging**: Disabled by default. Local meal geotagging and including coordinates in AI analysis are separate opt-ins; Android location permission is also required.
 - **Terminal themes**: Switch between Cyber Cyan, Phosphor Green, Amber CRT, and Stark Mono themes.
 - **Data export & restore**: Export your history as JSON backups or CSV files for spreadsheets, and restore from backup anytime.
 - **Home screen widget**: Quick glance at today's calorie totals directly from your launcher.
@@ -34,9 +34,11 @@ When you take or pick a meal photo:
 ## Privacy & data handling
 
 - **Local-first storage**: Meals and audit records live in an on-device Room database. No third-party accounts, analytics, or sync servers are run for this project.
-- **Network calls**: Network requests are only made when you trigger photo analysis or generate a daily summary. Only the photo and meal text for that specific request are transmitted.
+- **Network calls**: Network requests are only made when you trigger photo analysis or generate a summary. Analysis decodes, scales, and re-encodes the image as JPEG, stripping source EXIF metadata; the original file is not uploaded byte-for-byte.
 - **API key storage**: Your API token is saved in app-private DataStore preferences protected by standard Android application sandboxing. The app excludes credentials from logs, backups, and exports.
-- **Geotagging disclosure**: If enabled, location coordinates are included with meal records and visible in photo overlays. You can toggle this off in Settings at any time.
+- **Geotagging disclosure**: Local geotagging stores a fresh-enough coordinate with the meal. Coordinates are rendered into the analysis image only when the separate “Include location in AI analysis image” option is enabled.
+- **Backup policy**: Android cloud backup and device-to-device transfer are disabled and explicitly exclude the database, evidence photos, credentials, and sensitive preferences. User-initiated JSON/CSV exports remain available.
+- **Deletion**: Per-meal deletion reports photo cleanup failures. “Erase everything” succeeds only when Room records, activity logs, and all evidence files are gone; partial file failures are shown and can be retried.
 
 ## Tech stack
 

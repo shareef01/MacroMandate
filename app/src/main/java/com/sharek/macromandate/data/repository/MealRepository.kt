@@ -42,6 +42,13 @@ class MealRepository(private val mealDao: MealDao) {
         }
     }
 
+    /** Authoritative one-shot read for exports, backups and destructive work. */
+    suspend fun getAllMealsSnapshot(): List<MealEntry> =
+        mealDao.getAllMealsSnapshot().map { it.toDomain() }
+
+    /** Authoritative one-shot lookup; never depends on an active UI collector. */
+    suspend fun getMealById(id: String): MealEntry? = mealDao.getMealById(id)?.toDomain()
+
     fun getTodayMeals(): Flow<List<MealEntry>> =
         dayBoundaries().flatMapLatest { startOfToday ->
             mealDao.getTodayMeals(startOfToday).map { entities ->

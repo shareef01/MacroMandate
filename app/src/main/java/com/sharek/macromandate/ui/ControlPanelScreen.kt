@@ -56,6 +56,8 @@ import androidx.core.content.ContextCompat
 import com.sharek.macromandate.data.local.AuditEntity
 import com.sharek.macromandate.ui.theme.TerminalTheme
 import com.sharek.macromandate.viewmodel.MainViewModel
+import com.sharek.macromandate.viewmodel.LocationTrackingStatus
+import com.sharek.macromandate.viewmodel.locationTrackingStatus
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -75,6 +77,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
     val calorieTarget by viewModel.calorieTarget.collectAsState()
     val enforcementEnabled by viewModel.enforcementEnabled.collectAsState()
     val locationTrackingEnabled by viewModel.locationTrackingEnabled.collectAsState()
+    val includeLocationInAi by viewModel.includeLocationInAi.collectAsState()
     val recentAudits by viewModel.recentAudits.collectAsState()
     val apiKeyHint by viewModel.apiKeyHint.collectAsState()
     val terminalTheme by viewModel.terminalTheme.collectAsState()
@@ -98,12 +101,17 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
     // Reflects whether reminders can actually be delivered, so the toggle cannot
     // sit there claiming to be on while the OS silently drops every notification.
     var notificationsBlocked by remember { mutableStateOf(!canPostNotifications(context)) }
+    var locationPermissionGranted by remember { mutableStateOf(hasLocationPermission(context)) }
+    val locationStatus = locationTrackingStatus(locationTrackingEnabled, locationPermissionGranted)
     // LocalResources rather than LocalContext.resources: it is the observable
     // one, so a configuration change re-reads it.
     val resources = LocalResources.current
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted -> notificationsBlocked = !granted }
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { locationPermissionGranted = hasLocationPermission(context) }
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -112,6 +120,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 notificationsBlocked = !canPostNotifications(context)
+                locationPermissionGranted = hasLocationPermission(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -244,10 +253,19 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                         // haptic confirmation at all.
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         showEraseConfirm = false
-                        viewModel.deleteAllData { succeeded ->
+                        viewModel.deleteAllData { result ->
                             scope.launch {
+                                val message = when {
+                                    result.isCompleteSuccess -> eraseDone
+                                    result.databaseCleared && result.failedEvidenceCount > 0 -> resources.getQuantityString(
+                                        R.plurals.settings_erase_partial,
+                                        result.failedEvidenceCount,
+                                        result.failedEvidenceCount
+                                    )
+                                    else -> eraseFailed
+                                }
                                 snackbarHostState.showSnackbar(
-                                    if (succeeded) eraseDone else eraseFailed
+                                    message
                                 )
                             }
                         }
@@ -422,12 +440,51 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                             // ContextClick for an identical toggle tap.
                             haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
                             scope.launch { viewModel.toggleLocationTracking(it) }
+                            if (it && !locationPermissionGranted) {
+                                locationPermissionLauncher.launch(arrayOf(
+                                    android.Manifest.permission.ACCESS_FINE_LOCATION,
+                                    android.Manifest.permission.ACCESS_COARSE_LOCATION
+                                ))
+                            }
                         }
                     )
                     Spacer(modifier = Modifier.height(8.dp))
-                    // Prominent disclosure: coordinates do not stay on the device.
+                    // Local collection and AI transmission are disclosed separately.
                     Text(
                         text = stringResource(R.string.settings_location_description),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.Gray
+                    )
+                    if (locationStatus is LocationTrackingStatus.PermissionRequired) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = stringResource(R.string.settings_location_permission_required),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                        TextButton(onClick = {
+                            locationPermissionLauncher.launch(arrayOf(
+                                android.Manifest.permission.ACCESS_FINE_LOCATION,
+                                android.Manifest.permission.ACCESS_COARSE_LOCATION
+                            ))
+                        }) {
+                            Text(stringResource(R.string.settings_location_grant_permission))
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+                    Spacer(modifier = Modifier.height(12.dp))
+                    SettingRow(
+                        label = stringResource(R.string.settings_location_ai_toggle),
+                        checked = includeLocationInAi,
+                        onCheckedChange = { enabled ->
+                            haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                            scope.launch { viewModel.toggleIncludeLocationInAi(enabled) }
+                        }
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = stringResource(R.string.settings_location_ai_description),
                         style = MaterialTheme.typography.labelSmall,
                         color = Color.Gray
                     )
@@ -1071,3 +1128,12 @@ private fun needsNotificationPermission(context: android.content.Context): Boole
 private fun canPostNotifications(context: android.content.Context): Boolean =
     !needsNotificationPermission(context) &&
         NotificationManagerCompat.from(context).areNotificationsEnabled()
+
+private fun hasLocationPermission(context: android.content.Context): Boolean =
+    ContextCompat.checkSelfPermission(
+        context,
+        android.Manifest.permission.ACCESS_FINE_LOCATION
+    ) == PackageManager.PERMISSION_GRANTED || ContextCompat.checkSelfPermission(
+        context,
+        android.Manifest.permission.ACCESS_COARSE_LOCATION
+    ) == PackageManager.PERMISSION_GRANTED

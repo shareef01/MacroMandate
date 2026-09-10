@@ -130,6 +130,8 @@
     <!-- ==================== Delete confirmation ==================== -->
     <string name="delete_meal_title">DELETE DOSSIER RECORD?</string>
     <string name="delete_meal_body" tools:ignore="PluralsCandidate">Are you sure you want to delete \'%1$s\' (%2$d kcal)? This will update daily and weekly totals.</string>
+    <string name="delete_meal_evidence_failed">Meal deleted, but its local photo could not be removed. Use “Erase all data” to retry cleanup.</string>
+    <string name="delete_meal_failed">Couldn\'t delete this meal.</string>
     <string name="delete_meal_confirm">DELETE</string>
     <string name="delete_meal_confirm_detail">EXPUNGE RECORD</string>
 
@@ -267,7 +269,9 @@
 
     <string name="settings_location">Location</string>
     <string name="settings_location_toggle">Tag meals with location</string>
-    <string name="settings_location_description">When on, your precise coordinates are saved with each meal, printed onto the photo, and that photo is sent to the analysis service. Off by default.</string>
+    <string name="settings_location_description">When on, a fresh location may be saved locally with photographed meals. Sharing location with AI is a separate opt-in. Off by default.</string>
+    <string name="settings_location_permission_required">Location tagging is enabled, but Android location permission is missing. Photos will not be geotagged until permission is granted.</string>
+    <string name="settings_location_grant_permission">Grant location permission</string>
 
     <string name="settings_your_data">Your data</string>
     <string name="settings_data_portability">Data portability &amp; backup</string>
@@ -285,6 +289,10 @@
     <string name="settings_erase_cancel">Cancel</string>
     <string name="settings_erase_done">All data deleted.</string>
     <string name="settings_erase_failed">Could not delete everything.</string>
+    <plurals name="settings_erase_partial">
+        <item quantity="one">Meals and activity were deleted, but %1$d photo could not be removed. Try erasing again.</item>
+        <item quantity="other">Meals and activity were deleted, but %1$d photos could not be removed. Try erasing again.</item>
+    </plurals>
 
     <string name="settings_activity_log">Activity log</string>
     <string name="settings_clear_log">CLEAR LOG</string>

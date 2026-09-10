@@ -7,6 +7,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import kotlinx.coroutines.CancellationException
 import com.sharek.macromandate.widget.MandateWidget
 import java.util.Calendar
 import java.util.concurrent.TimeUnit
@@ -21,16 +22,25 @@ class MidnightWidgetRefreshWorker(
 ) : CoroutineWorker(context, workerParams) {
 
     override suspend fun doWork(): Result {
-        runCatching {
+        return try {
             MandateWidget().updateAll(applicationContext)
+            schedule(applicationContext)
+            Result.success()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            if (runAttemptCount < MAX_RETRIES) {
+                Result.retry()
+            } else {
+                schedule(applicationContext)
+                Result.failure()
+            }
         }
-        // Reschedule for the following midnight
-        schedule(applicationContext)
-        return Result.success()
     }
 
     companion object {
         const val WORK_NAME = "mandate_midnight_widget_refresh"
+        private const val MAX_RETRIES = 3
 
         /**
          * Calculates milliseconds from [nowMillis] to the next local midnight,

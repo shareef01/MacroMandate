@@ -10,6 +10,7 @@ import com.sharek.macromandate.data.pref.MandatePreferences
 import com.sharek.macromandate.notification.NotificationManagerHelper
 import com.sharek.macromandate.widget.MandateWidget
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.CancellationException
 import java.util.Calendar
 
 class MandateEnforcementWorker(
@@ -22,9 +23,21 @@ class MandateEnforcementWorker(
         const val DAYTIME_START = 8
         const val DAYTIME_END = 22
         const val OVERDUE_AFTER_MILLIS = 6 * 60 * 60 * 1000L
+        const val MAX_RETRIES = 3
     }
 
     override suspend fun doWork(): Result {
+        return try {
+            performWork()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Transient enforcement refresh failure", e)
+            if (runAttemptCount < MAX_RETRIES) Result.retry() else Result.failure()
+        }
+    }
+
+    private suspend fun performWork(): Result {
         val database = AppDatabase.getDatabase(applicationContext)
         val preferences = MandatePreferences(applicationContext)
 

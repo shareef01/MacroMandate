@@ -18,14 +18,14 @@ Keep your `.jks` file secure and **never commit it to Git**.
 
 ## 2. Signing Configuration
 
-MacroMandate dynamically resolves release signing credentials from multiple sources in priority order:
+MacroMandate resolves release signing credentials from these untracked sources:
 
 1. **Environment Variables** (Recommended for CI/CD)
-2. **`local.properties`** (Recommended for local developer machines)
-3. **`gradle.properties`**
+2. **User-level `~/.gradle/gradle.properties`** (local developer machines)
 
-### Option A: Local Configuration (`local.properties`)
-Add the following keys to your root `local.properties`:
+Never put signing passwords in the repository's `gradle.properties` or
+`local.properties`. For a local build, put these in your user-level
+`~/.gradle/gradle.properties`:
 
 ```properties
 RELEASE_STORE_FILE=C:/path/to/macromandate-release.jks
@@ -34,7 +34,7 @@ RELEASE_KEY_ALIAS=macromandate-key
 RELEASE_KEY_PASSWORD=your_key_password
 ```
 
-### Option B: CI/CD Environment Variables
+### CI/CD Environment Variables
 Set the following environment variables in your CI workflow:
 
 - `RELEASE_STORE_FILE`
@@ -42,7 +42,10 @@ Set the following environment variables in your CI workflow:
 - `RELEASE_KEY_ALIAS`
 - `RELEASE_KEY_PASSWORD`
 
-*Note: If no keystore is provided, `assembleRelease` will still succeed and output an unsigned release artifact.*
+Normal CI permits unsigned release compilation. Distribution uses the `Signed
+Android Release` workflow, which requires all signing values plus
+`RELEASE_KEYSTORE_BASE64` and `RELEASE_CERT_SHA256`, then verifies both the AAB
+signature and the exact production certificate fingerprint.
 
 ---
 
@@ -57,7 +60,7 @@ Artifact location: `app/build/outputs/apk/release/app-release.apk`
 
 ### Build Production Android App Bundle (AAB for Google Play):
 ```bash
-./gradlew bundleRelease
+./gradlew bundleRelease -PproductionRelease=true
 ```
 Artifact location: `app/build/outputs/bundle/release/app-release.aab`
 
@@ -75,12 +78,11 @@ MacroMandate uses full code shrinking and resource optimization (`isMinifyEnable
 
 ## 5. Build-Time Credential Guard
 
-`assembleRelease` **fails** if `HUGGINGFACE_API_KEY` is present in
+Release builds and `verifyReleaseConfiguration` **fail** if `HUGGINGFACE_API_KEY` is present in
 `local.properties`:
 
 ```
-HUGGINGFACE_API_KEY is set in local.properties and would be compiled into the
-release APK, where it is trivially recoverable.
+MM_RELEASE_EMBEDDED_API_KEY_FORBIDDEN
 ```
 
 This is not a precaution — it was verified by building an APK with a test key and
@@ -108,7 +110,7 @@ The debug build is unaffected.
 - [x] Unit tests passing (`./gradlew test`)
 - [x] `lintDebug` and `lintVitalRelease` clean (0 errors)
 - [x] R8 release build succeeds (`./gradlew assembleRelease`)
-- [x] Production App Bundle succeeds (`./gradlew bundleRelease`) -> `app-release.aab`
+- [x] Unsigned App Bundle compilation succeeds (`./gradlew bundleRelease`) -> `app-release.aab`
 - [x] Instrumented `MigrationTest` passing on hardware (`./gradlew connectedDebugAndroidTest` / `am instrument`)
 - [x] No credential in logs, exports or backups; release build refuses to embed one
 - [x] Location tracking opt-in, off by default
@@ -116,7 +118,7 @@ The debug build is unaffected.
 
 **Remaining before store submission:**
 
-- [ ] Sign the build with production keystore (configure `RELEASE_STORE_FILE` credentials)
+- [ ] Run the `Signed Android Release` workflow and verify its certificate check
 - [ ] Manual device pass — see `docs/PLAY_RELEASE_CHECKLIST.md` §7
 - [ ] Privacy policy published at public URL
 

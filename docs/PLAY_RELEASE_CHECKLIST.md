@@ -19,7 +19,7 @@ Ship nothing until these are done.
 | # | Blocker | Why | Status |
 |---|---|---|---|
 | B1 | **Run `./gradlew connectedDebugAndroidTest`** | `MigrationTest` verifies that a database upgrade preserves the user's meals. Executed on connected Pixel 7 hardware: 5/5 tests passed | ☑️ (Verified on Pixel 7) |
-| B2 | **Sign the release build** | No keystore on the audit machine; `assembleRelease` currently emits an **unsigned** APK. Enrol in Play App Signing | ☐ |
+| B2 | **Run signed release workflow** | Normal CI permits unsigned compilation; distribution workflow requires credentials and verifies the AAB certificate. Enrol in Play App Signing | ☐ |
 | B3 | **Manual device pass** | Nothing in this app has been observed running. See §7 | ☐ |
 | B4 | **Privacy policy published at a public URL** | Mandatory: the app handles health data and transmits photographs to a third party | ☐ |
 | B5 | **Confirm `local.properties` has no `HUGGINGFACE_API_KEY`** | The build now fails if it does — confirm the failure is not being bypassed with `-PallowEmbeddedKey=true` | ☐ |
@@ -34,7 +34,7 @@ Ship nothing until these are done.
 | `applicationId` | `com.sharek.macromandate` | Must match the Console listing exactly, forever |
 | `versionCode` / `versionName` | `1` / `1.0` | Fine for a first upload |
 | `minSdk` / `targetSdk` / `compileSdk` | 29 / 37 / 37 | Confirm 37 satisfies the target-API window at submission — **CONSOLE** |
-| App Bundle | **Never built** | `./gradlew bundleRelease`; Play requires AAB |
+| App Bundle | CI builds an unsigned validation AAB | Distribution uses the signed workflow and certificate check |
 | Native code | None | 64-bit requirement not applicable |
 | R8 / resource shrinking | Enabled | Release APK 5.86 MB vs 79.45 MB debug |
 | R8 warnings | None observed | Re-check on the AAB build |
@@ -84,8 +84,8 @@ rejected:
    third-party AI provider. Declare sharing.
 2. **Photos are not processed ephemerally.** They are stored on the device with
    the meal.
-3. **Location is shared when tagging is on** — coordinates are watermarked into
-   the uploaded image.
+3. **Location is shared only under the separate AI-location opt-in** — local
+   geotagging alone does not watermark the uploaded image.
 4. **Do not tick "encrypted at rest".** Platform file-based encryption is not
    app-level encryption. See the threat model §4.
 

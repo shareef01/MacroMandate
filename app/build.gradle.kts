@@ -9,6 +9,14 @@ val localProperties = Properties().apply {
     }
 }
 
+fun releaseSecret(name: String): String? =
+    providers.environmentVariable(name).orElse(providers.gradleProperty(name)).orNull
+
+val releaseStorePath = releaseSecret("RELEASE_STORE_FILE")
+val releaseStorePassword = releaseSecret("RELEASE_STORE_PASSWORD")
+val releaseKeyAlias = releaseSecret("RELEASE_KEY_ALIAS")
+val releaseKeyPassword = releaseSecret("RELEASE_KEY_PASSWORD")
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -30,27 +38,17 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
-    // Populated from local.properties (RELEASE_STORE_FILE, RELEASE_STORE_PASSWORD,
-    // RELEASE_KEY_ALIAS, RELEASE_KEY_PASSWORD). Left unconfigured on machines that
+    // Populated from environment variables or user-level Gradle properties.
+    // Left unconfigured on machines that
     // have no keystore, so assembleRelease still succeeds and simply emits an
     // unsigned APK rather than failing the build.
     signingConfigs {
         create("release") {
-            val storePath = System.getenv("RELEASE_STORE_FILE")
-                ?: localProperties.getProperty("RELEASE_STORE_FILE")
-                ?: project.findProperty("RELEASE_STORE_FILE") as? String
-
-            if (!storePath.isNullOrBlank() && file(storePath).exists()) {
-                storeFile = file(storePath)
-                storePassword = System.getenv("RELEASE_STORE_PASSWORD")
-                    ?: localProperties.getProperty("RELEASE_STORE_PASSWORD")
-                    ?: project.findProperty("RELEASE_STORE_PASSWORD") as? String
-                keyAlias = System.getenv("RELEASE_KEY_ALIAS")
-                    ?: localProperties.getProperty("RELEASE_KEY_ALIAS")
-                    ?: project.findProperty("RELEASE_KEY_ALIAS") as? String
-                keyPassword = System.getenv("RELEASE_KEY_PASSWORD")
-                    ?: localProperties.getProperty("RELEASE_KEY_PASSWORD")
-                    ?: project.findProperty("RELEASE_KEY_PASSWORD") as? String
+            if (!releaseStorePath.isNullOrBlank() && file(releaseStorePath).isFile) {
+                storeFile = file(releaseStorePath)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
             }
         }
     }
@@ -66,17 +64,6 @@ android {
         // Override deliberately with -PallowEmbeddedKey=true if you are building
         // a private release for yourself and accept that the key ships with it.
         val allowEmbeddedKey = (project.findProperty("allowEmbeddedKey") as? String)?.toBoolean() == true
-        gradle.taskGraph.whenReady {
-            val buildingRelease = allTasks.any { it.name.contains("Release") }
-            if (buildingRelease && hfKey.isNotBlank() && !allowEmbeddedKey) {
-                throw GradleException(
-                    "HUGGINGFACE_API_KEY is set in local.properties and would be compiled into the " +
-                        "release APK, where it is trivially recoverable. Remove it and let users supply " +
-                        "their own key in Settings, or point MANDATE_API_BASE_URL at a backend that holds " +
-                        "the credential. To override: -PallowEmbeddedKey=true"
-                )
-            }
-        }
         // Overridable so the app can be pointed at a backend proxy that holds the
         // credential, instead of shipping one inside the APK. Set
         // MANDATE_API_BASE_URL in local.properties; must end with a trailing slash.
@@ -130,6 +117,49 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+}
+
+val embeddedReleaseKey = localProperties.getProperty("HUGGINGFACE_API_KEY").orEmpty()
+val embeddedKeyOverride = providers.gradleProperty("allowEmbeddedKey").orNull?.toBoolean() == true
+val productionReleaseRequested = providers.gradleProperty("productionRelease").orNull?.toBoolean() == true
+
+val verifyReleaseConfiguration by tasks.registering {
+    group = "verification"
+    description = "Rejects credentials that must never be embedded in a distributable build."
+    inputs.file(rootProject.file("local.properties")).optional()
+    doLast {
+        if (embeddedReleaseKey.isNotBlank() && !embeddedKeyOverride) {
+            throw GradleException(
+                "MM_RELEASE_EMBEDDED_API_KEY_FORBIDDEN: HUGGINGFACE_API_KEY must not be embedded in a release."
+            )
+        }
+    }
+}
+
+val verifyProductionSigning by tasks.registering {
+    group = "verification"
+    description = "Fails unless all production signing credentials are configured."
+    dependsOn(verifyReleaseConfiguration)
+    doLast {
+        val missing = buildList {
+            if (releaseStorePath.isNullOrBlank() || !file(releaseStorePath).isFile) add("RELEASE_STORE_FILE")
+            if (releaseStorePassword.isNullOrBlank()) add("RELEASE_STORE_PASSWORD")
+            if (releaseKeyAlias.isNullOrBlank()) add("RELEASE_KEY_ALIAS")
+            if (releaseKeyPassword.isNullOrBlank()) add("RELEASE_KEY_PASSWORD")
+        }
+        if (missing.isNotEmpty()) {
+            throw GradleException("MM_RELEASE_SIGNING_CONFIGURATION_MISSING: ${missing.joinToString()}")
+        }
+    }
+}
+
+tasks.configureEach {
+    if (name in setOf("assembleRelease", "bundleRelease", "lintRelease")) {
+        dependsOn(verifyReleaseConfiguration)
+    }
+    if (name == "bundleRelease" && productionReleaseRequested) {
+        dependsOn(verifyProductionSigning)
     }
 }
 

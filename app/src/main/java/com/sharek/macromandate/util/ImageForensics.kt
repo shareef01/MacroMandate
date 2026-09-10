@@ -5,6 +5,8 @@ import android.graphics.*
 import android.net.Uri
 import android.util.Log
 import androidx.exifinterface.media.ExifInterface
+import androidx.core.graphics.scale
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
@@ -47,23 +49,38 @@ object ImageForensics {
      */
     fun decodeUpright(context: Context, uri: Uri, maxDimension: Int): Bitmap? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        context.contentResolver.openInputStream(uri)?.use { input ->
-            BitmapFactory.decodeStream(input, null, bounds)
-        } ?: return null
+        val filePath = uri.path?.takeIf { uri.scheme.equals("file", ignoreCase = true) }
+        if (filePath != null) {
+            BitmapFactory.decodeFile(filePath, bounds)
+        } else {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                BitmapFactory.decodeStream(input, null, bounds)
+            } ?: return null
+        }
 
-        val decoded = context.contentResolver.openInputStream(uri)?.use { input ->
-            BitmapFactory.decodeStream(input, null, BitmapFactory.Options().apply {
-                inSampleSize = calculateInSampleSize(bounds.outWidth, bounds.outHeight, maxDimension)
-            })
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        val decodeOptions = BitmapFactory.Options().apply {
+            inSampleSize = calculateInSampleSize(bounds.outWidth, bounds.outHeight, maxDimension)
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        val decoded = if (filePath != null) {
+            BitmapFactory.decodeFile(filePath, decodeOptions)
+        } else {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                BitmapFactory.decodeStream(input, null, decodeOptions)
+            }
         } ?: return null
 
         val orientation = try {
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                ExifInterface(input).getAttributeInt(
-                    ExifInterface.TAG_ORIENTATION,
-                    ExifInterface.ORIENTATION_NORMAL
-                )
-            } ?: ExifInterface.ORIENTATION_NORMAL
+            val exif = if (filePath != null) {
+                ExifInterface(filePath)
+            } else {
+                context.contentResolver.openInputStream(uri)?.use(::ExifInterface)
+            }
+            exif?.getAttributeInt(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_NORMAL
+            ) ?: ExifInterface.ORIENTATION_NORMAL
         } catch (e: Exception) {
             // A missing or malformed EXIF block is not a reason to lose the photo.
             Log.w(TAG, "Could not read EXIF orientation", e)
@@ -96,6 +113,40 @@ object ImageForensics {
             // Better an unrotated image than no image.
             Log.w(TAG, "Not enough memory to rotate; using the frame as decoded")
             bitmap
+        }
+    }
+
+    /** Re-encodes pixels only; no source EXIF block is copied into the request JPEG. */
+    fun encodeAnalysisJpeg(
+        context: Context,
+        uri: Uri,
+        maxEdge: Int = 800,
+        quality: Int = 80
+    ): ByteArray? {
+        var decoded: Bitmap? = null
+        var scaled: Bitmap? = null
+        return try {
+            decoded = decodeUpright(context, uri, maxDimension = 1600) ?: return null
+            val longestEdge = maxOf(decoded.width, decoded.height).coerceAtLeast(1)
+            val ratio = maxEdge.toFloat() / longestEdge
+            scaled = if (ratio < 1f) {
+                decoded.scale(
+                    (decoded.width * ratio).toInt().coerceAtLeast(1),
+                    (decoded.height * ratio).toInt().coerceAtLeast(1)
+                )
+            } else decoded
+            ByteArrayOutputStream().use { output ->
+                if (!scaled.compress(Bitmap.CompressFormat.JPEG, quality, output)) return null
+                output.toByteArray()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not re-encode analysis image", e)
+            null
+        } catch (_: OutOfMemoryError) {
+            null
+        } finally {
+            if (scaled !== decoded) scaled?.recycle()
+            decoded?.recycle()
         }
     }
 

@@ -91,7 +91,7 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
             uri?.let { targetUri ->
                 val text = activeReport ?: return@let
                 scope.launch {
-                    viewModel.exportReportTo(context, targetUri, text) { succeeded ->
+                    viewModel.exportReportTo(targetUri, text) { succeeded ->
                         scope.launch {
                             snackbarHostState.showSnackbar(
                                 if (succeeded) reportExported else reportExportFailed

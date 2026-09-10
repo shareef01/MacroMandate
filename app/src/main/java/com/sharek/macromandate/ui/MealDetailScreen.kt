@@ -1,5 +1,7 @@
 package com.sharek.macromandate.ui
 
+import android.widget.Toast
+import android.net.Uri
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -19,6 +21,7 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -30,6 +33,7 @@ import com.sharek.macromandate.model.MealEntry
 import com.sharek.macromandate.ui.theme.NutritionColors
 import com.sharek.macromandate.viewmodel.MainViewModel
 import com.sharek.macromandate.viewmodel.SaveResult
+import com.sharek.macromandate.util.EvidenceStore
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
@@ -42,6 +46,7 @@ fun MealDetailScreen(
     onBack: () -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
+    val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val mealEntries by viewModel.mealEntries.collectAsStateWithLifecycle()
     val meal = mealEntries.find { it.id == mealId }
@@ -58,6 +63,12 @@ fun MealDetailScreen(
             )
         }
         return
+    }
+    val verifiedImageUri = remember(meal.imageUri) {
+        meal.imageUri?.takeIf { raw ->
+            runCatching { EvidenceStore.isStored(context, Uri.parse(raw), requireExists = true) }
+                .getOrDefault(false)
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
@@ -96,7 +107,7 @@ fun MealDetailScreen(
                     .hudFraming(if (meal.isRestricted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary, length = 40.dp, thickness = 4.dp)
             ) {
                 AsyncImage(
-                    model = meal.imageUri,
+                    model = verifiedImageUri,
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
@@ -302,7 +313,14 @@ fun MealDetailScreen(
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             coroutineScope.launch {
-                                viewModel.deleteMealEntry(meal.id)
+                                val result = viewModel.deleteMealEntry(meal.id)
+                                if (!result.isCompleteSuccess) {
+                                    Toast.makeText(
+                                        context,
+                                        if (result.databaseDeleted) R.string.delete_meal_evidence_failed else R.string.delete_meal_failed,
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                }
                                 showDeleteConfirmDialog = false
                                 onBack()
                             }

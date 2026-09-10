@@ -1,165 +1,170 @@
 package com.sharek.macromandate.util
 
 import android.content.Context
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Log
 import androidx.core.net.toUri
 import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
-/**
- * Result of cleaning unreferenced orphan files from the internal evidence directory.
- */
+sealed interface EvidencePersistResult {
+    data class Success(val uri: Uri, val newlyCreated: Boolean) : EvidencePersistResult
+    data object SourceUnavailable : EvidencePersistResult
+    data object TooLarge : EvidencePersistResult
+    data object InvalidImage : EvidencePersistResult
+    data object InvalidTarget : EvidencePersistResult
+    data class IoFailure(val cause: IOException) : EvidencePersistResult
+}
+
+data class EvidenceDeleteResult(val deleted: Boolean, val owned: Boolean)
+
+data class EvidenceDeleteAllResult(val deletedCount: Int, val failedCount: Int) {
+    val complete: Boolean get() = failedCount == 0
+}
+
 data class OrphanCleanupResult(
     val deletedCount: Int,
     val failedCount: Int,
     val totalInspected: Int
 )
 
-/**
- * Durable storage for meal evidence images.
- *
- * Neither of the two capture paths produces a URI that survives on its own:
- * cacheDir is evictable by the OS under storage pressure, and a photo-picker
- * content URI carries a read grant that dies with the process. Persisting either
- * one directly leaves MealDetailScreen rendering a blank image after a restart,
- * so both are funnelled into filesDir instead.
- */
+/** Bounded, atomic storage for app-owned meal evidence. */
 object EvidenceStore {
-
     private const val TAG = "EvidenceStore"
     private const val DIR = "evidence"
+    private const val JPEG_SUFFIX = ".jpg"
+    const val MAX_EVIDENCE_BYTES = 15L * 1024 * 1024
 
-    fun directory(context: Context): File =
-        File(context.filesDir, DIR).apply { if (!exists()) mkdirs() }
-
-    /** Destination for a freshly captured frame, named after the meal it will back. */
-    fun newFile(context: Context, id: String): File = File(directory(context), "$id.jpg")
-
-    /**
-     * True when [uri] already points at a file this store owns.
-     *
-     * Compares *canonical* paths. `getAbsolutePath` does not resolve `..`, so
-     * `.../files/evidence/../../databases/macro_mandate_db` passed the old
-     * prefix check — and [delete] would then have unlinked the meal database.
-     * A restored backup can name any path it likes, which made that reachable.
-     */
-    fun isStored(context: Context, uri: Uri): Boolean {
-        if (uri.scheme != "file") return false
-        val path = uri.path ?: return false
-        return try {
-            val root = directory(context).canonicalFile
-            val candidate = File(path).canonicalFile
-            candidate != root && candidate.toPath().startsWith(root.toPath())
-        } catch (e: Exception) {
-            Log.w(TAG, "Could not resolve evidence path", e)
-            false
+    fun directory(context: Context): File {
+        val result = File(context.filesDir, DIR)
+        check((result.isDirectory || result.mkdirs()) && result.canonicalFile.parentFile == context.filesDir.canonicalFile) {
+            "Unable to create private evidence directory"
         }
+        return result
     }
 
-    /**
-     * Copies [uri] into internal storage under [id] and returns the durable file
-     * URI. Returns the original URI unchanged if it is already stored here, or
-     * null if the copy fails.
-     */
-    fun persist(context: Context, uri: Uri, id: String): Uri? {
-        if (isStored(context, uri)) return uri
+    fun newFile(context: Context, id: String): File {
+        require(id.matches(Regex("[A-Za-z0-9_-]{1,128}"))) { "Invalid evidence identifier" }
+        return File(directory(context), "$id$JPEG_SUFFIX")
+    }
+
+    /** The single ownership check used by deletion, restore and orphan cleanup. */
+    fun resolveOwnedFile(
+        context: Context,
+        uri: Uri,
+        requireExists: Boolean = false,
+        requireJpeg: Boolean = true
+    ): File? {
+        if (uri.scheme != "file" || uri.path.isNullOrBlank()) return null
         return try {
-            val target = newFile(context, id)
-            val copied = context.contentResolver.openInputStream(uri)?.use { input ->
-                target.outputStream().use { output -> input.copyTo(output) }
-                true
-            } ?: false
-            if (copied) Uri.fromFile(target) else null
-        } catch (e: Exception) {
-            Log.e(TAG, "Could not persist evidence image", e)
+            val root = directory(context).canonicalFile
+            val candidate = File(uri.path!!).canonicalFile
+            candidate.takeIf {
+                it.parentFile == root &&
+                    (!requireJpeg || it.name.endsWith(JPEG_SUFFIX, ignoreCase = true)) &&
+                    (!requireExists || it.isFile)
+            }
+        } catch (e: IOException) {
+            Log.w(TAG, "Could not resolve evidence path", e)
             null
         }
     }
 
-    /**
-     * Removes the backing file for a stored evidence URI, if this store owns it.
-     * Returns true if file is gone/deleted, false if deletion failed.
-     */
-    fun delete(context: Context, imageUri: String?): Boolean {
-        val uri = imageUri?.let { runCatching { it.toUri() }.getOrNull() } ?: return true
-        if (!isStored(context, uri)) return true
-        val path = uri.path ?: return true
-        val file = File(path)
-        if (!file.exists()) return true
-        return try {
-            file.delete()
-        } catch (e: Exception) {
+    fun isStored(context: Context, uri: Uri, requireExists: Boolean = false): Boolean =
+        resolveOwnedFile(context, uri, requireExists) != null
+
+    /** Copies through a bounded stream to a temporary file and publishes atomically. */
+    fun persist(context: Context, uri: Uri, id: String): EvidencePersistResult {
+        resolveOwnedFile(context, uri, requireExists = true)?.let {
+            return EvidencePersistResult.Success(Uri.fromFile(it), newlyCreated = false)
+        }
+        val target = try {
+            newFile(context, id).canonicalFile
+        } catch (_: IllegalArgumentException) {
+            return EvidencePersistResult.InvalidTarget
+        } catch (e: IOException) {
+            return EvidencePersistResult.IoFailure(e)
+        }
+        if (resolveOwnedFile(context, Uri.fromFile(target)) == null) return EvidencePersistResult.InvalidTarget
+
+        val temp = File(target.parentFile, ".${target.name}.${System.nanoTime()}.tmp")
+        try {
+            val input = context.contentResolver.openInputStream(uri)
+                ?: return EvidencePersistResult.SourceUnavailable
+            input.use { source ->
+                FileOutputStream(temp).use { output ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    var total = 0L
+                    while (true) {
+                        val read = source.read(buffer)
+                        if (read < 0) break
+                        total += read
+                        if (total > MAX_EVIDENCE_BYTES) return EvidencePersistResult.TooLarge
+                        output.write(buffer, 0, read)
+                    }
+                    output.flush()
+                    output.fd.sync()
+                }
+            }
+            if (temp.length() == 0L) return EvidencePersistResult.SourceUnavailable
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(temp.path, bounds)
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return EvidencePersistResult.InvalidImage
+            Files.move(temp.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+            return EvidencePersistResult.Success(Uri.fromFile(target), newlyCreated = true)
+        } catch (e: IOException) {
+            return EvidencePersistResult.IoFailure(e)
+        } finally {
+            if (temp.exists() && !temp.delete()) Log.w(TAG, "Could not remove partial evidence file")
+        }
+    }
+
+    fun delete(context: Context, imageUri: String?): EvidenceDeleteResult {
+        val uri = imageUri?.let { runCatching { it.toUri() }.getOrNull() }
+            ?: return EvidenceDeleteResult(deleted = true, owned = false)
+        val file = resolveOwnedFile(context, uri)
+            ?: return EvidenceDeleteResult(deleted = true, owned = false)
+        if (!file.exists()) return EvidenceDeleteResult(deleted = true, owned = true)
+        val deleted = try { file.delete() || !file.exists() } catch (e: SecurityException) {
             Log.w(TAG, "Could not delete evidence image", e)
             false
         }
+        return EvidenceDeleteResult(deleted, owned = true)
     }
 
-    /**
-     * Clears every stored image. Used when the whole meal log is wiped.
-     * Returns true if all files were deleted or directory is empty, false otherwise.
-     */
-    fun deleteAll(context: Context): Boolean {
-        val files = directory(context).listFiles() ?: return true
-        var allDeleted = true
-        for (file in files) {
-            try {
-                if (!file.delete() && file.exists()) {
-                    allDeleted = false
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Could not delete evidence file: ${file.name}", e)
-                allDeleted = false
-            }
-        }
-        return allDeleted
-    }
-
-    /**
-     * Removes unreferenced evidence files from internal evidence directory.
-     * Compares against [activeImageUris]. Never follows paths outside the evidence root.
-     */
-    fun cleanupOrphans(context: Context, activeImageUris: Set<String>): OrphanCleanupResult {
-        val root = try {
-            directory(context).canonicalFile
-        } catch (e: Exception) {
-            return OrphanCleanupResult(0, 0, 0)
-        }
-
-        val files = root.listFiles() ?: return OrphanCleanupResult(0, 0, 0)
+    fun deleteAll(context: Context): EvidenceDeleteAllResult {
+        val files = directory(context).listFiles() ?: return EvidenceDeleteAllResult(0, 1)
         var deleted = 0
         var failed = 0
-
-        val canonicalActivePaths = activeImageUris.mapNotNull { uriStr ->
-            runCatching {
-                val uri = uriStr.toUri()
-                if (uri.scheme == "file" && uri.path != null) {
-                    File(uri.path!!).canonicalPath
-                } else null
-            }.getOrNull()
-        }.toSet()
-
-        for (file in files) {
+        for (entry in files) {
+            val file = resolveOwnedFile(context, Uri.fromFile(entry), requireJpeg = false) ?: continue
             try {
-                val canonical = file.canonicalFile
-                if (canonical == root || !canonical.toPath().startsWith(root.toPath())) {
-                    continue
-                }
-                if (!canonicalActivePaths.contains(canonical.canonicalPath)) {
-                    if (canonical.delete()) {
-                        deleted++
-                    } else {
-                        failed++
-                    }
-                }
-            } catch (e: Exception) {
+                if (file.delete() || !file.exists()) deleted++ else failed++
+            } catch (e: SecurityException) {
+                Log.w(TAG, "Could not delete evidence file", e)
                 failed++
             }
         }
+        return EvidenceDeleteAllResult(deleted, failed)
+    }
 
-        return OrphanCleanupResult(
-            deletedCount = deleted,
-            failedCount = failed,
-            totalInspected = files.size
-        )
+    fun cleanupOrphans(context: Context, activeImageUris: Set<String>): OrphanCleanupResult {
+        val files = directory(context).listFiles() ?: return OrphanCleanupResult(0, 1, 0)
+        val active = activeImageUris.mapNotNull { raw ->
+            runCatching { resolveOwnedFile(context, raw.toUri(), requireExists = true)?.canonicalPath }.getOrNull()
+        }.toSet()
+        var deleted = 0
+        var failed = 0
+        files.forEach { entry ->
+            val file = resolveOwnedFile(context, Uri.fromFile(entry), requireJpeg = false) ?: return@forEach
+            if (file.canonicalPath !in active) {
+                if (file.delete() || !file.exists()) deleted++ else failed++
+            }
+        }
+        return OrphanCleanupResult(deleted, failed, files.size)
     }
 }

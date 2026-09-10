@@ -5,8 +5,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.File
-import java.net.URI
 
 /**
  * Summary of a parsed JSON backup file for preview before committing to Room.
@@ -30,8 +28,9 @@ object DossierExporter {
 
     const val BACKUP_VERSION = 1
     internal const val MAX_BACKUP_CHARS = 10 * 1024 * 1024 // 10 MB
+    internal const val MAX_MEAL_COUNT = 50_000
+    internal const val MAX_JSON_NESTING = 64
     private const val UNKNOWN_MEAL_NAME = "RESTORED MEAL"
-    private const val EVIDENCE_DIR_NAME = "evidence"
     private const val MAX_URI_LENGTH = 512
     private const val MAX_LATITUDE = 90.0
     private const val MAX_LONGITUDE = 180.0
@@ -98,6 +97,7 @@ object DossierExporter {
         object NotAnArchive : RestoreError()
         data class UnsupportedVersion(val found: Int) : RestoreError()
         object TooLarge : RestoreError()
+        object TooManyMeals : RestoreError()
     }
 
     /**
@@ -112,6 +112,9 @@ object DossierExporter {
     ): Result<BackupParseSummary> = withContext(Dispatchers.IO) {
         if (jsonString.length > MAX_BACKUP_CHARS) {
             return@withContext Result.failure(RestoreException(RestoreError.TooLarge))
+        }
+        if (exceedsJsonNesting(jsonString, MAX_JSON_NESTING)) {
+            return@withContext Result.failure(RestoreException(RestoreError.NotAnArchive))
         }
 
         val root = try {
@@ -133,6 +136,9 @@ object DossierExporter {
 
         val exportedAt = if (root.has("exportedAt")) root.optLong("exportedAt") else null
         val totalCount = array.length()
+        if (totalCount > MAX_MEAL_COUNT) {
+            return@withContext Result.failure(RestoreException(RestoreError.TooManyMeals))
+        }
         val meals = ArrayList<MealEntry>(totalCount)
         val seenIds = HashSet<String>(totalCount)
         var skipped = 0
@@ -208,6 +214,27 @@ object DossierExporter {
 
     class RestoreException(val error: RestoreError) : Exception(error.toString())
 
+    internal fun exceedsJsonNesting(text: String, maximum: Int): Boolean {
+        var depth = 0
+        var inString = false
+        var escaped = false
+        for (character in text) {
+            if (escaped) {
+                escaped = false
+            } else if (character == '\\' && inString) {
+                escaped = true
+            } else if (character == '"') {
+                inString = !inString
+            } else if (!inString && (character == '{' || character == '[')) {
+                depth++
+                if (depth > maximum) return true
+            } else if (!inString && (character == '}' || character == ']')) {
+                depth--
+            }
+        }
+        return false
+    }
+
     private fun clampTimestamp(value: Long): Long {
         val now = System.currentTimeMillis()
         return value.coerceIn(EARLIEST_PLAUSIBLE_TIMESTAMP, now)
@@ -221,34 +248,15 @@ object DossierExporter {
     }
 
     /**
-     * Accepts only `file://` URIs under the app's own evidence directory name.
-     * Anything else — a `content://` provider, an absolute path elsewhere, a
-     * traversal — is dropped and the record restores without an image.
-     *
-     * If [fileVerifier] is provided, verifies that the file exists on the current device.
+     * Syntax is bounded here; actual ownership is delegated to EvidenceStore via
+     * [fileVerifier], keeping filesystem trust in one canonical implementation.
      */
     internal fun sanitizeImageUri(raw: String, fileVerifier: ((String) -> Boolean)? = null): String? {
         val value = raw.trim()
         if (value.isEmpty()) return null
-        if (!value.startsWith("file:///")) return null
-        if (value.contains("..")) return null
-        if (!value.contains("/$EVIDENCE_DIR_NAME/")) return null
-        val safeUri = value.take(MAX_URI_LENGTH)
-        if (fileVerifier != null && !fileVerifier(safeUri)) {
-            return null
-        }
-        return safeUri
-    }
-
-    /** Helper verifier checking actual file existence on disk */
-    fun createFileExistenceVerifier(): (String) -> Boolean = { uriString ->
-        try {
-            val uri = URI(uriString)
-            val file = File(uri.path)
-            file.exists() && file.isFile
-        } catch (e: Exception) {
-            false
-        }
+        if (value.length > MAX_URI_LENGTH) return null
+        if (fileVerifier == null || !fileVerifier(value)) return null
+        return value
     }
 
     internal fun escapeCsvField(field: String): String {

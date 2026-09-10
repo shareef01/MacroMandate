@@ -19,12 +19,14 @@ sealed interface AnalysisCommitState {
     data class Failed(@StringRes val messageRes: Int) : AnalysisCommitState
 }
 
-/**
- * Result of purging all meal data, evidence files, and activity logs.
- */
-data class DeleteAllResult(
-    val dbSuccess: Boolean,
-    val filesCleaned: Boolean
-) {
-    val isCompleteSuccess: Boolean get() = dbSuccess && filesCleaned
+sealed interface LocationTrackingStatus {
+    data object Disabled : LocationTrackingStatus
+    data object PermissionRequired : LocationTrackingStatus
+    data object Enabled : LocationTrackingStatus
+}
+
+fun locationTrackingStatus(enabled: Boolean, permissionGranted: Boolean): LocationTrackingStatus = when {
+    !enabled -> LocationTrackingStatus.Disabled
+    !permissionGranted -> LocationTrackingStatus.PermissionRequired
+    else -> LocationTrackingStatus.Enabled
 }

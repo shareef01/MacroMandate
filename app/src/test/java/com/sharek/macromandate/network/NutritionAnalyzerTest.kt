@@ -80,7 +80,9 @@ class NutritionAnalyzerTest {
         assertEquals("test/model", request.model)
         assertEquals("Bearer hf_abc", api.lastToken)
 
-        val parts = request.messages.single().content
+        assertEquals("system", request.messages.first().role)
+        assertTrue(request.messages.first().content.first().text!!.contains("untrusted"))
+        val parts = request.messages.first { it.role == "user" }.content
         assertEquals("prompt", parts.first { it.type == "text" }.text)
         val image = parts.first { it.type == "image_url" }.imageUrl!!.url
         assertTrue("image must be sent as a data URI", image.startsWith("data:image/jpeg;base64,"))
