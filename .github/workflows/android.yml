@@ -85,7 +85,7 @@ jobs:
 
   instrumented-tests:
     name: Instrumented Room & UI Tests (API 34)
-    runs-on: macos-14
+    runs-on: ubuntu-latest
     timeout-minutes: 35
     needs: build-and-test
 
@@ -101,6 +101,11 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@0f4528296b4bc09e8ae0fc7be30185a4ab435545 # v6.0.0
+
+      - name: Enable hardware acceleration for the emulator
+        run: |
+          sudo chown "$(id -u):$(id -g)" /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm
 
       - name: Run Instrumented Tests on Emulator
         uses: reactivecircus/android-emulator-runner@1dcd0090116d15e7c562f8db72807de5e036a4ed # v2.34.0
