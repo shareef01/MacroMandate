@@ -71,7 +71,7 @@ android {
         val apiBaseUrl = localProperties.getProperty("MANDATE_API_BASE_URL")
             ?: "https://openrouter.ai/api/"
         val defaultModel = if (URI(apiBaseUrl.trim()).host.equals("openrouter.ai", ignoreCase = true)) {
-            "google/gemma-4-31b-it:free"
+            "openrouter/free"
         } else {
             "google/gemma-4-31B-it"
         }

@@ -27,7 +27,7 @@ A local-first Android calorie and macro tracker with a retro tactical terminal i
 
 When you take or pick a meal photo:
 1. The image is downsampled and corrected for EXIF orientation.
-2. The image is sent to an OpenAI-compatible vision endpoint (by default, OpenRouter running `google/gemma-4-31b-it:free`, configurable via build properties).
+2. The image is sent to an OpenAI-compatible vision endpoint (by default, OpenRouter using `openrouter/free` to select a free model that supports the request, configurable via build properties).
 3. The model returns estimated calories, protein, carbohydrates, and fat.
 4. An **Analysis Review Sheet** pops up with the parsed numbers. You can adjust any values or discard the estimate entirely before saving.
 
