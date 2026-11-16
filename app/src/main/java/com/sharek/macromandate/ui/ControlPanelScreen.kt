@@ -64,6 +64,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 import androidx.compose.ui.res.stringResource
 import com.sharek.macromandate.R
+import com.sharek.macromandate.network.ApiConfig
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.pluralStringResource
 
@@ -96,6 +97,8 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
     val eraseFailed = stringResource(R.string.settings_erase_failed)
     val keySaved = stringResource(R.string.settings_api_key_saved)
     val keyCleared = stringResource(R.string.settings_api_key_cleared)
+    val keyWrongProvider = stringResource(R.string.settings_api_key_wrong_provider, ApiConfig.providerName)
+    val keySaveFailed = stringResource(R.string.settings_api_key_save_failed)
     val restoreFallbackError = stringResource(R.string.restore_error_unreadable)
 
     // Reflects whether reminders can actually be delivered, so the toggle cannot
@@ -335,10 +338,13 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                     keyHint = apiKeyHint,
                     onSave = { key ->
                         scope.launch {
-                            viewModel.updateApiKey(key)
-                            snackbarHostState.showSnackbar(
-                                if (key.isBlank()) keyCleared else keySaved
-                            )
+                            val message = when {
+                                !ApiConfig.acceptsKey(ApiConfig.baseUrl, key) -> keyWrongProvider
+                                viewModel.updateApiKey(key).isFailure -> keySaveFailed
+                                key.isBlank() -> keyCleared
+                                else -> keySaved
+                            }
+                            snackbarHostState.showSnackbar(message)
                         }
                     }
                 )
@@ -693,13 +699,13 @@ private fun ApiKeyCard(
         }
     }
 
-    SettingsCard(title = stringResource(R.string.settings_api_key), icon = Icons.Default.Key) {
+    SettingsCard(title = stringResource(R.string.settings_api_key, ApiConfig.providerName), icon = Icons.Default.Key) {
         Column {
             Text(
                 text = if (hasKey) {
                     stringResource(R.string.settings_api_key_present, keyHint)
                 } else {
-                    stringResource(R.string.settings_api_key_absent)
+                    stringResource(R.string.settings_api_key_absent, ApiConfig.providerName)
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.Gray

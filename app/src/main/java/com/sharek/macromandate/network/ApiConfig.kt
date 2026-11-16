@@ -1,6 +1,7 @@
 package com.sharek.macromandate.network
 
 import com.sharek.macromandate.BuildConfig
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 /**
@@ -21,11 +22,34 @@ object ApiConfig {
         requireHttps = !BuildConfig.DEBUG
     )
 
-    /** Must be vision-capable; see https://router.huggingface.co/v1/models */
     val model: String = BuildConfig.MANDATE_MODEL_ID
 
-    /** Build-time fallback; blank unless set in local.properties. */
+    private const val LEGACY_HUGGING_FACE_URL = "https://router.huggingface.co/"
+    private const val OPENROUTER_HOST = "openrouter.ai"
+
+    val providerName: String = when (baseUrl.toHttpUrl().host) {
+        OPENROUTER_HOST -> "OpenRouter"
+        "router.huggingface.co" -> "Hugging Face"
+        else -> baseUrl.toHttpUrl().host
+    }
+
+    /** The original build-time token was configured for Hugging Face only. */
     val buildTimeKey: String = BuildConfig.HUGGINGFACE_API_KEY
+        .takeIf { baseUrl == LEGACY_HUGGING_FACE_URL }
+        .orEmpty()
+
+    internal fun credentialPreferenceName(endpoint: String): String =
+        if (endpoint == LEGACY_HUGGING_FACE_URL) "api_key" else "analysis_key:" + endpoint
+
+    internal fun acceptsKey(endpoint: String, key: String): Boolean {
+        val trimmed = key.trim()
+        return when {
+            trimmed.isEmpty() -> true
+            trimmed.startsWith("hf_") -> endpoint == LEGACY_HUGGING_FACE_URL
+            trimmed.startsWith("sk-or-") -> endpoint.toHttpUrl().host == OPENROUTER_HOST
+            else -> endpoint.toHttpUrl().host != OPENROUTER_HOST
+        }
+    }
 
     fun authHeader(apiKey: String): String = "Bearer ${apiKey.trim()}"
 
@@ -45,6 +69,11 @@ object ApiConfig {
             throw IllegalArgumentException("MANDATE_API_BASE_URL must use HTTPS in release builds: '$rawUrl'")
         }
 
-        return if (trimmed.endsWith("/")) trimmed else "$trimmed/"
+        require(parsed.username.isEmpty() && parsed.password.isEmpty() && parsed.query == null && parsed.fragment == null) {
+            "MANDATE_API_BASE_URL cannot contain credentials, a query, or a fragment."
+        }
+
+        val normalized = parsed.toString()
+        return if (normalized.endsWith("/")) normalized else "$normalized/"
     }
 }

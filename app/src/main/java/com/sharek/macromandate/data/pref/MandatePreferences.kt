@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
+import com.sharek.macromandate.network.ApiConfig
 import com.sharek.macromandate.ui.theme.TerminalTheme
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -20,7 +21,6 @@ class MandatePreferences(private val context: Context) {
         val LOCATION_TRACKING_ENABLED = booleanPreferencesKey("location_tracking_enabled")
         val INCLUDE_LOCATION_IN_AI = booleanPreferencesKey("include_location_in_ai")
         val LOCATION_DISCLOSURE_ACKNOWLEDGED = booleanPreferencesKey("location_disclosure_acknowledged")
-        val API_KEY = stringPreferencesKey("api_key")
         val TERMINAL_THEME = stringPreferencesKey("terminal_theme")
         val REDUCE_VISUAL_EFFECTS = booleanPreferencesKey("reduce_visual_effects")
     }
@@ -38,6 +38,8 @@ class MandatePreferences(private val context: Context) {
             }
         }
 
+    private val apiKey = stringPreferencesKey(ApiConfig.credentialPreferenceName(ApiConfig.baseUrl))
+
     /**
      * The analysis credential, entered by the user in Settings.
      *
@@ -48,7 +50,7 @@ class MandatePreferences(private val context: Context) {
      * out of cloud backups, and it is excluded from every export.
      */
     val apiKeyFlow: Flow<String> = safePreferencesFlow.map { preferences ->
-        preferences[API_KEY] ?: ""
+        preferences[apiKey]?.takeIf { ApiConfig.acceptsKey(ApiConfig.baseUrl, it) }.orEmpty()
     }
 
     /**
@@ -132,7 +134,7 @@ class MandatePreferences(private val context: Context) {
 
     suspend fun updateApiKey(key: String) {
         context.dataStore.edit { preferences ->
-            preferences[API_KEY] = key.trim()
+            preferences[apiKey] = key.trim()
         }
     }
 

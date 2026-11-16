@@ -27,7 +27,7 @@ A local-first Android calorie and macro tracker with a retro tactical terminal i
 
 When you take or pick a meal photo:
 1. The image is downsampled and corrected for EXIF orientation.
-2. The image is sent to an OpenAI-compatible vision endpoint (by default, Hugging Face router running `google/gemma-4-31B-it`, configurable via Settings or build properties).
+2. The image is sent to an OpenAI-compatible vision endpoint (by default, OpenRouter running `google/gemma-4-31b-it:free`, configurable via build properties).
 3. The model returns estimated calories, protein, carbohydrates, and fat.
 4. An **Analysis Review Sheet** pops up with the parsed numbers. You can adjust any values or discard the estimate entirely before saving.
 
@@ -72,7 +72,7 @@ cd MacroMandate
 ### API Configuration
 To use image analysis:
 1. Open the app and navigate to **Settings**.
-2. Enter your Hugging Face API token under **Analysis API Key**.
+2. Enter your [OpenRouter API key](https://openrouter.ai/settings/keys) under **OpenRouter API key**. The free model is subject to [OpenRouter’s free-model limits](https://openrouter.ai/collections/free-models).
 
 For local development, you can optionally set defaults in `local.properties`:
 ```properties

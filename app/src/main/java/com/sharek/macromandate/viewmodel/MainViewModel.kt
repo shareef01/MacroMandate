@@ -74,6 +74,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .writeTimeout(WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .callTimeout(CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .followSslRedirects(false)
             .retryOnConnectionFailure(false)
             .build()
 
@@ -401,6 +402,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     suspend fun updateApiKey(key: String): Result<Unit> {
         return runCatching {
+            require(ApiConfig.acceptsKey(ApiConfig.baseUrl, key))
             preferences.updateApiKey(key)
             logAudit("SECURITY", if (key.isBlank()) "API KEY REVOKED BY SUBJECT." else "API KEY STORED BY SUBJECT.")
         }

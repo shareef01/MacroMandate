@@ -224,10 +224,10 @@
          six other cards were ordered the way they were. -->
     <string name="settings_section_analysis">Analysis</string>
     <string name="settings_section_appearance">Appearance &amp; tracking</string>
-    <string name="settings_api_key">Analysis API key</string>
+    <string name="settings_api_key">%1$s API key</string>
     <string name="settings_api_key_present">A key is saved (%1$s). Enter a new one to replace it.</string>
-    <string name="settings_api_key_absent">Meal analysis needs a Hugging Face access token. Paste one here to turn it on — it is stored only on this device.</string>
-    <string name="settings_api_key_hint">hf_…</string>
+    <string name="settings_api_key_absent">Meal analysis uses %1$s. Enter an API key for that provider. The key is saved on this device.</string>
+    <string name="settings_api_key_hint">API key</string>
     <string name="settings_api_key_save">Save key</string>
     <string name="settings_api_key_clear">Clear</string>
     <!-- Shown on the same button after a first tap; a second tap within a
@@ -235,6 +235,8 @@
     <string name="settings_api_key_clear_confirm">Confirm clear?</string>
     <string name="settings_api_key_saved">API key saved.</string>
     <string name="settings_api_key_cleared">API key cleared.</string>
+    <string name="settings_api_key_wrong_provider">Enter an API key for %1$s.</string>
+    <string name="settings_api_key_save_failed">Could not save the API key.</string>
     <string name="content_description_show_key">Show key</string>
     <string name="content_description_hide_key">Hide key</string>
 
