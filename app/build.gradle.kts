@@ -120,39 +120,52 @@ android {
     }
 }
 
-val embeddedReleaseKey = localProperties.getProperty("HUGGINGFACE_API_KEY").orEmpty()
-val embeddedKeyOverride = providers.gradleProperty("allowEmbeddedKey").orNull?.toBoolean() == true
-val productionReleaseRequested = providers.gradleProperty("productionRelease").orNull?.toBoolean() == true
+abstract class VerifyReleaseGuard : DefaultTask() {
+    @get:Input
+    abstract val failureMessage: Property<String>
 
-val verifyReleaseConfiguration by tasks.registering {
-    group = "verification"
-    description = "Rejects credentials that must never be embedded in a distributable build."
-    val localPropertiesFile = rootProject.file("local.properties")
-    if (localPropertiesFile.isFile) inputs.file(localPropertiesFile)
-    doLast {
-        if (embeddedReleaseKey.isNotBlank() && !embeddedKeyOverride) {
-            throw GradleException(
-                "MM_RELEASE_EMBEDDED_API_KEY_FORBIDDEN: HUGGINGFACE_API_KEY must not be embedded in a release."
-            )
-        }
+    @TaskAction
+    fun verify() {
+        val message = failureMessage.get()
+        if (message.isNotEmpty()) throw GradleException(message)
     }
 }
 
-val verifyProductionSigning by tasks.registering {
+val hasEmbeddedKey = !localProperties.getProperty("HUGGINGFACE_API_KEY").isNullOrBlank()
+val embeddedKeyOverride = providers.gradleProperty("allowEmbeddedKey").orNull?.toBoolean() == true
+val productionReleaseRequested = providers.gradleProperty("productionRelease").orNull?.toBoolean() == true
+
+val verifyReleaseConfiguration by tasks.registering(VerifyReleaseGuard::class) {
+    group = "verification"
+    description = "Rejects credentials that must never be embedded in a distributable build."
+    failureMessage.set(
+        if (hasEmbeddedKey && !embeddedKeyOverride) {
+            "MM_RELEASE_EMBEDDED_API_KEY_FORBIDDEN: HUGGINGFACE_API_KEY must not be embedded in a release."
+        } else {
+            ""
+        }
+    )
+}
+
+val signingStoreExists = releaseStorePath?.takeIf { it.isNotBlank() }?.let { file(it).isFile } == true
+val missingSigningSettings = buildList {
+    if (!signingStoreExists) add("RELEASE_STORE_FILE")
+    if (releaseStorePassword.isNullOrBlank()) add("RELEASE_STORE_PASSWORD")
+    if (releaseKeyAlias.isNullOrBlank()) add("RELEASE_KEY_ALIAS")
+    if (releaseKeyPassword.isNullOrBlank()) add("RELEASE_KEY_PASSWORD")
+}
+
+val verifyProductionSigning by tasks.registering(VerifyReleaseGuard::class) {
     group = "verification"
     description = "Fails unless all production signing credentials are configured."
     dependsOn(verifyReleaseConfiguration)
-    doLast {
-        val missing = buildList {
-            if (releaseStorePath.isNullOrBlank() || !file(releaseStorePath).isFile) add("RELEASE_STORE_FILE")
-            if (releaseStorePassword.isNullOrBlank()) add("RELEASE_STORE_PASSWORD")
-            if (releaseKeyAlias.isNullOrBlank()) add("RELEASE_KEY_ALIAS")
-            if (releaseKeyPassword.isNullOrBlank()) add("RELEASE_KEY_PASSWORD")
+    failureMessage.set(
+        if (missingSigningSettings.isNotEmpty()) {
+            "MM_RELEASE_SIGNING_CONFIGURATION_MISSING: " + missingSigningSettings.joinToString()
+        } else {
+            ""
         }
-        if (missing.isNotEmpty()) {
-            throw GradleException("MM_RELEASE_SIGNING_CONFIGURATION_MISSING: ${missing.joinToString()}")
-        }
-    }
+    )
 }
 
 tasks.configureEach {

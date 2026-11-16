@@ -55,7 +55,7 @@ jobs:
         run: |
           echo "HUGGINGFACE_API_KEY=test_accidental_token" > local.properties
           set +e
-          ./gradlew verifyReleaseConfiguration --no-configuration-cache --rerun-tasks > guard.log 2>&1
+          ./gradlew verifyReleaseConfiguration --configuration-cache --rerun-tasks > guard.log 2>&1
           status=$?
           set -e
           rm -f local.properties
