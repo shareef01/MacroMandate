@@ -127,7 +127,8 @@ val productionReleaseRequested = providers.gradleProperty("productionRelease").o
 val verifyReleaseConfiguration by tasks.registering {
     group = "verification"
     description = "Rejects credentials that must never be embedded in a distributable build."
-    inputs.file(rootProject.file("local.properties")).optional()
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.isFile) inputs.file(localPropertiesFile)
     doLast {
         if (embeddedReleaseKey.isNotBlank() && !embeddedKeyOverride) {
             throw GradleException(
