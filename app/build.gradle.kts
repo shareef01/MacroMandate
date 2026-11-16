@@ -170,6 +170,11 @@ ksp {
 }
 
 dependencies {
+    constraints {
+        implementation("com.google.guava:guava:33.7.2-android") {
+            because("CVE-2026-102554 is fixed in Guava 33.7.2-android")
+        }
+    }
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.activity.ktx)
