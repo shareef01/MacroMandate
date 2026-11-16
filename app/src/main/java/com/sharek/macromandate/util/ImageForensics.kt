@@ -53,9 +53,9 @@ object ImageForensics {
         if (filePath != null) {
             BitmapFactory.decodeFile(filePath, bounds)
         } else {
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                BitmapFactory.decodeStream(input, null, bounds)
-            } ?: return null
+            val input = context.contentResolver.openInputStream(uri) ?: return null
+            // With inJustDecodeBounds, decodeStream fills the options and returns null.
+            input.use { BitmapFactory.decodeStream(it, null, bounds) }
         }
 
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
