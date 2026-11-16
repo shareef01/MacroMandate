@@ -321,6 +321,7 @@
     <string name="error_timeout">Analysis timed out. Try again, or log the meal manually.</string>
     <string name="error_credential_rejected">The analysis service rejected your API key. Check it in Settings.</string>
     <string name="error_rate_limited">The analysis service is rate limiting requests. Try again shortly.</string>
+    <string name="error_provider_payment_required">The analysis provider requires payment or available credits. Check your provider account.</string>
     <string name="error_provider_unavailable">The analysis service is unavailable right now. Try again later.</string>
     <string name="error_image_unreadable">That image could not be read. Try another photo.</string>
     <string name="error_unreadable_result">The analysis service returned no usable nutrition data.</string>

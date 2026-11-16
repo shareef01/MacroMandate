@@ -34,6 +34,9 @@ sealed class AnalysisError(@StringRes val messageRes: Int) {
     /** The provider rejected the credential (401/403). */
     object CredentialRejected : AnalysisError(R.string.error_credential_rejected)
 
+    /** The provider requires a payment or available inference credits. */
+    object PaymentRequired : AnalysisError(R.string.error_provider_payment_required)
+
     /** Rate limited (429). Retrying immediately will fail again. */
     object RateLimited : AnalysisError(R.string.error_rate_limited)
 
@@ -57,7 +60,7 @@ sealed class AnalysisError(@StringRes val messageRes: Int) {
     val isRetryable: Boolean
         get() = when (this) {
             Timeout, Offline, RateLimited, is ProviderUnavailable, Unknown -> true
-            NoApiKey, CredentialRejected, ImageUnreadable, UnreadableResult,
+            NoApiKey, CredentialRejected, PaymentRequired, ImageUnreadable, UnreadableResult,
             SecureConnectionFailed -> false
         }
 
@@ -65,6 +68,7 @@ sealed class AnalysisError(@StringRes val messageRes: Int) {
         /** Maps an HTTP status code onto the closest domain error. */
         fun fromHttpStatus(code: Int): AnalysisError = when (code) {
             401, 403 -> CredentialRejected
+            402 -> PaymentRequired
             429 -> RateLimited
             else -> ProviderUnavailable(code)
         }

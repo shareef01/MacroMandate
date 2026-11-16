@@ -76,6 +76,14 @@ class AnalysisErrorTest {
     }
 
     @Test
+    fun paymentRequiredUsesBillingMessageAndDoesNotRetry() {
+        val error = AnalysisError.fromHttpStatus(402)
+        assertEquals(AnalysisError.PaymentRequired, error)
+        assertFalse(error.isRetryable)
+        assertEquals(R.string.error_provider_payment_required, error.messageRes)
+    }
+
+    @Test
     fun serverErrorsBecomeProviderUnavailable() {
         assertEquals(AnalysisError.ProviderUnavailable(500), AnalysisError.fromHttpStatus(500))
         assertEquals(AnalysisError.ProviderUnavailable(502), AnalysisError.fromHttpStatus(502))
@@ -99,7 +107,7 @@ class AnalysisErrorTest {
         // taxonomy pointless without failing anywhere else.
         val cases = listOf(
             AnalysisError.NoApiKey, AnalysisError.Offline, AnalysisError.Timeout,
-            AnalysisError.CredentialRejected, AnalysisError.RateLimited,
+            AnalysisError.CredentialRejected, AnalysisError.PaymentRequired, AnalysisError.RateLimited,
             AnalysisError.ProviderUnavailable(500), AnalysisError.ImageUnreadable,
             AnalysisError.UnreadableResult, AnalysisError.SecureConnectionFailed,
             AnalysisError.Unknown
