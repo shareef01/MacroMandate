@@ -59,20 +59,26 @@ jobs:
           RELEASE_CERT_SHA256: ${{ secrets.RELEASE_CERT_SHA256 }}
         run: |
           set -euo pipefail
-          build_tools=$(find "${ANDROID_HOME:?}/build-tools" -name apksigner -print | sort -V | tail -n 1)
-          test -n "$build_tools"
-          build_tools=$(dirname "$build_tools")
+          trap 'echo "::error::APK and bundle verification failed at shell line $LINENO."' ERR
+          build_tools="${ANDROID_HOME:?}/build-tools/36.1.0"
+          test -x "$build_tools/apksigner"
           apk_dir=app/build/outputs/apk/release
           apk="$apk_dir/app-release.apk"
           aab=app/build/outputs/bundle/release/app-release.aab
           test -s "$apk"
           test -s "$aab"
-          "$build_tools/zipalign" -c -P 16 4 "$apk"
+          if ! "$build_tools/zipalign" -c -P 16 4 "$apk"; then
+            echo "::error::Release APK failed ZIP alignment verification."
+            exit 1
+          fi
           verification=$("$build_tools/apksigner" verify --print-certs "$apk")
           actual=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' <<< "$verification")
           expected=$(printf '%s' "$RELEASE_CERT_SHA256" | tr -d ':[:space:]')
           [[ "$expected" =~ ^[[:xdigit:]]{64}$ ]]
-          test "${actual,,}" = "${expected,,}"
+          if [[ "${actual,,}" != "${expected,,}" ]]; then
+            echo "::error::APK signature does not match the expected release certificate."
+            exit 1
+          fi
           test "$(grep -c '^Signer #[0-9]* certificate SHA-256 digest:' <<< "$verification")" -eq 1
 
           signing_dir="$RUNNER_TEMP/macromandate-signing"
