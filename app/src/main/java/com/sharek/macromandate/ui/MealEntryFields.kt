@@ -161,7 +161,8 @@ private fun MacroField(
     OutlinedTextField(
         value = value,
         onValueChange = { onValueChange(sanitizeDecimalInput(it)) },
-        label = { Text(label, color = accent) },
+        // Keep narrow labels readable while allowing system font scaling.
+        label = { Text(label, color = accent, style = MaterialTheme.typography.bodyMedium) },
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = imeAction),
         keyboardActions = KeyboardActions(
