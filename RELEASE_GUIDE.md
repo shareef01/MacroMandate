@@ -1,134 +1,56 @@
-# MacroMandate — Release & Signing Guide
+# MacroMandate release guide
 
-This guide describes how to configure signing credentials, build signed release APKs / Android App Bundles (AAB), and verify production artifacts.
+GitHub Releases distributes MacroMandate as a signed APK with a SHA-256 checksum. The **Signed Android Release** workflow builds the APK with the existing release key, verifies its signature and certificate, then checks both uploaded asset digests before making the release available. The signed Android App Bundle is stored as a workflow artifact.
 
----
+## Prepare and publish
 
-## 1. Release Keystore Setup
+1. Update `versionName` and increment `versionCode` in [app/build.gradle.kts](app/build.gradle.kts). Merge the release commit into `master` and wait for [Android CI](https://github.com/shareef01/MacroMandate/actions/workflows/android.yml) to pass.
+2. Open [Signed Android Release](https://github.com/shareef01/MacroMandate/actions/workflows/release.yml), choose **Run workflow** on `master`, and select `draft`.
+3. Review the release notes and the two assets, `MacroMandate-<version>.apk` and `MacroMandate-<version>.apk.sha256`. Install the draft APK over the previous release on a test device for changes that affect upgrades, storage, or signing.
+4. Publish the draft from [GitHub Releases](https://github.com/shareef01/MacroMandate/releases). Use `publish` at dispatch to create and publish a new release in one run. The workflow refuses to replace an existing tag or release, so publish an existing draft from its release page.
 
-To sign production builds, generate a PKCS12 keystore using Java's `keytool`:
+The workflow derives the `v<version>` tag from the signed APK and targets the exact build commit. Use `rehearse` to verify signing and uploads in a temporary draft that the workflow removes after checking both assets.
+
+## Signing credentials
+
+The workflow reads these GitHub Actions secrets from the `release-signing` environment, which is restricted to `master`.
+
+| Secret | Value |
+| --- | --- |
+| `RELEASE_KEYSTORE_BASE64` | Base64-encoded production PKCS12 keystore |
+| `RELEASE_STORE_PASSWORD` | Keystore password |
+| `RELEASE_KEY_ALIAS` | Alias of the existing release key |
+| `RELEASE_KEY_PASSWORD` | Signing-key password |
+| `RELEASE_CERT_SHA256` | SHA-256 fingerprint of the expected production certificate |
+
+Keep a secure backup of the existing keystore and passwords. Android checks the signing identity when installing an update over a GitHub release. Keep signing secrets and keystores out of version control and out of project Gradle properties.
+
+For local production builds, provide `RELEASE_STORE_FILE`, `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_ALIAS`, and `RELEASE_KEY_PASSWORD` through environment variables or user-level Gradle properties.
 
 ```bash
-keytool -genkey -v -keystore macromandate-release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias macromandate-key
+./gradlew assembleRelease bundleRelease -PproductionRelease=true
 ```
 
-Keep your `.jks` file secure and **never commit it to Git**.
+The APK is written to `app/build/outputs/apk/release/app-release.apk`. Normal CI can compile unsigned release builds. For distribution, use the production signing guard and leave `HUGGINGFACE_API_KEY` unset in `local.properties`; the release build rejects embedded API credentials by default.
 
----
+## Verify a downloaded APK
 
-## 2. Signing Configuration
+Download the APK and its checksum into the same folder. Run the following with the actual release version in the filename.
 
-MacroMandate resolves release signing credentials from these untracked sources:
-
-1. **Environment Variables** (Recommended for CI/CD)
-2. **User-level `~/.gradle/gradle.properties`** (local developer machines)
-
-Never put signing passwords in the repository's `gradle.properties` or
-`local.properties`. For a local build, put these in your user-level
-`~/.gradle/gradle.properties`:
-
-```properties
-RELEASE_STORE_FILE=C:/path/to/macromandate-release.jks
-RELEASE_STORE_PASSWORD=your_keystore_password
-RELEASE_KEY_ALIAS=macromandate-key
-RELEASE_KEY_PASSWORD=your_key_password
-```
-
-### CI/CD Environment Variables
-Set the following environment variables in your CI workflow:
-
-- `RELEASE_STORE_FILE`
-- `RELEASE_STORE_PASSWORD`
-- `RELEASE_KEY_ALIAS`
-- `RELEASE_KEY_PASSWORD`
-
-Normal CI permits unsigned release compilation. Distribution uses the `Signed
-Android Release` workflow, which requires all signing values plus
-`RELEASE_KEYSTORE_BASE64` and `RELEASE_CERT_SHA256`, then verifies both the AAB
-signature and the exact production certificate fingerprint.
-
----
-
-## 3. Production Build Commands
-
-### Build Release APK (with R8 ProGuard shrinking enabled):
 ```bash
-./gradlew assembleRelease
-```
-Artifact location: `app/build/outputs/apk/release/app-release.apk`
-(or `app-release-unsigned.apk` when no keystore is configured)
-
-### Build Production Android App Bundle (AAB for Google Play):
-```bash
-./gradlew bundleRelease -PproductionRelease=true
-```
-Artifact location: `app/build/outputs/bundle/release/app-release.aab`
-
----
-
-## 4. R8 & ProGuard Verification
-
-MacroMandate uses full code shrinking and resource optimization (`isMinifyEnabled = true`, `isShrinkResources = true`). Rules are specified in `app/proguard-rules.pro`:
-
-- Room entities and DAOs preserved.
-- Network models and Gson serialization tokens preserved.
-- Retrofit & OkHttp interface reflection preserved.
-
----
-
-## 5. Build-Time Credential Guard
-
-Release builds and `verifyReleaseConfiguration` **fail** if `HUGGINGFACE_API_KEY` is present in
-`local.properties`:
-
-```
-MM_RELEASE_EMBEDDED_API_KEY_FORBIDDEN
+sha256sum --check MacroMandate-1.0.3.apk.sha256
 ```
 
-This is not a precaution — it was verified by building an APK with a test key and
-recovering that key verbatim from `classes.dex` with a plain byte search. A
-`BuildConfig` string constant is not a secret.
+On Windows PowerShell:
 
-Two supported architectures:
+```powershell
+$apk = 'MacroMandate-1.0.3.apk'
+$expected = (Get-Content "$apk.sha256" -Raw).Trim() -split '\s+' | Select-Object -First 1
+(Get-FileHash $apk -Algorithm SHA256).Hash -eq $expected
+```
 
-- **Bring-your-own-key** (current): the user pastes their own token in Settings.
-  Leave `HUGGINGFACE_API_KEY` unset.
-- **Backend proxy**: set `MANDATE_API_BASE_URL` to a service you run that holds
-  the credential.
+PowerShell returns `True` when the hashes match.
 
-`-PallowEmbeddedKey=true` overrides the guard. Use it only for a private build
-for yourself, accepting that the key ships inside it.
+## Database compatibility
 
-The debug build is unaffected.
-
----
-
-## 6. Release Pre-Flight Checklist
-
-**Verified by the August/September 2026 audit** (`docs/AUDIT_REPORT.md`):
-
-- [x] Unit tests passing (`./gradlew test`)
-- [x] `lintDebug` and `lintVitalRelease` clean (0 errors)
-- [x] R8 release build succeeds (`./gradlew assembleRelease`)
-- [x] Unsigned App Bundle compilation succeeds (`./gradlew bundleRelease`) -> `app-release.aab`
-- [x] Instrumented `MigrationTest` passing on hardware (`./gradlew connectedDebugAndroidTest` / `am instrument`)
-- [x] No credential in logs, exports or backups; release build refuses to embed one
-- [x] Location tracking opt-in, off by default
-- [x] Restore validates hostile input; every write path shares one validation gate
-
-**Remaining before store submission:**
-
-- [ ] Run the `Signed Android Release` workflow and verify its certificate check
-- [ ] Manual device pass — see `docs/PLAY_RELEASE_CHECKLIST.md` §7
-- [ ] Privacy policy published at public URL
-
-> **Never ship a Room schema bump without a `Migration` and a passing
-> `MigrationTest`.** Destructive fallback is now debug-only, so a missing
-> migration fails the release build's database open rather than silently
-> deleting the user's meals — but a failed open is still a broken app.
->
-> **Note on legacy schemas (pre-v6):** Room schema exports exist from version 6
-> onwards (`6.json`, `7.json`). Fresh installs start directly at v7, and upgrades
-> from v6 to v7 are fully non-destructive and guarded by `MigrationTest`.
-> Users upgrading from an unsupported legacy pre-v6 release build will encounter
-> a database open failure rather than silent data erasure.
+Room schema exports start at version 6. Fresh installs use schema 7 and the instrumented tests verify the 6-to-7 migration. Upgrades from unsupported pre-v6 builds can fail to open the database. Future schema changes need an explicit migration and an instrumented migration test.

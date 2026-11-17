@@ -1,5 +1,7 @@
 # MacroMandate — UI/UX & Usability Audit
 
+> Historical reference. MacroMandate is distributed through [GitHub Releases](../RELEASE_GUIDE.md). The [original audit screenshots](https://github.com/shareef01/MacroMandate/tree/v1.0.2/docs/screenshots) are preserved with v1.0.2.
+
 > **Implementation status (2026-09-03):** Every actionable finding in this
 > audit is now implemented or explicitly closed, on branch `ui-ux-audit-fixes`.
 > Top 10 items #1–#9, the full P1–P3 backlog, I.2 (the shared meal-entry
@@ -28,9 +30,9 @@
 
 **Audit date:** 2026-09-03
 **Scope:** Product/UI/UX usability. Not a security or code-quality review — see [`AUDIT_REPORT.md`](AUDIT_REPORT.md) and [`PRIVACY_THREAT_MODEL.md`](PRIVACY_THREAT_MODEL.md) for those.
-**Method:** Full read of every `@Composable` file, the ViewModel, string resources, theme system, manifest, and both prior audit docs; visual inspection of the four physical-device screenshots in `docs/screenshots/` (captured on a Pixel 7, per `PLAY_RELEASE_CHECKLIST.md` §7). **No emulator or device was available to this audit** — nothing below is claimed as live interaction beyond what the four static screenshots actually show. Every finding is labelled:
+**Method:** Full read of every `@Composable` file, the ViewModel, string resources, theme system, manifest, and both prior audit docs; visual inspection of the four physical-device screenshots in `https://github.com/shareef01/MacroMandate/tree/v1.0.2/docs/screenshots/` (captured on a Pixel 7, per `PLAY_RELEASE_CHECKLIST.md` §7). **No emulator or device was available to this audit** — nothing below is claimed as live interaction beyond what the four static screenshots actually show. Every finding is labelled:
 
-- **Observed at runtime** — visible in one of the four `docs/screenshots/*.png` files.
+- **Observed at runtime** — visible in one of the four `https://github.com/shareef01/MacroMandate/tree/v1.0.2/docs/screenshots/*.png` files.
 - **Verified in source** — read directly in the `.kt` file cited, with line numbers.
 - **Likely / requires runtime verification** — a strong inference from source that needs a device to confirm (timing, TalkBack traversal order, keyboard-overlap behavior).
 
@@ -500,7 +502,7 @@ Switches, theme-selection cards, and filter chips all communicate selected/check
 
 **1. Meal-entry forms can silently save invalid data (blank name/zero calories) with no validation, and clip macro labels at large font scale**
 - *Problem:* `ManualMealDialog` defaults blank/unparseable calories to `0` and blank name to `"MANUAL REFUELING"` with the Save button always enabled; the same dialog's Protein/Carbs/Fat labels are `10.sp, maxLines=1, softWrap=false` and will clip at 1.3×+ system font scale.
-- *User impact:* Wrong daily totals with zero warning (reproduced in `docs/screenshots/device_app.png`); a real accessibility failure in the app's highest-frequency form.
+- *User impact:* Wrong daily totals with zero warning (reproduced in `https://github.com/shareef01/MacroMandate/tree/v1.0.2/docs/screenshots/device_app.png`); a real accessibility failure in the app's highest-frequency form.
 - *Proposed change:* Gate Save on non-blank name + a parseable positive calorie value; on blank/invalid, show an inline hint rather than silently substituting a value. Remove the label size/wrap constraints.
 - *Relevant files:* `ui/MainScreen.kt`, `ui/MealDetailScreen.kt`, `ui/NutritionFormat.kt`
 - *Acceptance criteria:* Save is disabled until name is non-blank and calories parses to a positive integer; at 2.0× system font scale, no macro field label clips or truncates.

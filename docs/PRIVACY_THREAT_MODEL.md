@@ -135,7 +135,7 @@ Camera / gallery
   → user confirms → written to Room
 ```
 
-Default endpoint: `https://router.huggingface.co/`. Overridable at build time via
+The default endpoint is `https://openrouter.ai/api/` with the `openrouter/free` model router. Override the endpoint at build time via
 `MANDATE_API_BASE_URL`, which is the supported route for pointing the app at a
 self-hosted proxy.
 

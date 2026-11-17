@@ -1,5 +1,7 @@
 # MacroMandate — Google Play Release Checklist
 
+> Historical reference. MacroMandate is distributed through [GitHub Releases](../RELEASE_GUIDE.md). The [original audit screenshots](https://github.com/shareef01/MacroMandate/tree/v1.0.2/docs/screenshots) are preserved with v1.0.2.
+
 A pre-flight verification checklist for the Google Play Store release,
 reflecting the completed application audit (`docs/AUDIT_REPORT.md`).
 
@@ -123,7 +125,7 @@ app suggests a rating above Everyone, but the questionnaire is authoritative.
 |---|---|
 | App icon 512×512 | ☐ |
 | Feature graphic 1024×500 | ☐ |
-| Phone screenshots (min 2, ideally 4–8) | ☑️ 4 valid PNG screenshots captured from Pixel 7 hardware in `docs/screenshots/` (`device_dashboard.png`, `device_trends.png`, `device_settings.png`, `device_app.png`) |
+| Phone screenshots (min 2, ideally 4–8) | ☑️ 4 valid PNG screenshots captured from Pixel 7 hardware in `https://github.com/shareef01/MacroMandate/tree/v1.0.2/docs/screenshots/` (`device_dashboard.png`, `device_trends.png`, `device_settings.png`, `device_app.png`) |
 | Tablet screenshots | ☐ Only if declaring tablet support — the layouts have not been reviewed at tablet width |
 | Short / full description | ☐ See §5 |
 | Privacy policy URL | ☐ **B4** |

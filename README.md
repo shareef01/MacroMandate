@@ -1,112 +1,67 @@
 # MacroMandate
 
-A local-first Android calorie and macro tracker with a retro tactical terminal interface. It estimates nutritional values from meal photos using a vision model, lets you log or correct entries by hand, and keeps your data stored locally on your device.
+MacroMandate is an Android calorie and macro tracker with a retro terminal interface. Log meals by hand or estimate nutrition from a photo, review your daily targets and weekly trends, and keep your meal history on your device.
+
+[Download the latest signed APK from GitHub Releases](https://github.com/shareef01/MacroMandate/releases/latest) · [Android CI](https://github.com/shareef01/MacroMandate/actions/workflows/android.yml)
+
+## Install or update
+
+1. Open the latest GitHub Release on an Android 10 or newer device.
+2. Download `MacroMandate-<version>.apk` from **Assets**. Android may ask you to allow your browser or file manager to install the APK.
+3. To update an existing install from GitHub Releases, open the new APK and choose **Update**. Keep the app installed so Android preserves its data.
+
+Each release includes a `.sha256` file for [verifying the download](RELEASE_GUIDE.md#verify-a-downloaded-apk).
+
+## Screenshots
 
 <p align="center">
-  <img src="docs/screenshots/device_dashboard.png" width="22%" alt="Dashboard screen" />
-  <img src="docs/screenshots/device_app.png" width="22%" alt="Meal log entry" />
-  <img src="docs/screenshots/device_trends.png" width="22%" alt="Weekly trends" />
-  <img src="docs/screenshots/device_settings.png" width="22%" alt="Settings and theme options" />
+  <img src="docs/screenshots/today.png" width="23%" alt="Today screen with calorie progress and meal logging controls" />
+  <img src="docs/screenshots/meal.png" width="23%" alt="Meal detail with calories and macros for a sample meal" />
+  <img src="docs/screenshots/trends.png" width="23%" alt="Trends screen with calorie progress and macro breakdown" />
+  <img src="docs/screenshots/settings.png" width="23%" alt="Settings showing OpenRouter API key setup and terminal themes" />
 </p>
 
-## What it does
+Screenshots show v1.0.3 with sample data.
 
-- **Meal photo estimation**: Snap or pick a picture to get an estimate of calories, protein, carbs, and fat. Every result is presented in a review sheet before anything is saved.
-- **Manual logging & editing**: Log meals manually without needing an API key or internet connection, and edit any logged meal's name, calories, macros, or beverage status at any time.
-- **Daily progress & targets**: Track calories against a daily target with remaining calorie calculations and macro progress bars.
-- **Weekly trends**: View seven-day consumption charts, macro distribution breakdown, and weekly summaries.
-- **Optional geotagging**: Disabled by default. Local meal geotagging and including coordinates in AI analysis are separate opt-ins; Android location permission is also required.
-- **Terminal themes**: Switch between Cyber Cyan, Phosphor Green, Amber CRT, and Stark Mono themes.
-- **Data export & restore**: Export your history as JSON backups or CSV files for spreadsheets, and restore from backup anytime.
-- **Home screen widget**: Quick glance at today's calorie totals directly from your launcher.
-- **Reminders**: Optional notifications scheduled via WorkManager if nothing has been logged for a while.
+## Use the app
 
-> **Note**: MacroMandate is a personal tracking tool and is not medical software. Nutritional estimates from AI models are approximations and should always be reviewed.
+- **Today** shows your calorie and macro targets and recent meals. Use **Log a meal manually** to add or edit records without an account, API key, or internet connection.
+- **Photo analysis** estimates calories, protein, carbs, and fat from the camera or photo picker. Review and adjust the result before saving it.
+- **Trends** shows seven-day consumption and macro breakdowns. The optional AI daily summary uses today's logged meals.
+- **Settings** contains targets, terminal themes, reminders, backup and restore, and data deletion. You can export JSON backups or CSV history. The home screen widget shows today's calorie totals.
 
-## How photo analysis works
+### Set up photo analysis
 
-When you take or pick a meal photo:
-1. The image is downsampled and corrected for EXIF orientation.
-2. The image is sent to an OpenAI-compatible vision endpoint (by default, OpenRouter using `openrouter/free` to select a free model that supports the request, configurable via build properties).
-3. The model returns estimated calories, protein, carbohydrates, and fat.
-4. An **Analysis Review Sheet** pops up with the parsed numbers. You can adjust any values or discard the estimate entirely before saving.
+1. Create an [OpenRouter API key](https://openrouter.ai/settings/keys).
+2. In MacroMandate, open **Settings**, enter it under **OpenRouter API key**, and choose **Save key**.
+3. Return to **Today** and take or choose a photo. The default `openrouter/free` router selects a compatible free model. Availability and rate limits depend on OpenRouter.
 
-## Privacy & data handling
+Nutrition estimates are approximate. Review them before saving.
 
-- **Local-first storage**: Meals and audit records live in an on-device Room database. No third-party accounts, analytics, or sync servers are run for this project.
-- **Network calls**: Network requests are only made when you trigger photo analysis or generate a summary. Analysis decodes, scales, and re-encodes the image as JPEG, stripping source EXIF metadata; the original file is not uploaded byte-for-byte.
-- **API key storage**: Your API token is saved in app-private DataStore preferences protected by standard Android application sandboxing. The app excludes credentials from logs, backups, and exports.
-- **Geotagging disclosure**: Local geotagging stores a fresh-enough coordinate with the meal. Coordinates are rendered into the analysis image only when the separate “Include location in AI analysis image” option is enabled.
-- **Backup policy**: Android cloud backup and device-to-device transfer are disabled and explicitly exclude the database, evidence photos, credentials, and sensitive preferences. User-initiated JSON/CSV exports remain available.
-- **Deletion**: Per-meal deletion reports photo cleanup failures. “Erase everything” succeeds only when Room records, activity logs, and all evidence files are gone; partial file failures are shown and can be retried.
+## Privacy
 
-## Tech stack
+- Meal records and saved photos are stored on the device. Manually created JSON or CSV exports contain the data you choose to export.
+- Photo analysis sends a resized JPEG to the configured provider. The app strips source EXIF metadata. Local meal geotagging and including coordinates in analysis images are separate opt-ins.
+- When you request an AI daily summary, the app sends today's meal names and macro totals to the configured provider.
+- API keys are stored in app-private preferences by provider and excluded from Android backups and app exports.
 
-- **Language & UI**: Kotlin 2.1, Jetpack Compose, Material 3
-- **Architecture**: MVVM with Repository pattern, StateFlow, Coroutines
-- **Storage**: Room Database (with explicit migrations), DataStore Preferences
-- **Camera & Images**: CameraX, Coil
-- **Networking**: Retrofit 2, OkHttp (OpenAI-compatible chat completions)
-- **Background tasks**: WorkManager
-- **Widget**: Jetpack Glance
+See the [privacy threat model](docs/PRIVACY_THREAT_MODEL.md) for the data flows and storage details.
 
-## Getting started
+## Build and test
 
-### Prerequisites
-- Android Studio Ladybug or newer
-- JDK 17+
-- Android SDK 37 (`minSdk` 29)
+Use Android Studio with JDK 17 and Android SDK 37. The app uses Kotlin, Jetpack Compose, Room, CameraX, and WorkManager.
 
-### Build & Run
 ```bash
-git clone https://github.com/shareef01/MacroMandate.git
-cd MacroMandate
-
-# Run unit tests
-./gradlew test
-
-# Assemble debug APK
 ./gradlew assembleDebug
-```
-
-### API Configuration
-To use image analysis:
-1. Open the app and navigate to **Settings**.
-2. Enter your [OpenRouter API key](https://openrouter.ai/settings/keys) under **OpenRouter API key**. The free model is subject to [OpenRouter’s free-model limits](https://openrouter.ai/collections/free-models).
-
-For local development, you can optionally set defaults in `local.properties`:
-```properties
-HUGGINGFACE_API_KEY=your_token_here
-MANDATE_API_BASE_URL=https://router.huggingface.co/
-MANDATE_MODEL_ID=google/gemma-4-31B-it
-```
-*(Note: Release builds disallow compiled-in API keys in `local.properties` by default to prevent accidental credential leakage.)*
-
-## Tests & Verification
-
-Run the test suite:
-```bash
-# Unit tests
-./gradlew test
-
-# Static analysis
-./gradlew lintDebug
-
-# Instrumented tests (requires connected device/emulator)
+./gradlew test lintDebug
 ./gradlew connectedDebugAndroidTest
 ```
 
-## Documentation
+On Windows, use `gradlew.bat`. Instrumented tests require an Android device or emulator. Standard builds use OpenRouter. Developers can override the endpoint and model with `MANDATE_API_BASE_URL` and `MANDATE_MODEL_ID` in their untracked `local.properties`.
 
-- [`docs/AUDIT_REPORT.md`](docs/AUDIT_REPORT.md): Comprehensive security, privacy, and architecture review.
-- [`docs/PRIVACY_THREAT_MODEL.md`](docs/PRIVACY_THREAT_MODEL.md): Threat model, data inventory, and network boundary analysis.
-- [`docs/PLAY_RELEASE_CHECKLIST.md`](docs/PLAY_RELEASE_CHECKLIST.md): Pre-flight checklist for store release.
-- [`RELEASE_GUIDE.md`](RELEASE_GUIDE.md): Keystore setup, signing configuration, and build commands.
-
-## Author
-
-Shareef — [@shareef01](https://github.com/shareef01)
+- [GitHub release and signing guide](RELEASE_GUIDE.md)
+- [Security and architecture audit](docs/AUDIT_REPORT.md)
 
 ## License
 
-All rights reserved.
+All rights reserved. Maintained by [Shareef](https://github.com/shareef01).
