@@ -174,7 +174,7 @@ tasks.configureEach {
     if (name in setOf("assembleRelease", "bundleRelease", "lintRelease")) {
         dependsOn(verifyReleaseConfiguration)
     }
-    if (name == "bundleRelease" && productionReleaseRequested) {
+    if (productionReleaseRequested && name in setOf("assembleRelease", "bundleRelease")) {
         dependsOn(verifyProductionSigning)
     }
 }
