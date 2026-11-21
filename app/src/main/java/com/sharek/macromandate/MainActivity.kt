@@ -167,7 +167,7 @@ fun MacroMandateApp(viewModel: MainViewModel) {
         ) {
             composable(Screen.Dashboard.route) {
                 MainScreen(viewModel = viewModel, onNavigateToDetail = { mealId ->
-                    navController.navigate("meal_detail/$mealId")
+                    navController.navigate("meal_detail/" + android.net.Uri.encode(mealId))
                 })
             }
             composable(Screen.Analytics.route) {

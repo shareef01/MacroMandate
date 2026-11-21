@@ -187,6 +187,11 @@ fun AnalyticsScreen(viewModel: MainViewModel) {
                     }
                 }
 
+                Text(
+                    "Daily summary sends today's meal names and nutrition totals to your analysis provider.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.Gray
+                )
                 Spacer(modifier = Modifier.height(32.dp))
 
                 Text(

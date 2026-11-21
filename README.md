@@ -18,23 +18,23 @@
 
 ## ⚡ Key Features
 
-- 📸 **AI Multimodal Vision**: Capture or select meals to estimate calories, protein, carbohydrates, and fats via Hugging Face multimodal vision models (`google/gemma-4-31B-it` router).
+- 📸 **AI Multimodal Vision**: Capture or select a meal, then review and edit the estimated calories and macros before saving. The default is OpenRouter's free model router.
 - 🏷️ **Live ML Kit Barcode Scanner**: Instant product recognition with nutrition auto-population via OpenFoodFacts integration.
 - 📺 **Simulated CRT Effects**: Hardware-accelerated scanlines, radial screen vignette, and phosphor bloom shader for an authentic terminal atmosphere.
 - 🛡️ **Defensive Nutrition Sanitizer**: Automated validation against malformed JSON or string-encoded quantities, with programmatic $(P\times 4 + C\times 4 + F\times 9)$ fallback calculation.
-- 🔒 **Android KeyStore AES-256 GCM Encryption**: User API tokens are stored encrypted at rest using hardware-backed cryptographic keys, preventing cold storage credential extraction.
+- 🔒 **Android KeyStore AES-256 GCM Encryption**: Newly saved API tokens are encrypted using Android KeyStore and scoped to the configured endpoint.
 - ✍️ **Manual Refueling Fallback**: Quickly record custom meals and macros directly when offline or in low-light environments.
 - ✏️ **In-Place Meal Correction**: Edit food names, calories, macros, and liquid status at any time with immediate aggregate recalculation.
 - 📊 **Metabolic Adherence Dashboard**: Real-time intake HUD displaying today's calories, remaining target delta, and macronutrient distribution.
 - 📈 **7-Day Trend Intelligence**: Target-scaled weekly caloric and macro visualizations with at-a-glance day metrics.
 - 📑 **Weekly Dossier Summary**: Synthesize 7-day nutritional intelligence debriefs with one-tap clipboard copy and markdown export.
-- 🗺️ **Geospatial Surveillance**: Opt-in coordinates watermarking and interactive meal location radar.
+- 🗺️ **Geospatial Surveillance**: Optional location tags for camera meals, with a separate choice to include coordinates in analysis images.
 - 🎨 **Dynamic Terminal Themes**: Switch on-the-fly between *Cyber Cyan*, *Phosphor Green*, *Amber CRT*, and *Stark Mono*.
-- ♿ **Accessibility & WCAG Compliance**: Full TalkBack screen reader semantics, minimum $48\text{dp}$ touch targets, and scalable monospace typography.
+- ♿ **Accessibility**: Screen reader descriptions for key controls and charts, with scalable monospace typography.
 - 💾 **Data Portability & Zero Lock-in**:
-  - Full **JSON Backup & Restore** (Schema V1/V2 with deduplication)
+  - **ZIP backup and restore** for meal records and photos, with older JSON record backups supported. A matching meal ID stops the import and preserves existing records.
   - Standards-compliant **CSV Dossier Export** (with spreadsheet formula injection safeguards)
-- 🚀 **Modern Android Compatibility**: Tested against Android SDK 37, 16 KB page-aligned native binaries, and guarded foreground service lifecycles for Android 14/15/16.
+- 🚀 **Modern Android Compatibility**: Targets Android SDK 37. The 64-bit native libraries have 16 KiB ELF alignment.
 
 ---
 
@@ -61,9 +61,9 @@
 
 - **UI Framework**: Declarative Jetpack Compose with Material 3, custom CRT shaders, and tactical HUD framing modifiers.
 - **Architecture**: Clean MVVM + Repository pattern with Kotlin Coroutines & StateFlow.
-- **Security**: Hardware-backed `AndroidKeyStore` AES-256 GCM encryption for credentials.
-- **Persistence**: Room Database with schema versioning (`v7`) and DataStore Preferences.
-- **Networking**: Retrofit 2 + OkHttp 4 with automated exponential retry backoff for model cold-starts.
+- **Security**: `AndroidKeyStore` AES-256 GCM encryption for newly saved credentials.
+- **Persistence**: Room database schema 8 and DataStore Preferences.
+- **Networking**: Retrofit 3 and OkHttp 5 with bounded retry delays for rate limits and temporary service failures.
 - **Camera & Barcode**: CameraX with downsampled bitmap decoding and ML Kit Barcode Scanning.
 - **Background Tasks**: WorkManager for periodic compliance surveillance and reminder scheduling.
 - **Widgets**: Jetpack Glance tactical home-screen widget.
@@ -93,21 +93,30 @@ cd MacroMandate
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-### Configuration (`local.properties`)
-```properties
-# Optional: Pre-configure Hugging Face API Token (or enter in-app in Settings)
-HUGGINGFACE_API_KEY=hf_your_token_here
+### Photo analysis setup
 
-# Optional: Vision Model Endpoint override
-MANDATE_API_BASE_URL=https://router.huggingface.co/
-MANDATE_MODEL_ID=google/gemma-4-31B-it
+Create an OpenRouter API key and save it under **Settings → OpenRouter API key**. The default model is `openrouter/free`, which selects from available free models with image support when a photo is submitted. Availability and rate limits depend on OpenRouter. [OpenRouter API keys](https://openrouter.ai/settings/keys) · [Free Models Router](https://openrouter.ai/openrouter/free)
+
+### Optional build overrides (`local.properties`)
+```properties
+# Set both values if you use a different OpenAI-compatible endpoint or model.
+MANDATE_API_BASE_URL=https://openrouter.ai/api/
+MANDATE_MODEL_ID=openrouter/free
 ```
+
+### Data sent to providers
+
+Photo analysis sends a resized, re-encoded image to the configured endpoint. The provider can see what is visible in the photo. Source EXIF metadata is omitted from the upload. Camera location tagging and sending coordinates in the image are separate opt-ins. JSON and ZIP backups may include saved coordinates.
+
+Daily summary sends today's meal names and nutrition totals. A leniency request sends the entered text and current compliance status. Barcode lookup sends the scanned product code to Open Food Facts. Manual logging works offline.
+
+OpenRouter can forward requests to upstream providers. Their policies govern retention and use of submitted data. MacroMandate sends no request-level retention requirement. Deleting a meal removes the local app record and its photo when cleanup succeeds. External backups and provider-held copies are managed separately. [OpenRouter privacy policy](https://openrouter.ai/privacy/)
 
 ---
 
 ## 🧪 Automated Testing
 
-MacroMandate includes **63 unit tests** covering business logic, repository operations, data sanitization, cryptography, and export formatting:
+The unit suite covers business logic, repository operations, data sanitization, cryptography, and export formatting:
 
 ```bash
 ./gradlew test
@@ -115,7 +124,7 @@ MacroMandate includes **63 unit tests** covering business logic, repository oper
 
 - `MealRepositoryTest`: Tests batch inserts, updates, deletions, and date filtering against in-memory DAOs.
 - `KeyStoreCryptoTest`: Tests hardware-backed AES-256 GCM encryption boundaries and legacy fallback handling.
-- `NutritionSanitizerTest`: Tests defensive string parsing, float conversion, negative clamps, and macro calculations.
+- `NutritionSanitizerTest`: Tests malformed and unrelated responses, finite bounds, explicit zero, and calculated calories.
 - `DossierExporterTest`: Tests CSV escaping, timestamp formatting, and formula injection mitigation.
 - `DossierReportGeneratorTest`: Tests weekly markdown synthesis, streak calculations, and macro contributions.
 - `ComplianceEngineTest`: Tests adherence scoring and penalty state evaluation.

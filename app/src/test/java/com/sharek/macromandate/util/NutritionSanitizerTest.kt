@@ -3,6 +3,7 @@ package com.sharek.macromandate.util
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class NutritionSanitizerTest {
@@ -36,7 +37,6 @@ class NutritionSanitizerTest {
         val json = """
             {
                 "foodName": "Protein Shake",
-                "calories": 0,
                 "proteinGrams": 30.0,
                 "carbsGrams": 10.0,
                 "fatGrams": 2.0,
@@ -75,7 +75,7 @@ class NutritionSanitizerTest {
     }
 
     @Test
-    fun parseNegativeValuesCoercedToZero() {
+    fun rejectsNegativeOnlyEstimates() {
         val json = """
             {
                 "foodName": "Glitch Meal",
@@ -86,12 +86,36 @@ class NutritionSanitizerTest {
             }
         """.trimIndent()
 
-        val parsed = NutritionSanitizer.parseAndSanitize(json)
-        assertEquals("Glitch Meal", parsed.foodName)
-        assertEquals(0, parsed.calories)
-        assertEquals(0f, parsed.proteinGrams, 0.01f)
-        assertEquals(0f, parsed.carbsGrams, 0.01f)
-        assertEquals(0f, parsed.fatGrams, 0.01f)
+        assertThrows(IllegalArgumentException::class.java) {
+            NutritionSanitizer.parseAndSanitize(json)
+        }
+    }
+
+    @Test
+    fun rejectsEmptyUnrelatedAndWrongTypeResponses() {
+        listOf(
+            "{}",
+            """{"status":"unavailable"}""",
+            """{"foodName":"Soup","calories":0} {"foodName":"Extra","calories":1}""",
+            """{"foodName":"Soup","calories":0,"extra":${"[".repeat(40)}0${"]".repeat(40)}}""",
+            """{"foodName":"Soup","calories":true,"proteinGrams":[]}""",
+            """{"foodName":{},"calories":0}"""
+        ).forEach { json ->
+            assertThrows(IllegalArgumentException::class.java) {
+                NutritionSanitizer.parseAndSanitize(json)
+            }
+        }
+    }
+
+    @Test
+    fun preservesExplicitZeroAndBoundsExtremeValues() {
+        val water = NutritionSanitizer.parseAndSanitize("""{"foodName":"Water","calories":0}""")
+        val estimate = NutritionSanitizer.parseAndSanitize(
+            """{"foodName":"Shake","calories":9999999,"protein":1e100}"""
+        )
+        assertEquals(0, water.calories)
+        assertEquals(20_000, estimate.calories)
+        assertEquals(1_000f, estimate.proteinGrams, 0.01f)
     }
 
     @Test

@@ -6,6 +6,16 @@ import org.junit.Test
 class KeyStoreCryptoTest {
 
     @Test
+    fun markedInvalidCiphertextIsNotReturnedAsAKey() {
+        assertEquals("", KeyStoreCrypto.decrypt("gcm:v1:corrupt"))
+    }
+
+    @Test(expected = java.security.KeyStoreException::class)
+    fun keystoreUnavailabilityNeverReturnsPlaintext() {
+        KeyStoreCrypto.encrypt("fake-test-credential")
+    }
+
+    @Test
     fun encryptAndDecryptEmptyStringReturnsEmpty() {
         assertEquals("", KeyStoreCrypto.encrypt(""))
         assertEquals("", KeyStoreCrypto.decrypt(""))

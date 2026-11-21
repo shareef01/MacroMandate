@@ -1,0 +1,30 @@
+name: Android checks
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@ad2b38190b15e4d6bdf0c97fb4fca8412226d287 # v5.3.0
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Install Android SDK packages
+        run: sdkmanager "platforms;android-37.0" "build-tools;36.0.0"
+      - name: Build, test, and lint
+        run: >-
+          bash ./gradlew --no-daemon --max-workers=3 -Dorg.gradle.jvmargs=-Xmx4g
+          :app:clean :app:assembleDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest
+          :app:lintDebug :app:lintRelease :app:assembleRelease :app:bundleRelease

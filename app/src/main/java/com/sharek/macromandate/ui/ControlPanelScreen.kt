@@ -41,6 +41,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sharek.macromandate.data.local.AuditEntity
+import com.sharek.macromandate.network.ApiConfig
 import com.sharek.macromandate.ui.theme.TerminalTheme
 import com.sharek.macromandate.viewmodel.ComplianceStatus
 import com.sharek.macromandate.viewmodel.MainViewModel
@@ -58,6 +59,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
     val calorieTarget by viewModel.calorieTarget.collectAsState()
     val enforcementEnabled by viewModel.enforcementEnabled.collectAsState()
     val locationTrackingEnabled by viewModel.locationTrackingEnabled.collectAsState()
+    val shareLocationWithAnalysis by viewModel.shareLocationWithAnalysis.collectAsState()
     val complianceStatus by viewModel.complianceStatus.collectAsState()
     val recentAudits by viewModel.recentAudits.collectAsState()
     val apiKeyHint by viewModel.apiKeyHint.collectAsState()
@@ -81,14 +83,14 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
         }
     )
 
-    val createJsonLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/json"),
+    val createZipLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/zip"),
         onResult = { uri ->
             uri?.let { target ->
-                viewModel.exportJsonBackupTo(context, target) { succeeded ->
+                viewModel.exportZipBackupTo(context, target) { succeeded ->
                     scope.launch {
                         snackbarHostState.showSnackbar(
-                            if (succeeded) "JSON backup exported." else "JSON export failed."
+                            if (succeeded) "ZIP backup exported." else "ZIP export failed."
                         )
                     }
                 }
@@ -96,7 +98,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
         }
     )
 
-    val openJsonLauncher = rememberLauncherForActivityResult(
+    val openZipLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
         onResult = { uri ->
             uri?.let {
@@ -110,30 +112,28 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
             onDismissRequest = { pendingRestoreUri = null },
             title = {
                 Text(
-                    text = "RESTORE MEAL DATABASE?",
-                    style = MaterialTheme.typography.titleMedium,
+                    text = "RESTORE DOSSIER FROM ARCHIVE?",
                     fontWeight = FontWeight.Black,
-                    color = MaterialTheme.colorScheme.primary
+                    style = MaterialTheme.typography.titleMedium
                 )
             },
             text = {
                 Text(
-                    text = "This will parse the selected JSON backup and merge all records into your local database. Existing records with identical IDs will be updated.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color.White
+                    "Imports meal records and any included photos. A conflicting meal ID stops the restore. Older JSON backups contain meal records only.",
+                    style = MaterialTheme.typography.bodyMedium
                 )
             },
             confirmButton = {
-                Button(
+                TextButton(
                     onClick = {
                         val uri = pendingRestoreUri
                         pendingRestoreUri = null
                         if (uri != null) {
-                            viewModel.importJsonBackupFrom(context, uri) { result ->
+                            viewModel.importZipBackupFrom(context, uri) { result ->
                                 scope.launch {
                                     result.fold(
                                         onSuccess = { count ->
-                                            snackbarHostState.showSnackbar("Restored $count records successfully.")
+                                            snackbarHostState.showSnackbar("Restored $count records.")
                                         },
                                         onFailure = { error ->
                                             snackbarHostState.showSnackbar("Restore failed: ${error.message}")
@@ -142,12 +142,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                                 }
                             }
                         }
-                    },
-                    shape = RectangleShape,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
-                    )
+                    }
                 ) {
                     Text("RESTORE", fontWeight = FontWeight.Black)
                 }
@@ -201,11 +196,15 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                 ApiKeyCard(
                     keyHint = apiKeyHint,
                     onSave = { key ->
-                        viewModel.updateApiKey(key)
-                        scope.launch {
-                            snackbarHostState.showSnackbar(
-                                if (key.isBlank()) "API key cleared." else "API key saved."
-                            )
+                        viewModel.updateApiKey(key) { saved ->
+                            scope.launch {
+                                val message = when {
+                                    !saved -> "Could not save the API key."
+                                    key.isBlank() -> "API key cleared."
+                                    else -> "API key saved."
+                                }
+                                snackbarHostState.showSnackbar(message)
+                            }
                         }
                     }
                 )
@@ -311,11 +310,22 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                         }
                     )
                     Spacer(modifier = Modifier.height(8.dp))
-                    // Prominent disclosure: coordinates do not stay on the device.
                     Text(
-                        text = "When on, your precise coordinates are saved with each meal, " +
-                            "printed onto the photo, and that photo is sent to the analysis " +
-                            "service. Off by default.",
+                        text = "Save the device's location with meals captured in the camera. " +
+                            "Location is included in JSON and ZIP backups.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.Gray
+                    )
+                    if (locationTrackingEnabled) {
+                        SettingRow(
+                            label = "Send location with photo analysis",
+                            checked = shareLocationWithAnalysis,
+                            onCheckedChange = viewModel::toggleShareLocationWithAnalysis
+                        )
+                    }
+                    Text(
+                        text = "If you enable sharing, coordinates are printed onto the photo " +
+                            "sent to the analysis service. Sharing is off by default.",
                         style = MaterialTheme.typography.labelSmall,
                         color = Color.Gray
                     )
@@ -343,7 +353,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                     Button(
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            createJsonLauncher.launch("MacroMandate_Backup_${System.currentTimeMillis()}.json")
+                            createZipLauncher.launch("MacroMandate_Backup_${System.currentTimeMillis()}.zip")
                         },
                         modifier = Modifier.fillMaxWidth(),
                         enabled = complianceStatus != ComplianceStatus.SUBVERSIVE,
@@ -366,7 +376,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                     OutlinedButton(
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            openJsonLauncher.launch(arrayOf("application/json", "text/*", "*/*"))
+                            openZipLauncher.launch(arrayOf("application/zip", "application/x-zip-compressed", "*/*"))
                         },
                         modifier = Modifier.fillMaxWidth(),
                         enabled = complianceStatus != ComplianceStatus.SUBVERSIVE,
@@ -494,15 +504,16 @@ private fun ApiKeyCard(
     var draft by remember { mutableStateOf("") }
     var revealed by remember { mutableStateOf(false) }
     val hasKey = keyHint.isNotBlank()
+    val provider = ApiConfig.providerName
+    val wrongProvider = draft.isNotBlank() && !ApiConfig.acceptsKey(draft)
 
-    SettingsCard(title = "Analysis API key", icon = Icons.Default.Key) {
+    SettingsCard(title = "$provider API key", icon = Icons.Default.Key) {
         Column {
             Text(
                 text = if (hasKey) {
                     "A key is saved ($keyHint). Enter a new one to replace it."
                 } else {
-                    "Meal analysis needs a Hugging Face access token. Paste one here " +
-                        "to turn it on — it is stored only on this device."
+                    "Enter an API key from $provider. The app stores it on this device."
                 },
                 style = MaterialTheme.typography.labelSmall,
                 color = Color.Gray
@@ -514,7 +525,11 @@ private fun ApiKeyCard(
                 value = draft,
                 onValueChange = { draft = it },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("hf_...") },
+                label = { Text("API key") },
+                isError = wrongProvider,
+                supportingText = if (wrongProvider) {
+                    { Text("Enter an OpenRouter key beginning with sk-or-.") }
+                } else null,
                 singleLine = true,
                 shape = RectangleShape,
                 visualTransformation = if (revealed) {
@@ -553,7 +568,7 @@ private fun ApiKeyCard(
                         draft = ""
                         revealed = false
                     },
-                    enabled = draft.isNotBlank(),
+                    enabled = draft.isNotBlank() && !wrongProvider,
                     modifier = Modifier.weight(1f),
                     shape = RectangleShape
                 ) {

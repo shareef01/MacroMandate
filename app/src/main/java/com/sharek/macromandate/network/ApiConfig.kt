@@ -1,6 +1,8 @@
 package com.sharek.macromandate.network
 
 import com.sharek.macromandate.BuildConfig
+import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 /**
  * Where the analysis service lives and how requests authenticate to it.
@@ -15,16 +17,53 @@ import com.sharek.macromandate.BuildConfig
  */
 object ApiConfig {
 
-    val baseUrl: String = BuildConfig.MANDATE_API_BASE_URL
+    private const val DEFAULT_HUGGING_FACE_URL = "https://router.huggingface.co/"
 
-    /** Must be vision-capable; see https://router.huggingface.co/v1/models */
+    private val configuredEndpoint by lazy {
+        BuildConfig.MANDATE_API_BASE_URL.trim().toHttpUrlOrNull()?.takeIf {
+            it.isHttps && it.username.isEmpty() && it.password.isEmpty() &&
+                it.query == null && it.fragment == null && it.encodedPath.endsWith("/")
+        }
+    }
+
+    val baseUrl
+        get() = requireNotNull(configuredEndpoint) {
+            "The analysis endpoint must be HTTPS, end with a slash, and contain no credentials, query, or fragment."
+        }
+
+    val providerName: String
+        get() = when (val host = configuredEndpoint?.host) {
+            "router.huggingface.co" -> "Hugging Face"
+            "openrouter.ai" -> "OpenRouter"
+            null -> "Analysis provider"
+            else -> host
+        }
+
+    val credentialPreferenceName: String
+        get() = credentialPreferenceName(configuredEndpoint)
+
+    internal fun credentialPreferenceName(endpoint: HttpUrl?): String = when (val url = endpoint?.toString()) {
+        DEFAULT_HUGGING_FACE_URL -> "api_key"
+        null -> "analysis_key:unconfigured"
+        else -> "analysis_key:$url"
+    }
+
+    internal fun acceptsKey(key: String, endpoint: HttpUrl? = configuredEndpoint): Boolean {
+        val trimmed = key.trim()
+        return trimmed.isEmpty() || endpoint?.host != "openrouter.ai" ||
+            (trimmed.startsWith("sk-or-") && trimmed.length > "sk-or-".length && trimmed.none(Char::isWhitespace))
+    }
+
+    /** The selected model must support image input. */
     val model: String = BuildConfig.MANDATE_MODEL_ID
 
     /** Build-time fallback; blank unless set in local.properties. */
-    val buildTimeKey: String = BuildConfig.HUGGINGFACE_API_KEY
+    val buildTimeKey: String
+        get() = BuildConfig.HUGGINGFACE_API_KEY
+            .takeIf { configuredEndpoint?.toString() == DEFAULT_HUGGING_FACE_URL }.orEmpty()
 
     fun authHeader(apiKey: String): String = "Bearer $apiKey"
 
-    const val NOT_CONFIGURED_MESSAGE: String =
-        "No API key set. Add one in Settings to enable meal analysis."
+    val NOT_CONFIGURED_MESSAGE: String
+        get() = "Add a key for $providerName in Settings to enable meal analysis."
 }

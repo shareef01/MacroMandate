@@ -26,6 +26,21 @@ fun LeniencyPleaScreen(viewModel: MainViewModel, onLeniencyGranted: () -> Unit) 
     var pleaText by remember { mutableStateOf("") }
     val haptic = LocalHapticFeedback.current
     val uiState by viewModel.uiState.collectAsState()
+    val approvedReset by viewModel.approvedReset.collectAsState()
+
+    approvedReset?.let { message ->
+        AlertDialog(
+            onDismissRequest = viewModel::dismissApprovedReset,
+            title = { Text("Clear meal history?") },
+            text = { Text(message + "\n\nThis permanently deletes all meal records and their stored photos.") },
+            confirmButton = {
+                TextButton(onClick = viewModel::confirmApprovedReset) { Text("Clear meal history") }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::dismissApprovedReset) { Text("Keep history") }
+            }
+        )
+    }
     val snackbarHostState = remember { SnackbarHostState() }
 
     // The verdict is the entire point of this screen; previously it was discarded
@@ -84,6 +99,11 @@ fun LeniencyPleaScreen(viewModel: MainViewModel, onLeniencyGranted: () -> Unit) 
                 textStyle = MaterialTheme.typography.bodyLarge
             )
 
+            Text(
+                "Submitting sends this text and your current compliance status to your analysis provider.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.Gray
+            )
             Spacer(modifier = Modifier.height(32.dp))
 
             Button(

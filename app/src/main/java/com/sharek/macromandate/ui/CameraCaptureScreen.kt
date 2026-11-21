@@ -50,8 +50,9 @@ import java.util.concurrent.Executor
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun CameraCaptureScreen(
-    onImageCaptured: (Uri) -> Unit,
+    onImageCaptured: (Uri, String) -> Unit,
     onBarcodeScanned: (String) -> Unit,
+    onManualEntry: () -> Unit,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -61,6 +62,9 @@ fun CameraCaptureScreen(
     val imageCapture: ImageCapture = remember { ImageCapture.Builder().build() }
     
     var isScanningEnabled by remember { mutableStateOf(true) }
+    var takingPhoto by remember { mutableStateOf(false) }
+    var cameraReady by remember { mutableStateOf(false) }
+    val active = remember { java.util.concurrent.atomic.AtomicBoolean(true) }
     val barcodeScanner = remember {
         val options = BarcodeScannerOptions.Builder()
             .setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS)
@@ -119,19 +123,21 @@ fun CameraCaptureScreen(
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
     }
 
-    LaunchedEffect(Unit) {
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        active.set(true)
+        var provider: ProcessCameraProvider? = null
+        val preview = Preview.Builder().build().also {
+            it.setSurfaceProvider(previewView.surfaceProvider)
+        }
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         cameraProviderFuture.addListener({
-            val cameraProvider = cameraProviderFuture.get()
-            val preview = Preview.Builder().build().also {
-                it.setSurfaceProvider(previewView.surfaceProvider)
-            }
-
+            if (!active.get()) return@addListener
             try {
-                cameraProvider.unbindAll()
+                val cameraProvider = cameraProviderFuture.get()
+                provider = cameraProvider
                 
                 imageAnalysis.setAnalyzer(ContextCompat.getMainExecutor(context)) { imageProxy ->
-                    if (!isScanningEnabled) {
+                    if (!active.get() || !isScanningEnabled || takingPhoto) {
                         imageProxy.close()
                         return@setAnalyzer
                     }
@@ -142,7 +148,7 @@ fun CameraCaptureScreen(
                             .addOnSuccessListener { barcodes ->
                                 if (barcodes.isNotEmpty()) {
                                     val code = barcodes.first().rawValue
-                                    if (code != null && isScanningEnabled) {
+                                    if (code != null && active.get() && isScanningEnabled && !takingPhoto) {
                                         isScanningEnabled = false
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                         onBarcodeScanned(code)
@@ -167,10 +173,21 @@ fun CameraCaptureScreen(
                     imageCapture,
                     imageAnalysis
                 )
+                cameraReady = true
             } catch (e: Exception) {
-                Log.e("CameraCaptureScreen", "Use case binding failed", e)
+                Log.w("CameraCaptureScreen", "Camera setup failed")
+                scope.launch { snackbarHostState.showSnackbar("Could not start the camera.") }
             }
         }, ContextCompat.getMainExecutor(context))
+        onDispose {
+            active.set(false)
+            imageAnalysis.clearAnalyzer()
+            provider?.unbind(preview, imageCapture, imageAnalysis)
+        }
+    }
+
+    androidx.compose.runtime.DisposableEffect(barcodeScanner) {
+        onDispose { barcodeScanner.close() }
     }
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
@@ -238,14 +255,24 @@ fun CameraCaptureScreen(
         }
 
         IconButton(
+            enabled = cameraReady && !takingPhoto,
             onClick = {
+                takingPhoto = true
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 takePhoto(
                     context = context,
                     imageCapture = imageCapture,
                     executor = ContextCompat.getMainExecutor(context),
-                    onImageCaptured = onImageCaptured,
+                    onImageCaptured = { uri, id ->
+                        if (active.get()) {
+                            onImageCaptured(uri, id)
+                        } else {
+                            EvidenceStore.discardStaging(context, uri)
+                            EvidenceStore.releaseStaging(uri)
+                        }
+                    },
                     onCaptureError = { message ->
+                        takingPhoto = false
                         scope.launch {
                             snackbarHostState.showSnackbar("Couldn’t take the photo: $message")
                         }
@@ -254,7 +281,7 @@ fun CameraCaptureScreen(
             },
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 64.dp)
+                .padding(bottom = 80.dp)
                 .size(80.dp),
             colors = IconButtonDefaults.iconButtonColors(
                 containerColor = primaryColor,
@@ -265,6 +292,23 @@ fun CameraCaptureScreen(
                 imageVector = Icons.Default.Camera,
                 contentDescription = "Take Photo",
                 modifier = Modifier.size(48.dp)
+            )
+        }
+
+        androidx.compose.material3.TextButton(
+            onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                onManualEntry()
+            },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 24.dp)
+        ) {
+            Text(
+                text = "MANUAL ENTRY",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = Color.White.copy(alpha = 0.8f)
             )
         }
 
@@ -279,12 +323,12 @@ private fun takePhoto(
     context: Context,
     imageCapture: ImageCapture,
     executor: Executor,
-    onImageCaptured: (Uri) -> Unit,
+    onImageCaptured: (Uri, String) -> Unit,
     onCaptureError: (String) -> Unit
 ) {
-    // Written straight into EvidenceStore rather than cacheDir: the persisted meal
-    // record points at this path, and the OS may evict anything under cacheDir.
-    val file = EvidenceStore.newFile(context, UUID.randomUUID().toString())
+    val stagingId = UUID.randomUUID().toString()
+    // Written to the staging directory: the image analysis must succeed before it is committed to EvidenceStore.
+    val file = EvidenceStore.newStagingFile(context, stagingId)
 
     val outputOptions = ImageCapture.OutputFileOptions.Builder(file).build()
 
@@ -295,11 +339,12 @@ private fun takePhoto(
             override fun onError(exception: ImageCaptureException) {
                 Log.e("CameraCaptureScreen", "Photo capture failed: ${exception.message}", exception)
                 file.delete()
+                EvidenceStore.releaseStaging(Uri.fromFile(file))
                 onCaptureError(exception.message?.uppercase() ?: "UNKNOWN CAPTURE FAILURE")
             }
 
             override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-                onImageCaptured(Uri.fromFile(file))
+                onImageCaptured(Uri.fromFile(file), stagingId)
             }
         }
     )

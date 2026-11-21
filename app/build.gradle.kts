@@ -1,4 +1,5 @@
 import java.util.Properties
+import java.net.URI
 
 // Loaded once and shared by the signing config and the BuildConfig fields below.
 // local.properties is gitignored, so nothing here reaches version control.
@@ -11,7 +12,6 @@ val localProperties = Properties().apply {
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
 }
@@ -24,8 +24,8 @@ android {
         applicationId = "com.sharek.macromandate"
         minSdk = 29
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 5
+        versionName = "1.0.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -56,17 +56,23 @@ android {
     }
 
     buildTypes {
-        val hfKey = localProperties.getProperty("HUGGINGFACE_API_KEY") ?: ""
-        // Overridable so the app can be pointed at a backend proxy that holds the
-        // credential, instead of shipping one inside the APK. Set
-        // MANDATE_API_BASE_URL in local.properties; must end with a trailing slash.
-        // The legacy api-inference.huggingface.co host no longer resolves.
+        // Custom OpenAI-compatible endpoints can be configured in local.properties.
+        // MANDATE_API_BASE_URL must end with a slash.
         val apiBaseUrl = localProperties.getProperty("MANDATE_API_BASE_URL")
-            ?: "https://router.huggingface.co/"
-        // Vision-capable and served by several providers. Override with
-        // MANDATE_MODEL_ID; see https://router.huggingface.co/v1/models
+            ?: "https://openrouter.ai/api/"
+        val apiHost = runCatching { URI(apiBaseUrl.trim()).host }.getOrNull()
+        val defaultModel = if (apiHost.equals("openrouter.ai", ignoreCase = true)) {
+            "openrouter/free"
+        } else {
+            "google/gemma-4-31B-it"
+        }
         val modelId = localProperties.getProperty("MANDATE_MODEL_ID")
-            ?: "google/gemma-4-31B-it"
+            ?: defaultModel
+        val hfKey = if (apiBaseUrl.trim() == "https://router.huggingface.co/") {
+            localProperties.getProperty("HUGGINGFACE_API_KEY").orEmpty()
+        } else {
+            ""
+        }
 
         debug {
             buildConfigField("String", "HUGGINGFACE_API_KEY", "\"$hfKey\"")
@@ -86,19 +92,10 @@ android {
             signingConfig = signingConfigs.getByName("release").takeIf { it.storeFile != null }
         }
     }
-    sourceSets {
-        getByName("main") {
-            java.srcDirs("src/main/java")
-        }
-    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
     buildFeatures {
         compose = true
         buildConfig = true
@@ -106,13 +103,16 @@ android {
 }
 
 ksp {
-    // Export Room schemas (app/schemas) so that once the app ships, schema changes
-    // must ship explicit Migration objects. NOTE: AppDatabase still uses
-    // fallbackToDestructiveMigration() as a documented pre-release safeguard.
+    // Keep historical Room schemas available for migration verification.
     arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {
+    constraints {
+        implementation(libs.guava.android) {
+            because("CVE-2026-102554 is fixed in Guava 33.7.2-android")
+        }
+    }
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.activity.ktx)
@@ -141,6 +141,9 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.androidx.core.splashscreen)
     implementation(libs.mlkit.barcode)
+    implementation(libs.androidx.paging.runtime)
+    implementation(libs.androidx.paging.compose)
+    implementation(libs.androidx.room.paging)
     ksp(libs.androidx.room.compiler)
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)

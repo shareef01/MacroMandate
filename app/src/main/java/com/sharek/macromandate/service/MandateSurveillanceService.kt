@@ -59,6 +59,7 @@ class MandateSurveillanceService : Service() {
             .setContentTitle("MacroMandate")
             .setContentText("Starting...")
             .setSmallIcon(android.R.drawable.ic_menu_compass)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setOngoing(true)
             .build()
     }
@@ -101,6 +102,7 @@ class MandateSurveillanceService : Service() {
             .setContentTitle("MacroMandate")
             .setContentText("$current / $target kcal • $statusText")
             .setSmallIcon(android.R.drawable.ic_lock_idle_lock)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setOngoing(true)
             .setContentIntent(pendingIntent)
             .setPriority(if (status == ComplianceStatus.SUBVERSIVE) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_LOW)

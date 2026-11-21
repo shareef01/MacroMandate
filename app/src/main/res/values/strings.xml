@@ -1,3 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">MacroMandate</string>
+    <string name="dashboard_tab">DASHBOARD</string>
+    <string name="camera_tab">CAMERA</string>
+    <string name="delete_dossier_record_title">DELETE DOSSIER RECORD?</string>
+    <string name="recent_meals_header">Recent meals</string>
+    <string name="no_meals_api_key_prompt">No meals logged yet.\nTake or choose a photo to start.</string>
+    <string name="no_meals_no_api_key_prompt">Add an API key in Settings to start logging meals.</string>
+    <string name="clear_filters_button">CLEAR FILTERS</string>
+    <string name="empty_search_result_title">NO DOSSIER ENTRIES MATCH FILTER</string>
+    <string name="empty_search_result_body">Try adjusting your search terms or filter selection.</string>
 </resources>

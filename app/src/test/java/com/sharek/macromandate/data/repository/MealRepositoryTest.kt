@@ -55,7 +55,7 @@ class MealRepositoryTest {
         repository.insertMeal(meal1)
         repository.insertMeal(meal2)
 
-        val allMeals = repository.getAllMeals().first()
+        val allMeals = repository.getAllMealsAsList()
         assertEquals(2, allMeals.size)
         assertTrue(allMeals.any { it.id == "m1" && it.foodName == "Chicken and Rice" })
         assertTrue(allMeals.any { it.id == "m2" && it.foodName == "Steak" })
@@ -71,7 +71,7 @@ class MealRepositoryTest {
 
         repository.insertMeals(meals)
 
-        val result = repository.getAllMeals().first()
+        val result = repository.getAllMealsAsList()
         assertEquals(3, result.size)
     }
 
@@ -83,7 +83,7 @@ class MealRepositoryTest {
         val updated = original.copy(foodName = "Updated Name", calories = 750)
         repository.updateMeal(updated)
 
-        val result = repository.getAllMeals().first()
+        val result = repository.getAllMealsAsList()
         assertEquals(1, result.size)
         assertEquals("Updated Name", result[0].foodName)
         assertEquals(750, result[0].calories)
@@ -97,7 +97,7 @@ class MealRepositoryTest {
 
         repository.deleteMeal("del_1")
 
-        val result = repository.getAllMeals().first()
+        val result = repository.getAllMealsAsList()
         assertEquals(1, result.size)
         assertEquals("del_2", result[0].id)
     }
@@ -118,10 +118,10 @@ class MealRepositoryTest {
     @Test
     fun deleteAllMealsClearsRepository() = runBlocking {
         repository.insertMeals(listOf(createMeal("1"), createMeal("2")))
-        assertEquals(2, repository.getAllMeals().first().size)
+        assertEquals(2, repository.getAllMealsAsList().size)
 
         repository.deleteAllMeals()
-        assertEquals(0, repository.getAllMeals().first().size)
+        assertEquals(0, repository.getAllMealsAsList().size)
     }
 }
 
@@ -146,9 +146,18 @@ class FakeMealDao : MealDao {
         entries.value = entries.value - meal.id
     }
 
-    override fun getAllMeals(): Flow<List<MealEntity>> {
-        return entries.map { it.values.sortedByDescending { entity -> entity.timestamp } }
-    }
+    override suspend fun getAllMealsList(): List<MealEntity> =
+        entries.value.values.sortedByDescending { it.timestamp }
+
+    override suspend fun getMealById(id: String) = entries.value[id]
+
+    override fun observeMeal(id: String): Flow<MealEntity?> = entries.map { it[id] }
+
+    override suspend fun getPhotoReferences() = entries.value.values.mapNotNull { it.imageUri }
+
+
+    override fun getMealsPaged(query: String, filterType: Int, todayMidnight: Long, sortOrder: Int):
+        androidx.paging.PagingSource<Int, MealEntity> = error("Paging requires Room")
 
     override fun getTodayMeals(startOfDay: Long): Flow<List<MealEntity>> {
         return entries.map { map ->

@@ -11,7 +11,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -26,6 +25,7 @@ import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.*
@@ -40,6 +40,12 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import com.sharek.macromandate.R
+import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.paging.compose.LazyPagingItems
+import androidx.paging.compose.itemKey
+import androidx.paging.LoadState
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.sharek.macromandate.model.MealEntry
@@ -88,19 +94,23 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
     val locationTrackingEnabled by viewModel.locationTrackingEnabled.collectAsState()
     val hasApiKey by viewModel.hasApiKey.collectAsState()
     val target by viewModel.calorieTarget.collectAsState()
+    val photoReview by viewModel.photoReview.collectAsState()
+    val isSavingPhoto by viewModel.isSavingPhoto.collectAsState()
     
     var screenState by remember { mutableStateOf(ScreenState.DASHBOARD) }
-    var showManualEntryDialog by remember { mutableStateOf(false) }
+    var showManualEntryDialog by rememberSaveable { mutableStateOf(false) }
     var mealToDelete by remember { mutableStateOf<MealEntry?>(null) }
-    var searchQuery by remember { mutableStateOf("") }
-    var selectedFilter by remember { mutableStateOf(MealFilter.ALL) }
-    var sortOrder by remember { mutableStateOf(MealSortOrder.NEWEST) }
+    val searchQuery by viewModel.searchQuery.collectAsState()
+    val filterType by viewModel.filterType.collectAsState()
+    val selectedFilter = MealFilter.entries[filterType]
+    val sortType by viewModel.sortOrder.collectAsState()
+    val sortOrder = MealSortOrder.entries[sortType]
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
         onResult = { uri ->
             uri?.let {
-                viewModel.processImageForMacros(it, context)
+                viewModel.processImageForMacros(MainViewModel.ImageSource.Imported(it), context)
             }
         }
     )
@@ -132,7 +142,7 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         when (screenState) {
             ScreenState.DASHBOARD -> {
-                val mealEntries by viewModel.mealEntries.collectAsState()
+                val mealEntries = viewModel.mealEntries.collectAsLazyPagingItems()
                 
     val todayMeals by viewModel.todayMeals.collectAsState()
     val barcodeResult by viewModel.barcodeResult.collectAsState()
@@ -143,43 +153,10 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
                 val todayProtein = todayMeals.sumOf { it.proteinGrams.toDouble() }.toInt()
                 val todayCarbs = todayMeals.sumOf { it.carbsGrams.toDouble() }.toInt()
                 val todayFat = todayMeals.sumOf { it.fatGrams.toDouble() }.toInt()
-                val lastMealWasRestricted = mealEntries.firstOrNull()?.let { it.isRestricted && (System.currentTimeMillis() - it.timestamp) < 60 * 60 * 1000 } ?: false
+                val lastMealWasRestricted = todayMeals.firstOrNull()?.let {
+                    it.isRestricted && System.currentTimeMillis() - it.timestamp < 60 * 60 * 1000L
+                } ?: false
 
-                val filteredMealEntries = remember(mealEntries, searchQuery, selectedFilter, sortOrder) {
-                    val query = searchQuery.trim().lowercase()
-                    val todayMidnight = Calendar.getInstance().apply {
-                        set(Calendar.HOUR_OF_DAY, 0)
-                        set(Calendar.MINUTE, 0)
-                        set(Calendar.SECOND, 0)
-                        set(Calendar.MILLISECOND, 0)
-                    }.timeInMillis
-
-                    mealEntries
-                        .filter { meal ->
-                            val matchesQuery = query.isEmpty() ||
-                                    meal.foodName.lowercase().contains(query) ||
-                                    meal.id.lowercase().contains(query) ||
-                                    (meal.assessment?.lowercase()?.contains(query) ?: false)
-
-                            val matchesFilter = when (selectedFilter) {
-                                MealFilter.ALL -> true
-                                MealFilter.TODAY -> meal.timestamp >= todayMidnight
-                                MealFilter.HIGH_PROTEIN -> meal.proteinGrams >= 25f
-                                MealFilter.HIGH_CAL -> meal.calories >= 500
-                                MealFilter.LIQUID -> meal.isLiquid
-                                MealFilter.FLAGGED -> meal.isRestricted || meal.isNightRefueling
-                            }
-
-                            matchesQuery && matchesFilter
-                        }
-                        .let { list ->
-                            when (sortOrder) {
-                                MealSortOrder.NEWEST -> list.sortedByDescending { it.timestamp }
-                                MealSortOrder.HIGHEST_CAL -> list.sortedByDescending { it.calories }
-                                MealSortOrder.HIGHEST_PROTEIN -> list.sortedByDescending { it.proteinGrams }
-                            }
-                        }
-                }
 
         
         if (barcodeResult != null) {
@@ -230,9 +207,11 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
         if (showManualEntryDialog) {
                     ManualMealDialog(
                         onDismiss = { showManualEntryDialog = false },
-                        onSave = { name, cal, p, c, f, isLiquid ->
-                            showManualEntryDialog = false
-                            viewModel.logManualMeal(name, cal, p, c, f, isLiquid)
+                        onSave = { name, cal, p, c, f, isLiquid, complete ->
+                            viewModel.logManualMeal(name, cal, p, c, f, isLiquid) { saved ->
+                                complete(saved)
+                                if (saved) showManualEntryDialog = false
+                            }
                         }
                     )
                 }
@@ -292,6 +271,11 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
                             },
                             importEnabled = complianceStatus != ComplianceStatus.SUBVERSIVE
                         )
+                        Text(
+                            "Photo analysis sends a resized image to ${com.sharek.macromandate.network.ApiConfig.providerName}.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray
+                        )
                         
                         Spacer(modifier = Modifier.height(32.dp))
                         
@@ -308,14 +292,14 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "Recent meals",
+                                text = stringResource(R.string.recent_meals_header),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Black,
                                 color = MaterialTheme.colorScheme.primary
                             )
-                            if (mealEntries.isNotEmpty()) {
+                            if (mealEntries.itemCount > 0) {
                                 Text(
-                                    text = "${filteredMealEntries.size}/${mealEntries.size} LOGGED",
+                                    text = "${mealEntries.itemCount} LOGGED",
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
                                     color = Color.Gray
@@ -325,13 +309,13 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
                         
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        if (mealEntries.isEmpty()) {
+                        if (mealEntries.itemCount == 0 && searchQuery.isEmpty() && selectedFilter == MealFilter.ALL) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Text(
                                     text = if (hasApiKey) {
-                                        "No meals logged yet.\nTake or choose a photo to start."
+                                        stringResource(R.string.no_meals_api_key_prompt)
                                     } else {
-                                        "Add an API key in Settings to start logging meals."
+                                        stringResource(R.string.no_meals_no_api_key_prompt)
                                     },
                                     style = MaterialTheme.typography.bodyLarge,
                                     color = Color.Gray,
@@ -342,30 +326,30 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
                         } else {
                             MealSearchBar(
                                 query = searchQuery,
-                                onQueryChange = { searchQuery = it }
+                                onQueryChange = { viewModel.searchQuery.value = it }
                             )
 
                             Spacer(modifier = Modifier.height(8.dp))
 
                             MealFilterChipRow(
                                 selectedFilter = selectedFilter,
-                                onSelectFilter = { selectedFilter = it },
+                                onSelectFilter = { viewModel.filterType.value = it.ordinal },
                                 sortOrder = sortOrder,
-                                onToggleSortOrder = { sortOrder = sortOrder.next() }
+                                onToggleSortOrder = { viewModel.sortOrder.value = sortOrder.next().ordinal }
                             )
 
                             Spacer(modifier = Modifier.height(12.dp))
 
-                            if (filteredMealEntries.isEmpty()) {
+                            if (mealEntries.itemCount == 0) {
                                 EmptySearchResultView(
                                     onReset = {
-                                        searchQuery = ""
-                                        selectedFilter = MealFilter.ALL
+                                        viewModel.searchQuery.value = ""
+                                        viewModel.filterType.value = MealFilter.ALL.ordinal
                                     }
                                 )
                             } else {
                                 HistoryList(
-                                    mealEntries = filteredMealEntries,
+                                    mealEntries = mealEntries,
                                     onDeleteMeal = { mealToDelete = it },
                                     onNavigateToDetail = onNavigateToDetail
                                 )
@@ -380,7 +364,7 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
                         onDismissRequest = { mealToDelete = null },
                         title = {
                             Text(
-                                text = "DELETE DOSSIER RECORD?",
+                                text = stringResource(R.string.delete_dossier_record_title),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Black,
                                 color = MaterialTheme.colorScheme.error
@@ -424,17 +408,32 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
             }
             ScreenState.CAMERA -> {
                                 CameraCaptureScreen(
-                    onImageCaptured = { uri ->
-                        viewModel.processImageForMacros(uri, context)
+                    onImageCaptured = { uri, stagingId ->
+                        viewModel.processImageForMacros(MainViewModel.ImageSource.LiveCamera(uri, stagingId), context)
                         screenState = ScreenState.DASHBOARD
                     },
                     onBarcodeScanned = { barcode ->
                         viewModel.lookupBarcode(barcode, context)
                         screenState = ScreenState.DASHBOARD
                     },
+                    onManualEntry = {
+                        screenState = ScreenState.DASHBOARD
+                        showManualEntryDialog = true
+                    },
                     onBack = {
                         screenState = ScreenState.DASHBOARD
                     }
+                )
+            }
+        }
+
+        photoReview?.let { review ->
+            key(review.meal.id) {
+                ManualMealDialog(
+                    onDismiss = viewModel::discardPhotoReview,
+                    onSave = viewModel::savePhotoReview,
+                    estimate = review.meal,
+                    savingEstimate = isSavingPhoto
                 )
             }
         }
@@ -760,22 +759,35 @@ fun ActionRow(
 @Composable
 fun ManualMealDialog(
     onDismiss: () -> Unit,
-    onSave: (foodName: String, calories: Int, protein: Float, carbs: Float, fat: Float, isLiquid: Boolean) -> Unit
+    onSave: (foodName: String, calories: Int, protein: Float, carbs: Float, fat: Float, isLiquid: Boolean, complete: (Boolean) -> Unit) -> Unit,
+    estimate: MealEntry? = null,
+    savingEstimate: Boolean = false
 ) {
-    var foodName by remember { mutableStateOf("") }
-    var caloriesStr by remember { mutableStateOf("") }
-    var proteinStr by remember { mutableStateOf("") }
-    var carbsStr by remember { mutableStateOf("") }
-    var fatStr by remember { mutableStateOf("") }
-    var isLiquid by remember { mutableStateOf(false) }
+    var savingManual by remember { mutableStateOf(false) }
+    val saving = savingManual || savingEstimate
+    var saveFailed by remember { mutableStateOf(false) }
+    var foodName by rememberSaveable { mutableStateOf(estimate?.foodName.orEmpty()) }
+    var caloriesStr by rememberSaveable { mutableStateOf(estimate?.calories?.toString().orEmpty()) }
+    var proteinStr by rememberSaveable { mutableStateOf(estimate?.proteinGrams?.toString().orEmpty()) }
+    var carbsStr by rememberSaveable { mutableStateOf(estimate?.carbsGrams?.toString().orEmpty()) }
+    var fatStr by rememberSaveable { mutableStateOf(estimate?.fatGrams?.toString().orEmpty()) }
+    var isLiquid by rememberSaveable { mutableStateOf(estimate?.isLiquid ?: false) }
+
+    fun grams(value: String) = if (value.isBlank()) 0f else value.toFloatOrNull()?.takeIf(Float::isFinite)
+    val calories = caloriesStr.toIntOrNull()
+    val protein = grams(proteinStr)
+    val carbs = grams(carbsStr)
+    val fat = grams(fatStr)
+    val canSaveEstimate = foodName.isNotBlank() && calories != null && calories in 0..20_000 &&
+        listOf(protein, carbs, fat).all { it != null && it in 0f..1_000f }
 
     val haptic = LocalHapticFeedback.current
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!saving) onDismiss() },
         title = {
             Text(
-                text = "MANUAL REFUELING ENTRY",
+                text = if (estimate == null) "MANUAL REFUELING ENTRY" else "Review nutrition estimate",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Black,
                 color = MaterialTheme.colorScheme.primary
@@ -788,6 +800,10 @@ fun ManualMealDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                if (estimate != null) {
+                    Text("AI estimates can be inaccurate. Review or correct the values before saving.")
+                }
+                if (saveFailed) Text("Could not save this meal. You can retry.")
                 OutlinedTextField(
                     value = foodName,
                     onValueChange = { foodName = it },
@@ -862,13 +878,15 @@ fun ManualMealDialog(
         },
         confirmButton = {
             Button(
+                enabled = !saving && (estimate == null || canSaveEstimate),
                 onClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    val cal = caloriesStr.toIntOrNull() ?: 0
-                    val p = proteinStr.toFloatOrNull() ?: 0f
-                    val c = carbsStr.toFloatOrNull() ?: 0f
-                    val f = fatStr.toFloatOrNull() ?: 0f
-                    onSave(foodName.ifBlank { "MANUAL REFUELING" }, cal, p, c, f, isLiquid)
+                    if (estimate == null) savingManual = true
+                    saveFailed = false
+                    onSave(foodName.ifBlank { "MANUAL REFUELING" }, calories ?: 0, protein ?: 0f, carbs ?: 0f, fat ?: 0f, isLiquid) { saved ->
+                        savingManual = false
+                        saveFailed = !saved
+                    }
                 },
                 shape = RectangleShape,
                 colors = ButtonDefaults.buttonColors(
@@ -876,11 +894,14 @@ fun ManualMealDialog(
                     contentColor = MaterialTheme.colorScheme.onPrimary
                 )
             ) {
-                Text("LOG RECORD", fontWeight = FontWeight.Black)
+                Text(
+                    if (saving) "SAVING" else if (saveFailed) "RETRY SAVE" else if (estimate != null) "SAVE MEAL" else "LOG RECORD",
+                    fontWeight = FontWeight.Black
+                )
             }
         },
         dismissButton = {
-            OutlinedButton(onClick = onDismiss, shape = RectangleShape) {
+            OutlinedButton(onClick = onDismiss, enabled = !saving, shape = RectangleShape) {
                 Text("CANCEL", color = Color.Gray)
             }
         },
@@ -891,19 +912,23 @@ fun ManualMealDialog(
 
 @Composable
 fun HistoryList(
-    mealEntries: List<MealEntry>,
+    mealEntries: LazyPagingItems<MealEntry>,
     onDeleteMeal: (MealEntry) -> Unit,
     onNavigateToDetail: (String) -> Unit
 ) {
+    if (mealEntries.loadState.refresh is LoadState.Error || mealEntries.loadState.append is LoadState.Error) {
+        TextButton(onClick = { mealEntries.retry() }) { Text("Could not load meals. Retry") }
+    }
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(8.dp),
         // Clears the bottom navigation bar so the last entry is fully readable.
         contentPadding = PaddingValues(bottom = 96.dp)
     ) {
         items(
-            items = mealEntries,
-            key = { it.id }
-        ) { entry ->
+            count = mealEntries.itemCount,
+            key = mealEntries.itemKey { it.id }
+        ) { index ->
+            val entry = mealEntries[index] ?: return@items
             MealEntryItem(
                 entry = entry,
                 onDelete = { onDeleteMeal(entry) },
@@ -1158,7 +1183,7 @@ fun EmptySearchResultView(
                 .padding(16.dp)
         ) {
             Text(
-                text = "NO DOSSIER ENTRIES MATCH FILTER",
+                text = stringResource(R.string.empty_search_result_title),
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Black,
                 color = MaterialTheme.colorScheme.error,
@@ -1166,7 +1191,7 @@ fun EmptySearchResultView(
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "Try adjusting your search terms or filter selection.",
+                text = stringResource(R.string.empty_search_result_body),
                 style = MaterialTheme.typography.labelSmall,
                 color = Color.Gray,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -1181,7 +1206,7 @@ fun EmptySearchResultView(
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
             ) {
                 Text(
-                    text = "CLEAR FILTERS",
+                    text = stringResource(R.string.clear_filters_button),
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Black,
                     color = MaterialTheme.colorScheme.primary

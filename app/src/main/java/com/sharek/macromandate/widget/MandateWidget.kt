@@ -3,6 +3,8 @@ package com.sharek.macromandate.widget
 import android.content.ComponentName
 import android.content.Context
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.*
@@ -26,12 +28,15 @@ class MandateWidget : GlanceAppWidget() {
         val repository = MealRepository(database.mealDao())
         val preferences = MandatePreferences(context)
 
-        val todayMeals = repository.getTodayMeals().first()
-        val calorieTarget = preferences.calorieTargetFlow.first()
-        val currentCalories = todayMeals.sumOf { it.calories }
+        val todayMeals = repository.getTodayMeals()
+        val calorieTarget = preferences.calorieTargetFlow
+        val initialMeals = todayMeals.first()
+        val initialTarget = calorieTarget.first()
 
         provideContent {
-            MandateWidgetContent(currentCalories, calorieTarget)
+            val meals by todayMeals.collectAsState(initialMeals)
+            val target by calorieTarget.collectAsState(initialTarget)
+            MandateWidgetContent(meals.sumOf { it.calories }, target)
         }
     }
 

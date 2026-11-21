@@ -12,6 +12,8 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.flow.catch
+import com.sharek.macromandate.viewmodel.UiState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -41,15 +43,31 @@ fun MealDetailScreen(
 ) {
     val haptic = LocalHapticFeedback.current
     val complianceStatus by viewModel.complianceStatus.collectAsState()
-    val mealEntries by viewModel.mealEntries.collectAsState()
-    val meal = mealEntries.find { it.id == mealId }
+    val loadedMeal by produceState<Result<MealEntry?>?>(initialValue = null, mealId) {
+        value = null
+        viewModel.observeMeal(mealId)
+            .catch { value = Result.failure(it) }
+            .collect { value = Result.success(it) }
+    }
+    val uiState by viewModel.uiState.collectAsState()
+    val snackbar = remember { SnackbarHostState() }
+    LaunchedEffect(uiState) {
+        val error = uiState as? UiState.Error ?: return@LaunchedEffect
+        snackbar.showSnackbar(error.message)
+        viewModel.resetUiState()
+    }
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm:ss 'UTC'", Locale.US) }
     var showEditDialog by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
+    val meal = loadedMeal?.getOrNull()
     if (meal == null) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("This meal is no longer available.", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Black)
+            when {
+                loadedMeal == null -> CircularProgressIndicator()
+                loadedMeal?.isFailure == true -> Text("Could not load the meal.")
+                else -> Text("This meal is no longer available.")
+            }
         }
         return
     }
@@ -278,8 +296,7 @@ fun MealDetailScreen(
                     Button(
                         onClick = {
                             showDeleteConfirmDialog = false
-                            viewModel.deleteMealEntry(meal.id)
-                            onBack()
+                            viewModel.deleteMealEntry(meal.id, onBack)
                         },
                         shape = RectangleShape,
                         colors = ButtonDefaults.buttonColors(
@@ -320,6 +337,7 @@ fun MealDetailScreen(
                 }
             }
         }
+        SnackbarHost(hostState = snackbar, modifier = Modifier.align(Alignment.BottomCenter))
     }
 }
 

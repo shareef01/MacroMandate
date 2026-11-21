@@ -99,6 +99,7 @@ class DossierExporterTest {
                 isNightRefueling = false
             ),
             meal("Midnight Snack", 420).copy(
+                id = "midnight-2",
                 isLiquid = false,
                 isRestricted = true,
                 isNightRefueling = true
@@ -138,7 +139,7 @@ class DossierExporterTest {
 
     @Test
     fun csvNeutralizesWhitespacePrefixedFormulaTriggers() {
-        val triggers = listOf(" =SUM(A1:A2)", "  +cmd", "\t\t@calc", "   -100")
+        val triggers = listOf(" =SUM(A1:A2)", "  +cmd", "\t\t@calc", "   -100", "\r\n=4", "\u00a0+1", "\u2003\uff1d1", "\ufeff@lookup")
         triggers.forEach { field ->
             val escaped = DossierExporter.escapeCsvField(field)
             assertTrue(
@@ -146,6 +147,14 @@ class DossierExporterTest {
                 escaped.startsWith("'")
             )
         }
+    }
+
+    @Test
+    fun duplicateOrUnsafeIdsAreRejected() = runBlocking {
+        val duplicate = DossierExporter.generateJson(listOf(meal("First"), meal("Second")))
+        val unsafe = DossierExporter.generateJson(listOf(meal("First").copy(id = "../photo")))
+        org.junit.Assert.assertNull(DossierExporter.parseJsonBackup(duplicate))
+        org.junit.Assert.assertNull(DossierExporter.parseJsonBackup(unsafe))
     }
 
     @Test

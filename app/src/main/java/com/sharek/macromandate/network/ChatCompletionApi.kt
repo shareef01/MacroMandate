@@ -6,16 +6,8 @@ import retrofit2.http.Body
 import retrofit2.http.Header
 import retrofit2.http.POST
 
-/**
- * Hugging Face Inference Providers, OpenAI-compatible chat completions.
- *
- * This replaces the legacy `api-inference.huggingface.co/models/{id}` endpoint,
- * whose hostname no longer resolves at all. That older API took a single
- * `inputs` string and returned a list of `generated_text`; it had no way to
- * carry an image, so the previous approach of splicing a base64 data URI into
- * the prompt text was never going to reach a vision model.
- */
-interface HuggingFaceApi {
+/** OpenAI-compatible text and image analysis, including OpenRouter. */
+interface ChatCompletionApi {
     @POST("v1/chat/completions")
     suspend fun chatCompletion(
         @Header("Authorization") token: String,
@@ -26,7 +18,25 @@ interface HuggingFaceApi {
 data class ChatRequest(
     val model: String,
     val messages: List<ChatMessage>,
-    @SerializedName("max_tokens") val maxTokens: Int = 600
+    @SerializedName("max_tokens") val maxTokens: Int = 600,
+    @SerializedName("response_format") val responseFormat: Map<String, String>? = null,
+    val reasoning: Map<String, Boolean>? = null
+)
+
+internal fun photoAnalysisRequest(
+    model: String,
+    prompt: String,
+    base64Jpeg: String,
+    usesOpenRouter: Boolean
+): ChatRequest = ChatRequest(
+    model = model,
+    messages = listOf(ChatMessage(
+        role = "user",
+        content = listOf(ContentPart.text(prompt), ContentPart.jpegImage(base64Jpeg))
+    )),
+    maxTokens = if (usesOpenRouter) 1_600 else 600,
+    responseFormat = mapOf("type" to "json_object"),
+    reasoning = if (usesOpenRouter) mapOf("enabled" to false) else null
 )
 
 data class ChatMessage(
@@ -64,7 +74,8 @@ data class ChatResponse(
 }
 
 data class ChatChoice(
-    val message: ChatResponseMessage?
+    val message: ChatResponseMessage?,
+    @SerializedName("finish_reason") val finishReason: String? = null
 )
 
 data class ChatResponseMessage(

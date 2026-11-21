@@ -10,17 +10,19 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 /**
- * Hardware-backed encryption utility using Android KeyStore (AES-256 GCM).
+ * Encryption utility using Android KeyStore (AES-256 GCM).
  * Protects runtime secrets and API tokens at rest against cold storage extraction.
  */
 object KeyStoreCrypto {
 
     private const val ANDROID_KEYSTORE = "AndroidKeyStore"
     private const val KEY_ALIAS = "MacroMandate_Secure_Alias"
+    private const val ENCRYPTED_PREFIX = "gcm:v1:"
     private const val TRANSFORMATION = "AES/GCM/NoPadding"
     private const val GCM_IV_LENGTH = 12
     private const val GCM_TAG_LENGTH = 128
 
+    @Synchronized
     private fun getOrCreateKey(): SecretKey {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
         if (keyStore.containsAlias(KEY_ALIAS)) {
@@ -52,31 +54,21 @@ object KeyStoreCrypto {
      */
     fun encrypt(plaintext: String): String {
         if (plaintext.isBlank()) return ""
-        return try {
-            val key = getOrCreateKey()
-            val cipher = Cipher.getInstance(TRANSFORMATION)
-            cipher.init(Cipher.ENCRYPT_MODE, key)
-            val iv = cipher.iv
-            val encryptedBytes = cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8))
-            val combined = ByteArray(iv.size + encryptedBytes.size)
-            System.arraycopy(iv, 0, combined, 0, iv.size)
-            System.arraycopy(encryptedBytes, 0, combined, iv.size, encryptedBytes.size)
-            Base64.encodeToString(combined, Base64.NO_WRAP)
-        } catch (_: Exception) {
-            plaintext
-        }
+        val key = getOrCreateKey()
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        cipher.init(Cipher.ENCRYPT_MODE, key)
+        val payload = cipher.iv + cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8))
+        return ENCRYPTED_PREFIX + Base64.encodeToString(payload, Base64.NO_WRAP)
     }
 
-    /**
-     * Decrypts a Base64-encoded [IV + Ciphertext] payload. Falls back to raw text if unencrypted.
-     */
+    /** Supports older, unmarked values written by previous releases. */
     fun decrypt(encryptedBase64: String): String {
         if (encryptedBase64.isBlank()) return ""
+        val marked = encryptedBase64.startsWith(ENCRYPTED_PREFIX)
+        val fallback = if (marked) "" else encryptedBase64
         return try {
-            val combined = Base64.decode(encryptedBase64, Base64.NO_WRAP)
-            if (combined.size <= GCM_IV_LENGTH) {
-                return encryptedBase64
-            }
+            val combined = Base64.decode(encryptedBase64.removePrefix(ENCRYPTED_PREFIX), Base64.NO_WRAP)
+            if (combined.size < GCM_IV_LENGTH + GCM_TAG_LENGTH / 8) return fallback
             val iv = ByteArray(GCM_IV_LENGTH)
             val ciphertext = ByteArray(combined.size - GCM_IV_LENGTH)
             System.arraycopy(combined, 0, iv, 0, GCM_IV_LENGTH)
@@ -89,8 +81,7 @@ object KeyStoreCrypto {
             val decryptedBytes = cipher.doFinal(ciphertext)
             String(decryptedBytes, Charsets.UTF_8)
         } catch (_: Exception) {
-            // Graceful fallback for legacy plaintext stored tokens
-            encryptedBase64
+            fallback
         }
     }
 }

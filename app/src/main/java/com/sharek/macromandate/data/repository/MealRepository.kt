@@ -6,10 +6,16 @@ import com.sharek.macromandate.model.MealEntry
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import java.util.Calendar
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.PagingData
+import androidx.paging.map
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class MealRepository(private val mealDao: MealDao) {
@@ -24,9 +30,19 @@ class MealRepository(private val mealDao: MealDao) {
         const val WEEK_LENGTH_DAYS = 7
     }
 
-    fun getAllMeals(): Flow<List<MealEntry>> {
-        return mealDao.getAllMeals().map { entities ->
-            entities.map { it.toDomain() }
+    fun getPagedMeals(query: String, filterType: Int, sortOrder: Int): Flow<PagingData<MealEntry>> =
+        (if (filterType == 1) dayBoundaries() else flowOf(0L))
+            .flatMapLatest { todayMidnight -> pagedMeals(query, filterType, todayMidnight, sortOrder) }
+
+    private fun pagedMeals(query: String, filterType: Int, todayMidnight: Long, sortOrder: Int): Flow<PagingData<MealEntry>> {
+        return Pager(
+            config = PagingConfig(pageSize = 20, enablePlaceholders = false),
+            pagingSourceFactory = {
+                val literal = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                mealDao.getMealsPaged(literal, filterType, todayMidnight, sortOrder)
+            }
+        ).flow.map { pagingData ->
+            pagingData.map { it.toDomain() }
         }
     }
 
@@ -54,23 +70,13 @@ class MealRepository(private val mealDao: MealDao) {
      */
     private fun dayBoundaries(): Flow<Long> = flow {
         while (true) {
-            val today = startOfTodayCalendar()
-            emit(today.timeInMillis)
-            // Adding a day via Calendar rather than 24h of millis keeps this correct
-            // across DST transitions.
-            val nextMidnight = (today.clone() as Calendar)
-                .apply { add(Calendar.DAY_OF_YEAR, 1) }
-                .timeInMillis
-            delay((nextMidnight - System.currentTimeMillis()).coerceAtLeast(1L))
+            val now = java.time.ZonedDateTime.now()
+            val date = now.toLocalDate()
+            emit(date.atStartOfDay(now.zone).toInstant().toEpochMilli())
+            val next = date.plusDays(1).atStartOfDay(now.zone).toInstant().toEpochMilli()
+            delay((next - now.toInstant().toEpochMilli()).coerceIn(1L, 60_000L))
         }
-    }
-
-    private fun startOfTodayCalendar(): Calendar = Calendar.getInstance().apply {
-        set(Calendar.HOUR_OF_DAY, 0)
-        set(Calendar.MINUTE, 0)
-        set(Calendar.SECOND, 0)
-        set(Calendar.MILLISECOND, 0)
-    }
+    }.distinctUntilChanged()
 
     private fun weekStartFrom(startOfToday: Long): Long =
         Calendar.getInstance().apply {
@@ -95,7 +101,21 @@ class MealRepository(private val mealDao: MealDao) {
         mealDao.deleteById(id)
     }
 
+    suspend fun getMealById(id: String): MealEntry? {
+        return mealDao.getMealById(id)?.toDomain()
+    }
+
+    fun observeMeal(id: String): Flow<MealEntry?> = mealDao.observeMeal(id).map { it?.toDomain() }
+
+    suspend fun getAllMealsAsList(): List<MealEntry> {
+        // For CSV export, we might need all
+        return mealDao.getAllMealsList().map { it.toDomain() }
+    }
+
     suspend fun getLatestMeal(): MealEntry? = mealDao.getLatestMeal()?.toDomain()
+
+    suspend fun getPhotoReferences() = mealDao.getPhotoReferences()
+
 
     suspend fun deleteAllMeals() {
         mealDao.deleteAll()
