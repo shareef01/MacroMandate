@@ -3,12 +3,18 @@ package com.sharek.macromandate.util
 import android.content.Context
 import android.graphics.*
 import android.net.Uri
+import android.util.Log
+import androidx.exifinterface.media.ExifInterface
+import androidx.core.graphics.scale
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.*
 
 object ImageForensics {
+
+    private const val TAG = "ImageForensics"
 
     /**
      * Computes a power-of-two [BitmapFactory.Options.inSampleSize] that keeps the
@@ -19,13 +25,129 @@ object ImageForensics {
     fun calculateInSampleSize(width: Int, height: Int, maxDimension: Int): Int {
         var sampleSize = 1
         if (height > maxDimension || width > maxDimension) {
-            var halfHeight = height / 2
-            var halfWidth = width / 2
+            val halfHeight = height / 2
+            val halfWidth = width / 2
             while (halfHeight / sampleSize >= maxDimension || halfWidth / sampleSize >= maxDimension) {
                 sampleSize *= 2
             }
         }
         return sampleSize
+    }
+
+    /**
+     * Decodes [uri] downsampled to [maxDimension] and **rotated upright**.
+     *
+     * Phone cameras usually record the frame in the sensor's native orientation
+     * and describe the correction in an EXIF tag rather than rotating the pixels.
+     * Both image paths previously ignored that tag, so a photo taken in portrait
+     * was handed to the vision model on its side. Coil applies EXIF when it
+     * renders, so this was invisible in the app and showed up only as worse
+     * estimates — the failure mode that is hardest to notice and most expensive
+     * to have.
+     *
+     * Returns null if the image cannot be read or decoded.
+     */
+    fun decodeUpright(context: Context, uri: Uri, maxDimension: Int): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        val filePath = uri.path?.takeIf { uri.scheme.equals("file", ignoreCase = true) }
+        if (filePath != null) {
+            BitmapFactory.decodeFile(filePath, bounds)
+        } else {
+            val input = context.contentResolver.openInputStream(uri) ?: return null
+            // With inJustDecodeBounds, decodeStream fills the options and returns null.
+            input.use { BitmapFactory.decodeStream(it, null, bounds) }
+        }
+
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        val decodeOptions = BitmapFactory.Options().apply {
+            inSampleSize = calculateInSampleSize(bounds.outWidth, bounds.outHeight, maxDimension)
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        val decoded = if (filePath != null) {
+            BitmapFactory.decodeFile(filePath, decodeOptions)
+        } else {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                BitmapFactory.decodeStream(input, null, decodeOptions)
+            }
+        } ?: return null
+
+        val orientation = try {
+            val exif = if (filePath != null) {
+                ExifInterface(filePath)
+            } else {
+                context.contentResolver.openInputStream(uri)?.use(::ExifInterface)
+            }
+            exif?.getAttributeInt(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_NORMAL
+            ) ?: ExifInterface.ORIENTATION_NORMAL
+        } catch (_: Exception) {
+            // A missing or malformed EXIF block is not a reason to lose the photo.
+            Log.w(TAG, "Could not read EXIF orientation")
+            ExifInterface.ORIENTATION_NORMAL
+        }
+
+        return applyOrientation(decoded, orientation)
+    }
+
+    private fun applyOrientation(bitmap: Bitmap, orientation: Int): Bitmap {
+        val matrix = Matrix()
+        when (orientation) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+            ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.postScale(-1f, 1f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.postScale(1f, -1f)
+            ExifInterface.ORIENTATION_TRANSPOSE -> {
+                matrix.postRotate(90f); matrix.postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_TRANSVERSE -> {
+                matrix.postRotate(270f); matrix.postScale(-1f, 1f)
+            }
+            else -> return bitmap
+        }
+        return try {
+            Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+                .also { rotated -> if (rotated !== bitmap) bitmap.recycle() }
+        } catch (_: OutOfMemoryError) {
+            // Better an unrotated image than no image.
+            Log.w(TAG, "Not enough memory to rotate; using the frame as decoded")
+            bitmap
+        }
+    }
+
+    /** Re-encodes pixels only; no source EXIF block is copied into the request JPEG. */
+    fun encodeAnalysisJpeg(
+        context: Context,
+        uri: Uri,
+        maxEdge: Int = 800,
+        quality: Int = 80
+    ): ByteArray? {
+        var decoded: Bitmap? = null
+        var scaled: Bitmap? = null
+        return try {
+            decoded = decodeUpright(context, uri, maxDimension = 1600) ?: return null
+            val longestEdge = maxOf(decoded.width, decoded.height).coerceAtLeast(1)
+            val ratio = maxEdge.toFloat() / longestEdge
+            scaled = if (ratio < 1f) {
+                decoded.scale(
+                    (decoded.width * ratio).toInt().coerceAtLeast(1),
+                    (decoded.height * ratio).toInt().coerceAtLeast(1)
+                )
+            } else decoded
+            ByteArrayOutputStream().use { output ->
+                if (!scaled.compress(Bitmap.CompressFormat.JPEG, quality, output)) return null
+                output.toByteArray()
+            }
+        } catch (_: Exception) {
+            Log.w(TAG, "Could not re-encode analysis image")
+            null
+        } catch (_: OutOfMemoryError) {
+            null
+        } finally {
+            if (scaled !== decoded) scaled?.recycle()
+            decoded?.recycle()
+        }
     }
 
     fun watermarkImage(
@@ -37,18 +159,7 @@ object ImageForensics {
         timestamp: Long
     ): Uri? {
         try {
-            // Decode bounds first, then sample down so watermarking never holds
-            // two full-resolution bitmaps in memory.
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                BitmapFactory.decodeStream(input, null, bounds)
-            }
-            val options = BitmapFactory.Options().apply {
-                inSampleSize = calculateInSampleSize(bounds.outWidth, bounds.outHeight, maxDimension = 1600)
-            }
-            val decoded = context.contentResolver.openInputStream(uri)?.use { input ->
-                BitmapFactory.decodeStream(input, null, options)
-            } ?: return null
+            val decoded = decodeUpright(context, uri, maxDimension = 1600) ?: return null
 
             val mutableBitmap = decoded.copy(Bitmap.Config.ARGB_8888, true)
             if (mutableBitmap !== decoded) {
@@ -64,7 +175,7 @@ object ImageForensics {
                 setShadowLayer(2f, 1f, 1f, Color.BLACK)
             }
 
-            val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss 'UTC'", Locale.US)
+            val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ssXXX", Locale.US)
             val timeText = "TS: ${dateFormat.format(Date(timestamp))}"
             val idText = "ID: ${id.take(8).uppercase()}"
             val geoText = if (latitude != null && longitude != null) {

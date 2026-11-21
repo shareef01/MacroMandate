@@ -2,7 +2,6 @@ package com.sharek.macromandate.viewmodel
 
 import android.app.Application
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Base64
 import android.util.Log
@@ -16,7 +15,6 @@ import com.sharek.macromandate.data.pref.MandatePreferences
 import com.sharek.macromandate.data.repository.AuditRepository
 import com.sharek.macromandate.data.repository.MealRepository
 import com.sharek.macromandate.model.MealEntry
-import com.sharek.macromandate.service.MandateSurveillanceService
 import com.sharek.macromandate.network.ApiConfig
 import com.sharek.macromandate.network.ChatMessage
 import com.sharek.macromandate.network.ChatRequest
@@ -50,7 +48,6 @@ import okhttp3.logging.HttpLoggingInterceptor
 import org.json.JSONObject
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.Calendar
 import java.util.UUID
@@ -92,16 +89,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         
         logAudit("SYSTEM_BOOT", "SURVEILLANCE TERMINAL INITIALIZED.")
         
-        // Activate Omnipresent Surveillance safely
-        try {
-            val serviceIntent = android.content.Intent(application, MandateSurveillanceService::class.java)
-            application.startForegroundService(serviceIntent)
-        } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) {
-                throw e
-            }
-            Log.w("MainViewModel", "Could not start surveillance service on initialization", e)
-        }
     }
 
     val searchQuery = MutableStateFlow("")
@@ -855,47 +842,10 @@ sealed interface ImageSource {
         super.onCleared()
     }
 
-    private fun uriToScaledBase64(uri: Uri, context: android.content.Context): String? {
-        return try {
-            // Decode bounds first so a full-resolution camera frame is never materialized
-            // (avoids OutOfMemoryError on large images).
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                BitmapFactory.decodeStream(input, null, bounds)
-            }
-
-            val originalBitmap = context.contentResolver.openInputStream(uri)?.use { input ->
-                BitmapFactory.decodeStream(input, null, BitmapFactory.Options().apply {
-                    inSampleSize = ImageForensics.calculateInSampleSize(bounds.outWidth, bounds.outHeight, maxDimension = 1600)
-                })
-            } ?: return null
-
-            val scale = 800f / Math.max(originalBitmap.width, originalBitmap.height).coerceAtLeast(1)
-            val scaledBitmap = if (scale < 1f) {
-                android.graphics.Bitmap.createScaledBitmap(
-                    originalBitmap,
-                    (originalBitmap.width * scale).toInt().coerceAtLeast(1),
-                    (originalBitmap.height * scale).toInt().coerceAtLeast(1),
-                    true
-                )
-            } else {
-                originalBitmap
-            }
-
-            try {
-                val outputStream = ByteArrayOutputStream()
-                if (!scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 80, outputStream)) return null
-                Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP)
-            } finally {
-                if (scaledBitmap !== originalBitmap) scaledBitmap.recycle()
-                originalBitmap.recycle()
-            }
-        } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
-            Log.e("MainViewModel", "Error converting URI to Base64", e)
-            null
+    private fun uriToScaledBase64(uri: Uri, context: android.content.Context): String? =
+        ImageForensics.encodeAnalysisJpeg(context, uri)?.let { jpeg ->
+            Base64.encodeToString(jpeg, Base64.NO_WRAP)
         }
-    }
 
     fun addMealEntry(entry: MealEntry) {
         viewModelScope.launch {

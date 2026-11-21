@@ -1,10 +1,7 @@
 package com.sharek.macromandate
 
-import android.Manifest
-import android.content.pm.PackageManager
-import android.os.Build
+import android.content.Intent
 import android.os.Bundle
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -20,7 +17,10 @@ import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -31,17 +31,14 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import com.sharek.macromandate.notification.NotificationManagerHelper
 import com.sharek.macromandate.ui.AnalyticsScreen
 import com.sharek.macromandate.ui.ControlPanelScreen
-import com.sharek.macromandate.ui.LeniencyPleaScreen
-import com.sharek.macromandate.ui.PermanentLockdownScreen
 import com.sharek.macromandate.ui.MainScreen
 import com.sharek.macromandate.ui.MealDetailScreen
 import com.sharek.macromandate.ui.terminalOverlay
 import com.sharek.macromandate.ui.theme.MacroMandateTheme
-import com.sharek.macromandate.viewmodel.ComplianceStatus
 import com.sharek.macromandate.viewmodel.MainViewModel
+import com.sharek.macromandate.widget.EXTRA_OPEN_MANUAL_ENTRY
 import androidx.fragment.app.FragmentActivity
 import androidx.compose.runtime.collectAsState
 import androidx.navigation.NavType
@@ -50,34 +47,34 @@ import androidx.navigation.navArgument
 class MainActivity : FragmentActivity() {
     private val viewModel: MainViewModel by viewModels()
 
-    // POST_NOTIFICATIONS is required on Android 13+ for the enforcement and HUD
-    // notifications to be visible at all; request it once at launch.
-    private val notificationPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) {
-                NotificationManagerHelper.createNotificationChannel(this)
-            }
-        }
-
-    private fun maybeRequestNotificationPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
-    }
+    private var manualEntryRequested by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
-        NotificationManagerHelper.createNotificationChannel(this)
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        maybeRequestNotificationPermission()
+        handleWidgetIntent(intent)
         setContent {
             val terminalTheme by viewModel.terminalTheme.collectAsState()
             MacroMandateTheme(terminalTheme = terminalTheme) {
-                MacroMandateApp(viewModel = viewModel)
+                MacroMandateApp(
+                    viewModel = viewModel,
+                    manualEntryRequested = manualEntryRequested,
+                    onManualEntryOpened = { manualEntryRequested = false }
+                )
             }
+        }
+    }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleWidgetIntent(intent)
+    }
+
+    private fun handleWidgetIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra(EXTRA_OPEN_MANUAL_ENTRY, false) == true) {
+            intent.removeExtra(EXTRA_OPEN_MANUAL_ENTRY)
+            manualEntryRequested = true
         }
     }
 }
@@ -92,24 +89,21 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
 }
 
 @Composable
-fun MacroMandateApp(viewModel: MainViewModel) {
+fun MacroMandateApp(
+    viewModel: MainViewModel,
+    manualEntryRequested: Boolean,
+    onManualEntryOpened: () -> Unit
+) {
     val crtEffectsEnabled by viewModel.crtEffectsEnabled.collectAsState()
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
     val complianceStatus by viewModel.complianceStatus.collectAsState()
     
-    if (complianceStatus == ComplianceStatus.LOCKED) {
-        PermanentLockdownScreen(viewModel = viewModel)
-        return
-    }
-
-    if (complianceStatus == ComplianceStatus.CRISIS) {
-        LeniencyPleaScreen(
-            viewModel = viewModel,
-            onLeniencyGranted = { /* Handled by State observation */ }
-        )
-        return
+    LaunchedEffect(manualEntryRequested, currentRoute) {
+        if (manualEntryRequested && currentRoute != null && currentRoute != Screen.Dashboard.route) {
+            navController.popBackStack(Screen.Dashboard.route, inclusive = false)
+        }
     }
 
     val items = remember { listOf(Screen.Dashboard, Screen.Analytics, Screen.ControlPanel) }
@@ -166,9 +160,14 @@ fun MacroMandateApp(viewModel: MainViewModel) {
             modifier = Modifier.padding(innerPadding)
         ) {
             composable(Screen.Dashboard.route) {
-                MainScreen(viewModel = viewModel, onNavigateToDetail = { mealId ->
-                    navController.navigate("meal_detail/" + android.net.Uri.encode(mealId))
-                })
+                MainScreen(
+                    viewModel = viewModel,
+                    onNavigateToDetail = { mealId ->
+                        navController.navigate("meal_detail/" + android.net.Uri.encode(mealId))
+                    },
+                    manualEntryRequested = manualEntryRequested,
+                    onManualEntryOpened = onManualEntryOpened
+                )
             }
             composable(Screen.Analytics.route) {
                 AnalyticsScreen(viewModel = viewModel)

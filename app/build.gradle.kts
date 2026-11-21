@@ -16,6 +16,17 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+fun signingValue(name: String): String? =
+    providers.environmentVariable(name).orElse(providers.gradleProperty(name)).orNull
+        ?: localProperties.getProperty(name)
+
+val releaseStorePath = signingValue("RELEASE_STORE_FILE")
+val releaseStorePassword = signingValue("RELEASE_STORE_PASSWORD")
+val releaseKeyAlias = signingValue("RELEASE_KEY_ALIAS")
+val releaseKeyPassword = signingValue("RELEASE_KEY_PASSWORD")
+val signingReady = listOf(releaseStorePassword, releaseKeyAlias, releaseKeyPassword)
+    .none { it.isNullOrBlank() } && releaseStorePath?.let { file(it).isFile } == true
+
 android {
     namespace = "com.sharek.macromandate"
     compileSdk = 37
@@ -36,21 +47,11 @@ android {
     // unsigned APK rather than failing the build.
     signingConfigs {
         create("release") {
-            val storePath = System.getenv("RELEASE_STORE_FILE")
-                ?: localProperties.getProperty("RELEASE_STORE_FILE")
-                ?: project.findProperty("RELEASE_STORE_FILE") as? String
-
-            if (!storePath.isNullOrBlank() && file(storePath).exists()) {
-                storeFile = file(storePath)
-                storePassword = System.getenv("RELEASE_STORE_PASSWORD")
-                    ?: localProperties.getProperty("RELEASE_STORE_PASSWORD")
-                    ?: project.findProperty("RELEASE_STORE_PASSWORD") as? String
-                keyAlias = System.getenv("RELEASE_KEY_ALIAS")
-                    ?: localProperties.getProperty("RELEASE_KEY_ALIAS")
-                    ?: project.findProperty("RELEASE_KEY_ALIAS") as? String
-                keyPassword = System.getenv("RELEASE_KEY_PASSWORD")
-                    ?: localProperties.getProperty("RELEASE_KEY_PASSWORD")
-                    ?: project.findProperty("RELEASE_KEY_PASSWORD") as? String
+            if (signingReady) {
+                storeFile = file(requireNotNull(releaseStorePath))
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
             }
         }
     }
@@ -102,6 +103,43 @@ android {
     }
 }
 
+abstract class VerifyReleaseGuard : DefaultTask() {
+    @get:Input
+    abstract val failureMessage: Property<String>
+
+    @TaskAction
+    fun verify() {
+        val message = failureMessage.get()
+        if (message.isNotEmpty()) throw GradleException(message)
+    }
+}
+
+val verifyReleaseConfiguration by tasks.registering(VerifyReleaseGuard::class) {
+    group = "verification"
+    failureMessage.set(
+        if (localProperties.getProperty("HUGGINGFACE_API_KEY").isNullOrBlank()) ""
+        else "MM_RELEASE_EMBEDDED_API_KEY_FORBIDDEN: Remove HUGGINGFACE_API_KEY from local.properties before a release build."
+    )
+}
+
+val verifyProductionSigning by tasks.registering(VerifyReleaseGuard::class) {
+    group = "verification"
+    dependsOn(verifyReleaseConfiguration)
+    failureMessage.set(
+        if (signingReady) "" else "MM_RELEASE_SIGNING_CONFIGURATION_MISSING: Configure the release signing credentials."
+    )
+}
+
+val productionReleaseRequested = providers.gradleProperty("productionRelease").orNull?.toBoolean() == true
+tasks.configureEach {
+    if (name in setOf("assembleRelease", "bundleRelease", "lintRelease")) {
+        dependsOn(verifyReleaseConfiguration)
+    }
+    if (productionReleaseRequested && name in setOf("assembleRelease", "bundleRelease")) {
+        dependsOn(verifyProductionSigning)
+    }
+}
+
 ksp {
     // Keep historical Room schemas available for migration verification.
     arg("room.schemaLocation", "$projectDir/schemas")
@@ -119,6 +157,7 @@ dependencies {
     implementation(libs.androidx.fragment.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.exifinterface)
     implementation(libs.androidx.camera.core)
     implementation(libs.androidx.camera.camera2)
     implementation(libs.androidx.camera.lifecycle)

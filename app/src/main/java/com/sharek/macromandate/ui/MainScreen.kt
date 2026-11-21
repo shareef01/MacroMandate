@@ -85,7 +85,12 @@ enum class MealSortOrder(val label: String) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
+fun MainScreen(
+    viewModel: MainViewModel,
+    onNavigateToDetail: (String) -> Unit,
+    manualEntryRequested: Boolean = false,
+    onManualEntryOpened: () -> Unit = {}
+) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -99,6 +104,12 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
     
     var screenState by remember { mutableStateOf(ScreenState.DASHBOARD) }
     var showManualEntryDialog by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(manualEntryRequested) {
+        if (manualEntryRequested) {
+            showManualEntryDialog = true
+            onManualEntryOpened()
+        }
+    }
     var mealToDelete by remember { mutableStateOf<MealEntry?>(null) }
     val searchQuery by viewModel.searchQuery.collectAsState()
     val filterType by viewModel.filterType.collectAsState()
@@ -259,17 +270,15 @@ fun MainScreen(viewModel: MainViewModel, onNavigateToDetail: (String) -> Unit) {
                             },
                             onImportImage = {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                if (complianceStatus != ComplianceStatus.SUBVERSIVE) {
-                                    photoPickerLauncher.launch(
-                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                    )
-                                }
+                                photoPickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
                             },
                             onManualEntry = {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 showManualEntryDialog = true
                             },
-                            importEnabled = complianceStatus != ComplianceStatus.SUBVERSIVE
+                            importEnabled = true
                         )
                         Text(
                             "Photo analysis sends a resized image to ${com.sharek.macromandate.network.ApiConfig.providerName}.",

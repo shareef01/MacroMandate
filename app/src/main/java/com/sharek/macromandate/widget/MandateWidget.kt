@@ -8,6 +8,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.*
+import androidx.glance.action.ActionParameters
+import androidx.glance.action.actionParametersOf
 import androidx.glance.action.actionStartActivity
 import androidx.glance.appwidget.*
 import androidx.glance.layout.*
@@ -20,6 +22,9 @@ import com.sharek.macromandate.data.local.AppDatabase
 import com.sharek.macromandate.data.pref.MandatePreferences
 import com.sharek.macromandate.data.repository.MealRepository
 import kotlinx.coroutines.flow.first
+
+const val EXTRA_OPEN_MANUAL_ENTRY = "open_manual_entry"
+private val OpenManualEntryKey = ActionParameters.Key<Boolean>(EXTRA_OPEN_MANUAL_ENTRY)
 
 class MandateWidget : GlanceAppWidget() {
 
@@ -42,7 +47,7 @@ class MandateWidget : GlanceAppWidget() {
 
     @Composable
     private fun MandateWidgetContent(current: Int, target: Int) {
-        val progress = (current.toFloat() / target).coerceIn(0f, 1f)
+        val progress = if (target > 0) (current.toFloat() / target).coerceIn(0f, 1f) else 0f
         val context = LocalContext.current
         
         Column(
@@ -81,7 +86,10 @@ class MandateWidget : GlanceAppWidget() {
             
             Button(
                 text = "Log a meal",
-                onClick = actionStartActivity(ComponentName(context, MainActivity::class.java)),
+                onClick = actionStartActivity(
+                    ComponentName(context, MainActivity::class.java),
+                    actionParametersOf(OpenManualEntryKey to true)
+                ),
                 modifier = GlanceModifier.fillMaxWidth()
             )
         }

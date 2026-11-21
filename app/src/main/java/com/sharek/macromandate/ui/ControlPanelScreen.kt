@@ -1,6 +1,9 @@
 package com.sharek.macromandate.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -43,7 +46,7 @@ import androidx.compose.ui.unit.sp
 import com.sharek.macromandate.data.local.AuditEntity
 import com.sharek.macromandate.network.ApiConfig
 import com.sharek.macromandate.ui.theme.TerminalTheme
-import com.sharek.macromandate.viewmodel.ComplianceStatus
+import androidx.core.content.ContextCompat
 import com.sharek.macromandate.viewmodel.MainViewModel
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -60,11 +63,18 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
     val enforcementEnabled by viewModel.enforcementEnabled.collectAsState()
     val locationTrackingEnabled by viewModel.locationTrackingEnabled.collectAsState()
     val shareLocationWithAnalysis by viewModel.shareLocationWithAnalysis.collectAsState()
-    val complianceStatus by viewModel.complianceStatus.collectAsState()
     val recentAudits by viewModel.recentAudits.collectAsState()
     val apiKeyHint by viewModel.apiKeyHint.collectAsState()
     val terminalTheme by viewModel.terminalTheme.collectAsState()
     val crtEffectsEnabled by viewModel.crtEffectsEnabled.collectAsState()
+
+    val reminderPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            viewModel.toggleEnforcement(true)
+        } else {
+            scope.launch { snackbarHostState.showSnackbar("Notifications are off for MacroMandate.") }
+        }
+    }
 
     var pendingRestoreUri by remember { mutableStateOf<Uri?>(null) }
 
@@ -284,7 +294,14 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                         checked = enforcementEnabled,
                         onCheckedChange = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            viewModel.toggleEnforcement(it)
+                            if (it && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+                                PackageManager.PERMISSION_GRANTED
+                            ) {
+                                reminderPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            } else {
+                                viewModel.toggleEnforcement(it)
+                            }
                         }
                     )
                     Spacer(modifier = Modifier.height(8.dp))
@@ -356,7 +373,6 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                             createZipLauncher.launch("MacroMandate_Backup_${System.currentTimeMillis()}.zip")
                         },
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = complianceStatus != ComplianceStatus.SUBVERSIVE,
                         shape = RectangleShape,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.primary,
@@ -367,21 +383,20 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                         Icon(Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = if (complianceStatus == ComplianceStatus.SUBVERSIVE) "Export locked" else "Export JSON Backup",
+                            text = "Export ZIP Backup",
                             fontWeight = FontWeight.Black
                         )
                     }
 
-                    // Import JSON Button
+                    // Restore Backup Button
                     OutlinedButton(
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             openZipLauncher.launch(arrayOf("application/zip", "application/x-zip-compressed", "*/*"))
                         },
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = complianceStatus != ComplianceStatus.SUBVERSIVE,
                         shape = RectangleShape,
-                        border = BorderStroke(1.dp, if (complianceStatus == ComplianceStatus.SUBVERSIVE) Color.DarkGray else MaterialTheme.colorScheme.primary),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
                         colors = ButtonDefaults.outlinedButtonColors(
                             contentColor = MaterialTheme.colorScheme.primary,
                             disabledContentColor = Color.DarkGray
@@ -390,7 +405,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                         Icon(Icons.Default.FileUpload, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = if (complianceStatus == ComplianceStatus.SUBVERSIVE) "Restore locked" else "Restore JSON Backup",
+                            text = "Restore Backup",
                             fontWeight = FontWeight.Black
                         )
                     }
@@ -402,9 +417,8 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                             createCsvLauncher.launch("MacroMandate_Export_${System.currentTimeMillis()}.csv")
                         },
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = complianceStatus != ComplianceStatus.SUBVERSIVE,
                         shape = RectangleShape,
-                        border = BorderStroke(1.dp, if (complianceStatus == ComplianceStatus.SUBVERSIVE) Color.DarkGray else Color.Gray),
+                        border = BorderStroke(1.dp, Color.Gray),
                         colors = ButtonDefaults.outlinedButtonColors(
                             contentColor = Color.White,
                             disabledContentColor = Color.DarkGray
@@ -413,7 +427,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                         Icon(Icons.Default.Description, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = if (complianceStatus == ComplianceStatus.SUBVERSIVE) "Export locked" else "Export CSV Spreadsheet",
+                            text = "Export CSV Spreadsheet",
                             fontWeight = FontWeight.Bold
                         )
                     }

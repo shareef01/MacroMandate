@@ -1,0 +1,178 @@
+name: Signed Android Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Release action (rehearse creates a temporary draft)"
+        type: choice
+        options: [draft, publish, rehearse]
+        default: draft
+
+permissions:
+  contents: read
+
+concurrency:
+  group: signed-android-release
+  cancel-in-progress: false
+
+jobs:
+  sign:
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-26.04
+    environment: release-signing
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.verify.outputs.version }}
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@0f4528296b4bc09e8ae0fc7be30185a4ab435545 # v6.0.0
+        with:
+          cache-disabled: true
+      - name: Install Android SDK packages
+        run: sdkmanager "platforms;android-37.0" "build-tools;36.1.0"
+      - name: Restore signing keystore
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "$RELEASE_KEYSTORE_BASE64"
+          mkdir -p "$RUNNER_TEMP/macromandate-signing"
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/macromandate-signing/release.p12"
+      - name: Build signed APK and bundle
+        env:
+          RELEASE_STORE_FILE: ${{ runner.temp }}/macromandate-signing/release.p12
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: ./gradlew assembleRelease bundleRelease -PproductionRelease=true --no-configuration-cache --stacktrace
+      - name: Verify signatures and prepare APK assets
+        id: verify
+        env:
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_CERT_SHA256: ${{ secrets.RELEASE_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          trap 'echo "::error::APK and bundle verification failed at shell line $LINENO."' ERR
+          build_tools="${ANDROID_HOME:?}/build-tools/36.1.0"
+          test -x "$build_tools/apksigner"
+          apk_dir=app/build/outputs/apk/release
+          apk="$apk_dir/app-release.apk"
+          aab=app/build/outputs/bundle/release/app-release.aab
+          test -s "$apk"
+          test -s "$aab"
+          if ! "$build_tools/zipalign" -c -P 16 4 "$apk"; then
+            echo "::error::Release APK failed ZIP alignment verification."
+            exit 1
+          fi
+          verification=$("$build_tools/apksigner" verify --print-certs "$apk")
+          actual=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' <<< "$verification")
+          expected=$(printf '%s' "$RELEASE_CERT_SHA256" | tr -d ':[:space:]')
+          [[ "$expected" =~ ^[[:xdigit:]]{64}$ ]]
+          if [[ "${actual,,}" != "${expected,,}" ]]; then
+            echo "::error::APK signature does not match the expected release certificate."
+            exit 1
+          fi
+          test "$(grep -c '^Signer #[0-9]* certificate SHA-256 digest:' <<< "$verification")" -eq 1
+
+          signing_dir="$RUNNER_TEMP/macromandate-signing"
+          keytool -exportcert -keystore "$signing_dir/release.p12" \
+            -storepass:env RELEASE_STORE_PASSWORD -alias "$RELEASE_KEY_ALIAS" \
+            -file "$signing_dir/cert.der"
+          test "$(sha256sum "$signing_dir/cert.der" | cut -d ' ' -f 1)" = "${expected,,}"
+          keytool -importcert -noprompt -alias release -file "$signing_dir/cert.der" \
+            -keystore "$signing_dir/trust.p12" -storepass changeit
+          jarsigner -verify -strict -keystore "$signing_dir/trust.p12" \
+            -storepass changeit "$aab" release
+
+          badging=$("$build_tools/aapt2" dump badging "$apk")
+          version=$(sed -n "s/^package: name='com.sharek.macromandate' versionCode='[1-9][0-9]*' versionName='\([0-9]\+\.[0-9]\+\.[0-9]\+\)'.*/\1/p" <<< "$badging")
+          test -n "$version"
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+          mkdir release-assets
+          name="MacroMandate-$version.apk"
+          cp "$apk" "release-assets/$name"
+          cd release-assets
+          sha256sum "$name" > "$name.sha256"
+      - name: Remove signing files
+        if: always()
+        run: rm -rf -- "$RUNNER_TEMP/macromandate-signing"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: signed-release-apk
+          path: release-assets/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: signed-release-aab
+          path: app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+
+  release:
+    needs: sign
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: signed-release-apk
+      - name: Attach APK and checksum to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.sign.outputs.version }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          tag="v$VERSION"
+          if [[ "$MODE" == rehearse ]]; then
+            tag="$tag-rehearsal-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          fi
+          # Never change an existing tag or release.
+          refs=$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$tag")
+          jq -e --arg ref "refs/tags/$tag" 'all(.[]; .ref != $ref)' <<< "$refs" > /dev/null
+          releases=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100")
+          jq -e --arg tag "$tag" 'all(.[][]; .tag_name != $tag)' <<< "$releases" > /dev/null
+
+          apk="MacroMandate-$VERSION.apk"
+          checksum="$apk.sha256"
+          sha256sum --check --strict "$checksum"
+          gh release create "$tag" "$apk" "$checksum" --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" --title "MacroMandate $VERSION" --draft --generate-notes
+          release=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json databaseId,isDraft,targetCommitish,url)
+          jq -e --arg sha "$GITHUB_SHA" '.isDraft and .targetCommitish == $sha' <<< "$release" > /dev/null
+          id=$(jq -r '.databaseId' <<< "$release")
+          assets=$(gh api "repos/$GITHUB_REPOSITORY/releases/$id/assets")
+          jq -e 'length == 2' <<< "$assets" > /dev/null
+          for file in "$apk" "$checksum"; do
+            digest="sha256:$(sha256sum "$file" | cut -d ' ' -f 1)"
+            jq -e --arg name "$file" --arg digest "$digest" \
+              'any(.[]; .name == $name and .state == "uploaded" and .digest == $digest)' <<< "$assets" > /dev/null
+          done
+
+          case "$MODE" in
+            rehearse)
+              gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/$id"
+              echo "Verified both assets and removed the temporary rehearsal draft." >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            draft)
+              printf 'Verified draft: %s\n' "$(jq -r '.url' <<< "$release")" >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            publish)
+              gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+              published=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json url,isDraft)
+              jq -er 'select(.isDraft == false) | .url' <<< "$published" >> "$GITHUB_STEP_SUMMARY"
+              test "$(gh api "repos/$GITHUB_REPOSITORY/commits/$tag" --jq .sha)" = "$GITHUB_SHA"
+              ;;
+            *) exit 1 ;;
+          esac
