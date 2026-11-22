@@ -36,7 +36,8 @@ jobs:
         with:
           cache-disabled: true
       - name: Install Android SDK packages
-        run: "${ANDROID_HOME:?}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;36.1.0"
+        run: |
+          "${ANDROID_HOME:?}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;36.1.0"
       - name: Restore signing keystore
         env:
           RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
