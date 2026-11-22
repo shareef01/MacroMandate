@@ -1,5 +1,5 @@
-import java.net.URI
 import java.util.Properties
+import java.net.URI
 
 // Loaded once and shared by the signing config and the BuildConfig fields below.
 // local.properties is gitignored, so nothing here reaches version control.
@@ -10,20 +10,22 @@ val localProperties = Properties().apply {
     }
 }
 
-fun releaseSecret(name: String): String? =
-    providers.environmentVariable(name).orElse(providers.gradleProperty(name)).orNull
-
-val releaseStorePath = releaseSecret("RELEASE_STORE_FILE")
-val releaseStorePassword = releaseSecret("RELEASE_STORE_PASSWORD")
-val releaseKeyAlias = releaseSecret("RELEASE_KEY_ALIAS")
-val releaseKeyPassword = releaseSecret("RELEASE_KEY_PASSWORD")
-
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
 }
+
+fun signingValue(name: String): String? =
+    providers.environmentVariable(name).orElse(providers.gradleProperty(name)).orNull
+        ?: localProperties.getProperty(name)
+
+val releaseStorePath = signingValue("RELEASE_STORE_FILE")
+val releaseStorePassword = signingValue("RELEASE_STORE_PASSWORD")
+val releaseKeyAlias = signingValue("RELEASE_KEY_ALIAS")
+val releaseKeyPassword = signingValue("RELEASE_KEY_PASSWORD")
+val signingReady = listOf(releaseStorePassword, releaseKeyAlias, releaseKeyPassword)
+    .none { it.isNullOrBlank() } && releaseStorePath?.let { file(it).isFile } == true
 
 android {
     namespace = "com.sharek.macromandate"
@@ -33,20 +35,20 @@ android {
         applicationId = "com.sharek.macromandate"
         minSdk = 29
         targetSdk = 37
-        versionCode = 4
-        versionName = "1.0.3"
+        versionCode = 5
+        versionName = "1.0.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
-    // Populated from environment variables or user-level Gradle properties.
-    // Left unconfigured on machines that
+    // Populated from local.properties (RELEASE_STORE_FILE, RELEASE_STORE_PASSWORD,
+    // RELEASE_KEY_ALIAS, RELEASE_KEY_PASSWORD). Left unconfigured on machines that
     // have no keystore, so assembleRelease still succeeds and simply emits an
     // unsigned APK rather than failing the build.
     signingConfigs {
         create("release") {
-            if (!releaseStorePath.isNullOrBlank() && file(releaseStorePath).isFile) {
-                storeFile = file(releaseStorePath)
+            if (signingReady) {
+                storeFile = file(requireNotNull(releaseStorePath))
                 storePassword = releaseStorePassword
                 keyAlias = releaseKeyAlias
                 keyPassword = releaseKeyPassword
@@ -55,27 +57,23 @@ android {
     }
 
     buildTypes {
-        val hfKey = localProperties.getProperty("HUGGINGFACE_API_KEY") ?: ""
-
-        // A string constant in BuildConfig is recoverable from any installed APK
-        // with `apktool`/`strings` in seconds — compiling a credential into a
-        // build you intend to hand to anyone else publishes it. The debug build
-        // keeps the convenience; the release build refuses.
-        //
-        // Override deliberately with -PallowEmbeddedKey=true if you are building
-        // a private release for yourself and accept that the key ships with it.
-        val allowEmbeddedKey = (project.findProperty("allowEmbeddedKey") as? String)?.toBoolean() == true
-        // Overridable so the app can be pointed at a backend proxy that holds the
-        // credential, instead of shipping one inside the APK. Set
-        // MANDATE_API_BASE_URL in local.properties; must end with a trailing slash.
+        // Custom OpenAI-compatible endpoints can be configured in local.properties.
+        // MANDATE_API_BASE_URL must end with a slash.
         val apiBaseUrl = localProperties.getProperty("MANDATE_API_BASE_URL")
             ?: "https://openrouter.ai/api/"
-        val defaultModel = if (URI(apiBaseUrl.trim()).host.equals("openrouter.ai", ignoreCase = true)) {
+        val apiHost = runCatching { URI(apiBaseUrl.trim()).host }.getOrNull()
+        val defaultModel = if (apiHost.equals("openrouter.ai", ignoreCase = true)) {
             "openrouter/free"
         } else {
             "google/gemma-4-31B-it"
         }
-        val modelId = localProperties.getProperty("MANDATE_MODEL_ID") ?: defaultModel
+        val modelId = localProperties.getProperty("MANDATE_MODEL_ID")
+            ?: defaultModel
+        val hfKey = if (apiBaseUrl.trim() == "https://router.huggingface.co/") {
+            localProperties.getProperty("HUGGINGFACE_API_KEY").orEmpty()
+        } else {
+            ""
+        }
 
         debug {
             buildConfigField("String", "HUGGINGFACE_API_KEY", "\"$hfKey\"")
@@ -89,33 +87,16 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // Always empty unless explicitly overridden: see the guard above.
-            buildConfigField(
-                "String",
-                "HUGGINGFACE_API_KEY",
-                "\"${if (allowEmbeddedKey) hfKey else ""}\""
-            )
+            buildConfigField("String", "HUGGINGFACE_API_KEY", "\"\"")
             buildConfigField("String", "MANDATE_API_BASE_URL", "\"$apiBaseUrl\"")
             buildConfigField("String", "MANDATE_MODEL_ID", "\"$modelId\"")
             signingConfig = signingConfigs.getByName("release").takeIf { it.storeFile != null }
-        }
-    }
-    sourceSets {
-        getByName("main") {
-            java.srcDirs("src/main/java")
-        }
-        getByName("androidTest") {
-            assets.srcDirs("$projectDir/schemas")
         }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
     buildFeatures {
         compose = true
         buildConfig = true
@@ -133,43 +114,23 @@ abstract class VerifyReleaseGuard : DefaultTask() {
     }
 }
 
-val hasEmbeddedKey = !localProperties.getProperty("HUGGINGFACE_API_KEY").isNullOrBlank()
-val embeddedKeyOverride = providers.gradleProperty("allowEmbeddedKey").orNull?.toBoolean() == true
-val productionReleaseRequested = providers.gradleProperty("productionRelease").orNull?.toBoolean() == true
-
 val verifyReleaseConfiguration by tasks.registering(VerifyReleaseGuard::class) {
     group = "verification"
-    description = "Rejects credentials that must never be embedded in a distributable build."
     failureMessage.set(
-        if (hasEmbeddedKey && !embeddedKeyOverride) {
-            "MM_RELEASE_EMBEDDED_API_KEY_FORBIDDEN: HUGGINGFACE_API_KEY must not be embedded in a release."
-        } else {
-            ""
-        }
+        if (localProperties.getProperty("HUGGINGFACE_API_KEY").isNullOrBlank()) ""
+        else "MM_RELEASE_EMBEDDED_API_KEY_FORBIDDEN: Remove HUGGINGFACE_API_KEY from local.properties before a release build."
     )
-}
-
-val signingStoreExists = releaseStorePath?.takeIf { it.isNotBlank() }?.let { file(it).isFile } == true
-val missingSigningSettings = buildList {
-    if (!signingStoreExists) add("RELEASE_STORE_FILE")
-    if (releaseStorePassword.isNullOrBlank()) add("RELEASE_STORE_PASSWORD")
-    if (releaseKeyAlias.isNullOrBlank()) add("RELEASE_KEY_ALIAS")
-    if (releaseKeyPassword.isNullOrBlank()) add("RELEASE_KEY_PASSWORD")
 }
 
 val verifyProductionSigning by tasks.registering(VerifyReleaseGuard::class) {
     group = "verification"
-    description = "Fails unless all production signing credentials are configured."
     dependsOn(verifyReleaseConfiguration)
     failureMessage.set(
-        if (missingSigningSettings.isNotEmpty()) {
-            "MM_RELEASE_SIGNING_CONFIGURATION_MISSING: " + missingSigningSettings.joinToString()
-        } else {
-            ""
-        }
+        if (signingReady) "" else "MM_RELEASE_SIGNING_CONFIGURATION_MISSING: Configure the release signing credentials."
     )
 }
 
+val productionReleaseRequested = providers.gradleProperty("productionRelease").orNull?.toBoolean() == true
 tasks.configureEach {
     if (name in setOf("assembleRelease", "bundleRelease", "lintRelease")) {
         dependsOn(verifyReleaseConfiguration)
@@ -180,14 +141,13 @@ tasks.configureEach {
 }
 
 ksp {
-    // Exported schemas (app/schemas) are what MigrationTest reads to verify that
-    // every version upgrade preserves rows. Keep them in version control.
+    // Keep historical Room schemas available for migration verification.
     arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {
     constraints {
-        implementation("com.google.guava:guava:33.7.2-android") {
+        implementation(libs.guava.android) {
             because("CVE-2026-102554 is fixed in Guava 33.7.2-android")
         }
     }
@@ -197,6 +157,7 @@ dependencies {
     implementation(libs.androidx.fragment.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.exifinterface)
     implementation(libs.androidx.camera.core)
     implementation(libs.androidx.camera.camera2)
     implementation(libs.androidx.camera.lifecycle)
@@ -218,7 +179,10 @@ dependencies {
     implementation(libs.play.services.location)
     implementation(libs.coil.compose)
     implementation(libs.androidx.core.splashscreen)
-    implementation(libs.androidx.exifinterface)
+    implementation(libs.mlkit.barcode)
+    implementation(libs.androidx.paging.runtime)
+    implementation(libs.androidx.paging.compose)
+    implementation(libs.androidx.room.paging)
     ksp(libs.androidx.room.compiler)
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
@@ -227,7 +191,6 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     testImplementation(libs.junit)
     testImplementation(libs.json)
-    androidTestImplementation(libs.androidx.room.testing)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)

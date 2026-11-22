@@ -3,6 +3,7 @@ package com.sharek.macromandate.notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.sharek.macromandate.R
@@ -13,43 +14,35 @@ object NotificationManagerHelper {
     private const val NOTIFICATION_ID = 1001
     const val HUD_NOTIFICATION_ID = 1002
 
-    // minSdk is 29, so notification channels always exist; the SDK_INT guard
-    // this used to carry could never be false.
     fun createNotificationChannel(context: Context) {
-        run {
-            // DEFAULT, not HIGH: IMPORTANCE_HIGH means a heads-up card that
-            // interrupts whatever the user is doing. "You have not logged lunch"
-            // does not warrant that, and an app that interrupts people about food
-            // several times a day gets its notifications turned off entirely.
-            val enforcementChannel = NotificationChannel(
-                CHANNEL_ID,
-                context.getString(R.string.notification_channel_reminders),
-                NotificationManager.IMPORTANCE_DEFAULT
-            ).apply {
-                description = context.getString(R.string.notification_channel_reminders_description)
-            }
-            
-            val hudChannel = NotificationChannel(
-                HUD_CHANNEL_ID,
-                context.getString(R.string.notification_channel_daily_total),
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = context.getString(R.string.notification_channel_daily_total_description)
-            }
-            
-            val notificationManager: NotificationManager =
-                context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.createNotificationChannel(enforcementChannel)
-            notificationManager.createNotificationChannel(hudChannel)
+        val enforcementChannel = NotificationChannel(
+            CHANNEL_ID, 
+            "Meal reminders", 
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "Reminders when a meal has not been logged"
         }
+        
+        val hudChannel = NotificationChannel(
+            HUD_CHANNEL_ID,
+            "Daily total",
+            NotificationManager.IMPORTANCE_LOW // Ongoing persistent info
+        ).apply {
+            description = "Ongoing notification showing today's calories"
+        }
+        
+        val notificationManager: NotificationManager =
+            context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.createNotificationChannel(enforcementChannel)
+        notificationManager.createNotificationChannel(hudChannel)
     }
 
     fun postComplianceNotification(context: Context) {
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
-            .setContentTitle(context.getString(R.string.notification_meal_overdue_title))
-            .setContentText(context.getString(R.string.notification_meal_overdue_body))
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setContentTitle("Meal overdue")
+            .setContentText("You haven't logged a meal in a while.")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
 
         with(NotificationManagerCompat.from(context)) {

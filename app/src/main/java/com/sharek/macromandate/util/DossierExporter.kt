@@ -1,70 +1,66 @@
 package com.sharek.macromandate.util
 
+import android.content.Context
+import android.net.Uri
+import java.io.BufferedInputStream
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.InputStream
+import java.io.OutputStream
+import java.util.zip.CheckedInputStream
+import java.util.zip.CRC32
+import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
+import java.util.zip.ZipOutputStream
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import com.sharek.macromandate.model.MealEntry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.*
 
-/**
- * Summary of a parsed JSON backup file for preview before committing to Room.
- */
-data class BackupParseSummary(
-    val version: Int,
-    val exportedAt: Long?,
-    val totalInArchive: Int,
-    val validMeals: List<MealEntry>,
-    val skippedCount: Int,
-    val hasImages: Boolean
-)
-
-/**
- * Writes and reads meal history for export and restore.
- *
- * This handles **meal-record history**, not full database snapshots (API keys,
- * settings, and raw image binaries are intentionally excluded).
- */
 object DossierExporter {
 
-    const val BACKUP_VERSION = 1
-    internal const val MAX_BACKUP_CHARS = 10 * 1024 * 1024 // 10 MB
-    internal const val MAX_MEAL_COUNT = 50_000
-    internal const val MAX_JSON_NESTING = 64
-    private const val UNKNOWN_MEAL_NAME = "RESTORED MEAL"
-    private const val MAX_URI_LENGTH = 512
-    private const val MAX_LATITUDE = 90.0
-    private const val MAX_LONGITUDE = 180.0
-    private val FORMULA_TRIGGERS = charArrayOf('=', '+', '-', '@', '\t', '\r')
-
-    // 2020-01-01 00:00:00 UTC. The app did not exist before this; any timestamp
-    // earlier is corrupted data, not history.
-    private const val EARLIEST_PLAUSIBLE_TIMESTAMP = 1577836800000L
+    private const val BACKUP_VERSION = 1
+    private const val ZIP_VERSION = 2
+    private const val MANIFEST = "manifest.json"
+    private const val MAX_JSON_BYTES = 16L * 1024 * 1024
+    private const val MAX_EXPANDED_BYTES = 512L * 1024 * 1024
+    private const val MAX_ARCHIVE_BYTES = 520L * 1024 * 1024
+    private const val MAX_MEALS = 50_000
+    private val recordId = Regex("[A-Za-z0-9_-]{1,128}")
+    // Excel/Sheets evaluate a cell as a formula when it opens with one of these.
+    private val FORMULA_TRIGGERS = charArrayOf('=', '+', '-', '@', '\t', '\r', '\n', '\uff1d', '\uff0b', '\uff0d', '\uff20')
 
     suspend fun generateCsv(meals: List<MealEntry>): String = withContext(Dispatchers.IO) {
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
         val sb = StringBuilder()
-        // UTF-8 BOM so Excel opens accented characters without manual import steps.
-        sb.append('\uFEFF')
-        sb.append("ID,Timestamp,FoodName,Calories,ProteinGrams,CarbsGrams,FatGrams,IsLiquid\r\n")
+        sb.append("ID,Timestamp,FoodName,Calories,Protein,Carbs,Fat,IsLiquid\n")
 
         meals.forEach { meal ->
-            sb.append(csvCell(meal.id)).append(',')
-            sb.append(meal.timestamp).append(',')
-            sb.append(csvCell(meal.foodName)).append(',')
-            sb.append(meal.calories).append(',')
-            sb.append(meal.proteinGrams).append(',')
-            sb.append(meal.carbsGrams).append(',')
-            sb.append(meal.fatGrams).append(',')
-            sb.append(meal.isLiquid).append("\r\n")
+            val timestamp = dateFormat.format(Date(meal.timestamp))
+            sb.append("\"${escapeCsvField(meal.id)}\",")
+            sb.append("$timestamp,")
+            sb.append("\"${escapeCsvField(meal.foodName)}\",")
+            sb.append("${meal.calories},")
+            sb.append("${meal.proteinGrams},")
+            sb.append("${meal.carbsGrams},")
+            sb.append("${meal.fatGrams},")
+            sb.append("${meal.isLiquid}\n")
         }
         sb.toString()
     }
 
-    /** Wraps a field in RFC-4180 quotes after neutralizing formula injection. */
-    private fun csvCell(value: String): String = "\"${escapeCsvField(value)}\""
-
     suspend fun generateJson(meals: List<MealEntry>): String = withContext(Dispatchers.IO) {
+        manifest(meals, BACKUP_VERSION, MealEntry::imageUri)
+    }
+
+    private fun manifest(meals: List<MealEntry>, version: Int, photo: (MealEntry) -> String?): String {
         val root = JSONObject()
-        root.put("version", BACKUP_VERSION)
+        root.put("version", version)
         root.put("exportedAt", System.currentTimeMillis())
         root.put("count", meals.size)
 
@@ -79,7 +75,7 @@ object DossierExporter {
                 put("carbsGrams", meal.carbsGrams.toDouble())
                 put("fatGrams", meal.fatGrams.toDouble())
                 put("isLiquid", meal.isLiquid)
-                if (meal.imageUri != null) put("imageUri", meal.imageUri)
+                photo(meal)?.let { put("imageUri", it) }
                 if (meal.latitude != null) put("latitude", meal.latitude)
                 if (meal.longitude != null) put("longitude", meal.longitude)
                 if (meal.assessment != null) put("assessment", meal.assessment)
@@ -89,179 +85,197 @@ object DossierExporter {
             array.put(obj)
         }
         root.put("meals", array)
-        root.toString(2)
+        return if (version == BACKUP_VERSION) root.toString(2) else root.toString()
     }
 
-    /** Why a restore could not proceed, in terms the user can act on. */
-    sealed class RestoreError {
-        object NotAnArchive : RestoreError()
-        data class UnsupportedVersion(val found: Int) : RestoreError()
-        object TooLarge : RestoreError()
-        object TooManyMeals : RestoreError()
+    suspend fun parseJsonBackup(jsonString: String): List<MealEntry>? = withContext(Dispatchers.IO) {
+        try {
+            parseManifest(JSONObject(jsonString), BACKUP_VERSION)
+        } catch (_: Exception) {
+            null
+        }
     }
 
-    /**
-     * Reads a backup file and produces a structured [BackupParseSummary].
-     *
-     * Validates bounds, enforces deterministic legacy IDs for missing IDs,
-     * and nullifies dead image paths that don't exist on disk if [fileVerifier] is provided.
-     */
-    suspend fun parseJsonBackupSummary(
-        jsonString: String,
-        fileVerifier: ((String) -> Boolean)? = null
-    ): Result<BackupParseSummary> = withContext(Dispatchers.IO) {
-        if (jsonString.length > MAX_BACKUP_CHARS) {
-            return@withContext Result.failure(RestoreException(RestoreError.TooLarge))
+    private fun parseManifest(root: JSONObject, version: Int): List<MealEntry> {
+        require(root.getInt("version") == version) { "Unsupported backup version." }
+        val array = root.getJSONArray("meals")
+        require(array.length() <= MAX_MEALS && root.optInt("count", array.length()) == array.length()) {
+            "Invalid backup record count."
         }
-        if (exceedsJsonNesting(jsonString, MAX_JSON_NESTING)) {
-            return@withContext Result.failure(RestoreException(RestoreError.NotAnArchive))
-        }
-
-        val root = try {
-            JSONObject(jsonString)
-        } catch (e: Exception) {
-            return@withContext Result.failure(RestoreException(RestoreError.NotAnArchive))
-        }
-
-        val version = root.optInt("version", -1)
-        if (version <= 0) {
-            return@withContext Result.failure(RestoreException(RestoreError.NotAnArchive))
-        }
-        if (version > BACKUP_VERSION) {
-            return@withContext Result.failure(RestoreException(RestoreError.UnsupportedVersion(version)))
-        }
-
-        val array = root.optJSONArray("meals")
-            ?: return@withContext Result.failure(RestoreException(RestoreError.NotAnArchive))
-
-        val exportedAt = if (root.has("exportedAt")) root.optLong("exportedAt") else null
-        val totalCount = array.length()
-        if (totalCount > MAX_MEAL_COUNT) {
-            return@withContext Result.failure(RestoreException(RestoreError.TooManyMeals))
-        }
-        val meals = ArrayList<MealEntry>(totalCount)
-        val seenIds = HashSet<String>(totalCount)
-        var skipped = 0
-        var hasImages = false
-
-        for (i in 0 until totalCount) {
-            val obj = array.optJSONObject(i)
-            if (obj == null) {
-                skipped++
-                continue
+        val ids = HashSet<String>()
+        return List(array.length()) { i ->
+            val obj = array.getJSONObject(i)
+            val id = obj.getString("id")
+            require(recordId.matches(id) && ids.add(id)) { "Invalid or duplicate meal ID." }
+            val timestamp = obj.optLong("timestamp", System.currentTimeMillis())
+            val foodName = obj.optString("foodName", "UNKNOWN REFUELING")
+            val calories = obj.optInt("calories", 0)
+            val protein = obj.optDouble("proteinGrams", 0.0).toFloat()
+            val carbs = obj.optDouble("carbsGrams", 0.0).toFloat()
+            val fat = obj.optDouble("fatGrams", 0.0).toFloat()
+            val isLiquid = obj.optBoolean("isLiquid", false)
+            val imageUri = if (obj.has("imageUri")) obj.getString("imageUri") else null
+            require(calories >= 0 && listOf(protein, carbs, fat).all { it.isFinite() && it >= 0f }) {
+                "Invalid meal nutrition."
             }
+            val latitude = if (obj.has("latitude") && !obj.isNull("latitude")) obj.getDouble("latitude") else null
+            val longitude = if (obj.has("longitude") && !obj.isNull("longitude")) obj.getDouble("longitude") else null
+            require(latitude == null || latitude in -90.0..90.0) { "Invalid latitude." }
+            require(longitude == null || longitude in -180.0..180.0) { "Invalid longitude." }
+            val assessment = if (obj.has("assessment") && !obj.isNull("assessment")) obj.getString("assessment") else null
+            val isRestricted = obj.optBoolean("isRestricted", false)
+            val isNightRefueling = obj.optBoolean("isNightRefueling", false)
 
-            val declaredId = obj.optString("id").trim()
-            // Deterministic legacy identity based on stable canonical fields
-            val id = if (declaredId.isEmpty()) {
-                val canonicalKey = "${obj.optLong("timestamp", 0L)}_${obj.optString("foodName", "").trim()}_${obj.optInt("calories", 0)}"
-                "legacy_" + canonicalKey.hashCode().toUInt().toString(16)
-            } else declaredId
-
-            // Duplicate ID within archive: keep the first, drop duplicate deterministically
-            if (!seenIds.add(id)) {
-                skipped++
-                continue
-            }
-
-            val rawImageUri = obj.optString("imageUri", "")
-            val sanitizedImageUri = sanitizeImageUri(rawImageUri, fileVerifier)
-            if (sanitizedImageUri != null) {
-                hasImages = true
-            }
-
-            val protein = NutritionBounds.clampGrams(obj.optDouble("proteinGrams", 0.0).toFloat())
-            val carbs = NutritionBounds.clampGrams(obj.optDouble("carbsGrams", 0.0).toFloat())
-            val fat = NutritionBounds.clampGrams(obj.optDouble("fatGrams", 0.0).toFloat())
-
-            meals.add(
-                MealEntry(
+            MealEntry(
                     id = id,
-                    timestamp = clampTimestamp(obj.optLong("timestamp", System.currentTimeMillis())),
-                    imageUri = sanitizedImageUri,
-                    foodName = NutritionBounds.clampName(obj.optString("foodName", ""), UNKNOWN_MEAL_NAME),
-                    calories = NutritionBounds.clampCalories(obj.optDouble("calories", 0.0)),
+                    timestamp = timestamp,
+                    imageUri = imageUri,
+                    foodName = foodName,
+                    calories = calories,
                     proteinGrams = protein,
                     carbsGrams = carbs,
                     fatGrams = fat,
-                    isLiquid = obj.optBoolean("isLiquid", false),
-                    latitude = readCoordinate(obj, "latitude", MAX_LATITUDE),
-                    longitude = readCoordinate(obj, "longitude", MAX_LONGITUDE),
-                    assessment = NutritionBounds.clampAssessment(obj.optString("assessment", "")),
-                    isRestricted = obj.optBoolean("isRestricted", false),
-                    isNightRefueling = obj.optBoolean("isNightRefueling", false)
+                    isLiquid = isLiquid,
+                    latitude = latitude,
+                    longitude = longitude,
+                    assessment = assessment,
+                    isRestricted = isRestricted,
+                    isNightRefueling = isNightRefueling
                 )
-            )
         }
-
-        Result.success(
-            BackupParseSummary(
-                version = version,
-                exportedAt = exportedAt,
-                totalInArchive = totalCount,
-                validMeals = meals,
-                skippedCount = skipped,
-                hasImages = hasImages
-            )
-        )
     }
 
-    /**
-     * Legacy entry point returning just the meal entries. Preserves backward compatibility.
-     */
-    suspend fun parseJsonBackup(jsonString: String): Result<List<MealEntry>> =
-        parseJsonBackupSummary(jsonString).map { it.validMeals }
+    private fun photoEntry(index: Int) = "photos/" + index + ".jpg"
 
-    class RestoreException(val error: RestoreError) : Exception(error.toString())
-
-    internal fun exceedsJsonNesting(text: String, maximum: Int): Boolean {
-        var depth = 0
-        var inString = false
-        var escaped = false
-        for (character in text) {
-            if (escaped) {
-                escaped = false
-            } else if (character == '\\' && inString) {
-                escaped = true
-            } else if (character == '"') {
-                inString = !inString
-            } else if (!inString && (character == '{' || character == '[')) {
-                depth++
-                if (depth > maximum) return true
-            } else if (!inString && (character == '}' || character == ']')) {
-                depth--
+    suspend fun exportBackupZip(context: Context, meals: List<MealEntry>, output: OutputStream) =
+        withContext(Dispatchers.IO) {
+            require(meals.size <= MAX_MEALS && meals.all { recordId.matches(it.id) }) {
+                "Meal records exceed the supported backup limits."
+            }
+            val photoNames = HashMap<String, String>()
+            val photos = meals.mapIndexedNotNull { index, meal ->
+                val uri = meal.imageUri ?: return@mapIndexedNotNull null
+                val name = photoEntry(index)
+                val file = EvidenceStore.ownedFile(context, Uri.parse(uri))
+                require(file?.isFile == true) { "A meal photo is unavailable. CSV can export the meal records." }
+                require(file.length() in 1..EvidenceStore.MAX_EVIDENCE_BYTES) { "A photo exceeds the backup limits." }
+                photoNames[meal.id] = name
+                name to file
+            }
+            val json = manifest(meals, ZIP_VERSION) { photoNames[it.id] }.toByteArray(Charsets.UTF_8)
+            require(json.size <= MAX_JSON_BYTES && photos.sumOf { it.second.length() } + json.size <= MAX_EXPANDED_BYTES) {
+                "Backup exceeds the supported size limit."
+            }
+            ZipOutputStream(output).use { zip ->
+                zip.putNextEntry(ZipEntry(MANIFEST))
+                zip.write(json)
+                zip.closeEntry()
+                photos.forEach { (name, file) ->
+                    currentCoroutineContext().ensureActive()
+                    zip.putNextEntry(ZipEntry(name))
+                    file.inputStream().use { EvidenceStore.copyBounded(it, zip, EvidenceStore.MAX_EVIDENCE_BYTES) }
+                    zip.closeEntry()
+                }
             }
         }
-        return false
-    }
-
-    private fun clampTimestamp(value: Long): Long {
-        val now = System.currentTimeMillis()
-        return value.coerceIn(EARLIEST_PLAUSIBLE_TIMESTAMP, now)
-    }
-
-    private fun readCoordinate(obj: JSONObject, key: String, limit: Double): Double? {
-        if (!obj.has(key) || obj.isNull(key)) return null
-        val value = obj.optDouble(key, Double.NaN)
-        if (value.isNaN() || value.isInfinite() || value < -limit || value > limit) return null
-        return value
-    }
 
     /**
-     * Syntax is bounded here; actual ownership is delegated to EvidenceStore via
-     * [fileVerifier], keeping filesystem trust in one canonical implementation.
+     * Validates a complete archive before writing evidence. The caller serializes this with
+     * meal mutations and inserts the returned rows in a single Room transaction.
      */
-    internal fun sanitizeImageUri(raw: String, fileVerifier: ((String) -> Boolean)? = null): String? {
-        val value = raw.trim()
-        if (value.isEmpty()) return null
-        if (value.length > MAX_URI_LENGTH) return null
-        if (fileVerifier == null || !fileVerifier(value)) return null
-        return value
+    suspend fun importBackup(context: Context, source: InputStream): List<MealEntry> {
+        val input = BufferedInputStream(source)
+        input.mark(1)
+        val prefix = input.read()
+        input.reset()
+        val job = currentCoroutineContext()
+        if (prefix != 'P'.code) {
+            val bytes = ByteArrayOutputStream()
+            EvidenceStore.copyBounded(input, bytes, MAX_JSON_BYTES) { job.ensureActive() }
+            return parseManifest(JSONObject(bytes.toString(Charsets.UTF_8.name())), BACKUP_VERSION)
+                .map { it.copy(imageUri = null) }
+        }
+
+        val archive = File.createTempFile("dossier-", ".backup", context.cacheDir)
+        try {
+            archive.outputStream().use { output ->
+                EvidenceStore.copyBounded(input, output, MAX_ARCHIVE_BYTES) { job.ensureActive() }
+            }
+            return ZipFile(archive).use { zip ->
+                val json = ByteArrayOutputStream()
+                val manifest = zip.getEntry(MANIFEST) ?: error("Missing backup manifest.")
+                readEntry(zip, manifest, MAX_JSON_BYTES) { EvidenceStore.copyBounded(it, json, MAX_JSON_BYTES) }
+                val root = JSONObject(json.toString(Charsets.UTF_8.name()))
+                val version = root.getInt("version")
+                require(version == BACKUP_VERSION || version == ZIP_VERSION) { "Unsupported backup version." }
+                val meals = parseManifest(root, version)
+                val names = meals.mapIndexed { index, meal ->
+                    meal.imageUri?.let { reference ->
+                        if (version == BACKUP_VERSION) {
+                            // Version 1 wrote photos by the meal ID and saved local device URIs.
+                            (meal.id + ".jpg").takeIf { zip.getEntry(it) != null }
+                        } else {
+                            require(reference == photoEntry(index)) { "Invalid backup photo reference." }
+                            reference
+                        }
+                    }
+                }
+                val expected = names.filterNotNull().toSet() + MANIFEST
+                val entries = zip.entries()
+                val found = HashSet<String>()
+                var expanded = 0L
+                while (entries.hasMoreElements()) {
+                    val entry = entries.nextElement()
+                    require(entry.name in expected && found.add(entry.name) && !entry.isDirectory) {
+                        "Unexpected or duplicate backup entry."
+                    }
+                    val limit = if (entry.name == MANIFEST) MAX_JSON_BYTES else EvidenceStore.MAX_EVIDENCE_BYTES
+                    require(entry.size in 1..limit) { "Invalid backup entry size." }
+                    expanded += entry.size
+                    require(expanded <= MAX_EXPANDED_BYTES) { "Backup exceeds the supported size limit." }
+                }
+                require(found == expected) { "Backup is missing a referenced photo." }
+
+                val written = mutableListOf<Uri>()
+                try {
+                    meals.mapIndexed { index, meal ->
+                        currentCoroutineContext().ensureActive()
+                        val restored = names[index]?.let { name ->
+                            val entry = zip.getEntry(name)
+                            readEntry(zip, entry, EvidenceStore.MAX_EVIDENCE_BYTES) { image ->
+                                EvidenceStore.store(context, image, entry.size).also(written::add)
+                            }
+                        }
+                        meal.copy(imageUri = restored?.toString())
+                    }
+                } catch (e: Exception) {
+                    written.forEach { EvidenceStore.delete(context, it.toString()) }
+                    throw e
+                }
+            }
+        } finally {
+            archive.delete()
+        }
+    }
+
+    private fun <T> readEntry(zip: ZipFile, entry: ZipEntry, limit: Long, read: (InputStream) -> T): T {
+        require(entry.size in 1..limit) { "Invalid backup entry size." }
+        return CheckedInputStream(zip.getInputStream(entry), CRC32()).use { input ->
+            val result = read(input)
+            require(input.checksum.value == entry.crc) { "Backup entry failed its integrity check." }
+            result
+        }
     }
 
     internal fun escapeCsvField(field: String): String {
+        // LLM-generated food names can contain quotes and line breaks; quotes are
+        // doubled (RFC-4180) and newlines stripped so each record stays on one row.
         val flattened = field.replace("\r", " ").replace("\n", " ").replace("\"", "\"\"")
-        return if (flattened.isNotEmpty() && flattened[0] in FORMULA_TRIGGERS) {
+        // foodName comes back from the model, so it is attacker-influencable via the
+        // photo. Neutralize spreadsheet formula injection (including with leading whitespace)
+        // with a leading apostrophe.
+        val trimmedSpaces = field.dropWhile { it.isWhitespace() || it.isISOControl() || it == '\ufeff' }
+        return if (flattened.isNotEmpty() && (field[0] in FORMULA_TRIGGERS || (trimmedSpaces.isNotEmpty() && trimmedSpaces[0] in FORMULA_TRIGGERS))) {
             "'$flattened"
         } else {
             flattened

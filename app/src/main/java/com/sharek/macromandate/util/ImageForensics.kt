@@ -81,9 +81,9 @@ object ImageForensics {
                 ExifInterface.TAG_ORIENTATION,
                 ExifInterface.ORIENTATION_NORMAL
             ) ?: ExifInterface.ORIENTATION_NORMAL
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             // A missing or malformed EXIF block is not a reason to lose the photo.
-            Log.w(TAG, "Could not read EXIF orientation", e)
+            Log.w(TAG, "Could not read EXIF orientation")
             ExifInterface.ORIENTATION_NORMAL
         }
 
@@ -109,7 +109,7 @@ object ImageForensics {
         return try {
             Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
                 .also { rotated -> if (rotated !== bitmap) bitmap.recycle() }
-        } catch (e: OutOfMemoryError) {
+        } catch (_: OutOfMemoryError) {
             // Better an unrotated image than no image.
             Log.w(TAG, "Not enough memory to rotate; using the frame as decoded")
             bitmap
@@ -139,8 +139,8 @@ object ImageForensics {
                 if (!scaled.compress(Bitmap.CompressFormat.JPEG, quality, output)) return null
                 output.toByteArray()
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Could not re-encode analysis image", e)
+        } catch (_: Exception) {
+            Log.w(TAG, "Could not re-encode analysis image")
             null
         } catch (_: OutOfMemoryError) {
             null
@@ -159,8 +159,6 @@ object ImageForensics {
         timestamp: Long
     ): Uri? {
         try {
-            // Shared upright decode: the watermark must sit on the same
-            // orientation the model will see, or the text lands sideways.
             val decoded = decodeUpright(context, uri, maxDimension = 1600) ?: return null
 
             val mutableBitmap = decoded.copy(Bitmap.Config.ARGB_8888, true)
@@ -177,9 +175,6 @@ object ImageForensics {
                 setShadowLayer(2f, 1f, 1f, Color.BLACK)
             }
 
-            // Was "... 'UTC'" formatted with the device's default zone, which
-            // burned a false timezone claim into the image permanently. Use a
-            // real offset so the watermark states what it actually shows.
             val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ssXXX", Locale.US)
             val timeText = "TS: ${dateFormat.format(Date(timestamp))}"
             val idText = "ID: ${id.take(8).uppercase()}"
@@ -198,8 +193,8 @@ object ImageForensics {
             y -= paint.textSize + 10f
             canvas.drawText(idText, x, y, paint)
 
-            // Save back
-            val file = File(context.cacheDir, "watermarked_${id.take(8)}.jpg")
+            // Save directly into durable evidence store
+            val file = File.createTempFile("watermarked_", ".jpg", context.cacheDir)
             FileOutputStream(file).use { out ->
                 mutableBitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
             }
@@ -207,7 +202,7 @@ object ImageForensics {
 
             return Uri.fromFile(file)
         } catch (e: Exception) {
-            Log.w(TAG, "Could not watermark evidence image", e)
+            e.printStackTrace()
             return null
         }
     }

@@ -7,9 +7,9 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.sharek.macromandate.network.ApiConfig
 import com.sharek.macromandate.ui.theme.TerminalTheme
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
-import java.io.IOException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "mandate_prefs")
 
@@ -18,82 +18,53 @@ class MandatePreferences(private val context: Context) {
     companion object {
         val DAILY_CALORIE_TARGET = intPreferencesKey("daily_calorie_target")
         val ENFORCEMENT_ENABLED = booleanPreferencesKey("enforcement_enabled")
+        val IS_PERMANENTLY_LOCKED = booleanPreferencesKey("is_permanently_locked")
         val LOCATION_TRACKING_ENABLED = booleanPreferencesKey("location_tracking_enabled")
-        val INCLUDE_LOCATION_IN_AI = booleanPreferencesKey("include_location_in_ai")
-        val LOCATION_DISCLOSURE_ACKNOWLEDGED = booleanPreferencesKey("location_disclosure_acknowledged")
+        val SHARE_LOCATION_WITH_ANALYSIS = booleanPreferencesKey("share_location_with_analysis")
         val TERMINAL_THEME = stringPreferencesKey("terminal_theme")
-        val REDUCE_VISUAL_EFFECTS = booleanPreferencesKey("reduce_visual_effects")
+        val CRT_EFFECTS_ENABLED = booleanPreferencesKey("crt_effects_enabled")
     }
 
-    /**
-     * Catches DataStore IOExceptions on disk read and falls back to emptyPreferences()
-     * so that transient file issues do not crash the UI StateFlow collection.
-     */
-    private val safePreferencesFlow: Flow<Preferences> = context.dataStore.data
-        .catch { exception ->
-            if (exception is IOException) {
-                emit(emptyPreferences())
-            } else {
-                throw exception
-            }
-        }
-
-    private val apiKey = stringPreferencesKey(ApiConfig.credentialPreferenceName(ApiConfig.baseUrl))
+    private val apiKey = stringPreferencesKey(ApiConfig.credentialPreferenceName)
 
     /**
      * The analysis credential, entered by the user in Settings.
      *
-     * Stored in app-private DataStore. This is **not encryption**: the file is
-     * plaintext on disk and the protection is the app sandbox, which holds on a
-     * non-rooted device and does not hold against physical access with an
-     * unlocked bootloader or a rooted OS. `android:allowBackup="false"` keeps it
-     * out of cloud backups, and it is excluded from every export.
+     * Stored encrypted at rest using Android KeyStore (AES-256 GCM)
+     * to protect credentials against unauthorized offline extraction.
      */
-    val apiKeyFlow: Flow<String> = safePreferencesFlow.map { preferences ->
-        preferences[apiKey]?.takeIf { ApiConfig.acceptsKey(ApiConfig.baseUrl, it) }.orEmpty()
-    }
+    val apiKeyFlow: Flow<String> = context.dataStore.data.map { preferences ->
+        val raw = preferences[apiKey] ?: ""
+        com.sharek.macromandate.util.KeyStoreCrypto.decrypt(raw)
+            .takeIf { ApiConfig.acceptsKey(it) }.orEmpty()
+    }.flowOn(Dispatchers.IO)
 
-    /**
-     * Opt-in, and deliberately defaulted to false.
-     *
-     * Enables saving local GPS coordinates to meal records.
-     */
-    val locationTrackingEnabledFlow: Flow<Boolean> = safePreferencesFlow.map { preferences ->
+    val locationTrackingEnabledFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
         preferences[LOCATION_TRACKING_ENABLED] ?: false
     }
 
-    /**
-     * Separate explicit opt-in: include location coordinates in the image sent to
-     * the AI provider. Defaults to false.
-     */
-    val includeLocationInAiFlow: Flow<Boolean> = safePreferencesFlow.map { preferences ->
-        preferences[INCLUDE_LOCATION_IN_AI] ?: false
+    val shareLocationWithAnalysisFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[LOCATION_TRACKING_ENABLED] == true && preferences[SHARE_LOCATION_WITH_ANALYSIS] == true
     }
 
-    val locationDisclosureAcknowledgedFlow: Flow<Boolean> = safePreferencesFlow.map { preferences ->
-        preferences[LOCATION_DISCLOSURE_ACKNOWLEDGED] ?: false
-    }
-
-    val calorieTargetFlow: Flow<Int> = safePreferencesFlow.map { preferences ->
+    val calorieTargetFlow: Flow<Int> = context.dataStore.data.map { preferences ->
         preferences[DAILY_CALORIE_TARGET] ?: 2500
     }
 
-    /**
-     * Reminders are genuinely optional and default to false on new installs.
-     */
-    val enforcementEnabledFlow: Flow<Boolean> = safePreferencesFlow.map { preferences ->
+    val enforcementEnabledFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
         preferences[ENFORCEMENT_ENABLED] ?: false
     }
 
-    val terminalThemeFlow: Flow<TerminalTheme> = safePreferencesFlow.map { preferences ->
+    val isPermanentlyLockedFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[IS_PERMANENTLY_LOCKED] ?: false
+    }
+
+    val terminalThemeFlow: Flow<TerminalTheme> = context.dataStore.data.map { preferences ->
         TerminalTheme.fromId(preferences[TERMINAL_THEME])
     }
 
-    /**
-     * Off by default: provides a toggle for reduced animation and visual overlays.
-     */
-    val reduceVisualEffectsFlow: Flow<Boolean> = safePreferencesFlow.map { preferences ->
-        preferences[REDUCE_VISUAL_EFFECTS] ?: false
+    val crtEffectsEnabledFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[CRT_EFFECTS_ENABLED] ?: true
     }
 
     suspend fun updateCalorieTarget(target: Int) {
@@ -108,6 +79,12 @@ class MandatePreferences(private val context: Context) {
         }
     }
 
+    suspend fun updateCrtEffectsEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[CRT_EFFECTS_ENABLED] = enabled
+        }
+    }
+
     suspend fun updateEnforcementEnabled(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[ENFORCEMENT_ENABLED] = enabled
@@ -117,30 +94,28 @@ class MandatePreferences(private val context: Context) {
     suspend fun updateLocationTrackingEnabled(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[LOCATION_TRACKING_ENABLED] = enabled
+            if (!enabled) preferences.remove(SHARE_LOCATION_WITH_ANALYSIS)
         }
     }
 
-    suspend fun updateIncludeLocationInAi(enabled: Boolean) {
+    suspend fun updateShareLocationWithAnalysis(enabled: Boolean) {
         context.dataStore.edit { preferences ->
-            preferences[INCLUDE_LOCATION_IN_AI] = enabled
-        }
-    }
-
-    suspend fun updateLocationDisclosureAcknowledged(acknowledged: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[LOCATION_DISCLOSURE_ACKNOWLEDGED] = acknowledged
+            preferences[SHARE_LOCATION_WITH_ANALYSIS] = enabled && preferences[LOCATION_TRACKING_ENABLED] == true
         }
     }
 
     suspend fun updateApiKey(key: String) {
+        val trimmed = key.trim()
+        require(ApiConfig.acceptsKey(trimmed)) { "Use an API key for the configured provider." }
+        val encrypted = if (trimmed.isBlank()) "" else com.sharek.macromandate.util.KeyStoreCrypto.encrypt(trimmed)
         context.dataStore.edit { preferences ->
-            preferences[apiKey] = key.trim()
+            preferences[apiKey] = encrypted
         }
     }
 
-    suspend fun updateReduceVisualEffects(enabled: Boolean) {
+    suspend fun setPermanentLockdown(locked: Boolean) {
         context.dataStore.edit { preferences ->
-            preferences[REDUCE_VISUAL_EFFECTS] = enabled
+            preferences[IS_PERMANENTLY_LOCKED] = locked
         }
     }
 }

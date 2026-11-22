@@ -9,8 +9,13 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import java.util.Calendar
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.PagingData
+import androidx.paging.map
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class MealRepository(private val mealDao: MealDao) {
@@ -23,31 +28,23 @@ class MealRepository(private val mealDao: MealDao) {
          * oldest day moved the score without ever being shown.
          */
         const val WEEK_LENGTH_DAYS = 7
-
-        /**
-         * How long [dayBoundaries] will sleep before re-checking which day it is.
-         *
-         * Fifteen minutes bounds the worst-case staleness after a clock change,
-         * a timezone crossing, or a wake from deep sleep, while being far too
-         * coarse to matter for battery — the check is a `Calendar` construction
-         * and an integer comparison, and it emits nothing unless the day
-         * actually changed.
-         */
-        const val BOUNDARY_CHECK_INTERVAL_MS = 15L * 60 * 1000
     }
 
-    fun getAllMeals(): Flow<List<MealEntry>> {
-        return mealDao.getAllMeals().map { entities ->
-            entities.map { it.toDomain() }
+    fun getPagedMeals(query: String, filterType: Int, sortOrder: Int): Flow<PagingData<MealEntry>> =
+        (if (filterType == 1) dayBoundaries() else flowOf(0L))
+            .flatMapLatest { todayMidnight -> pagedMeals(query, filterType, todayMidnight, sortOrder) }
+
+    private fun pagedMeals(query: String, filterType: Int, todayMidnight: Long, sortOrder: Int): Flow<PagingData<MealEntry>> {
+        return Pager(
+            config = PagingConfig(pageSize = 20, enablePlaceholders = false),
+            pagingSourceFactory = {
+                val literal = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                mealDao.getMealsPaged(literal, filterType, todayMidnight, sortOrder)
+            }
+        ).flow.map { pagingData ->
+            pagingData.map { it.toDomain() }
         }
     }
-
-    /** Authoritative one-shot read for exports, backups and destructive work. */
-    suspend fun getAllMealsSnapshot(): List<MealEntry> =
-        mealDao.getAllMealsSnapshot().map { it.toDomain() }
-
-    /** Authoritative one-shot lookup; never depends on an active UI collector. */
-    suspend fun getMealById(id: String): MealEntry? = mealDao.getMealById(id)?.toDomain()
 
     fun getTodayMeals(): Flow<List<MealEntry>> =
         dayBoundaries().flatMapLatest { startOfToday ->
@@ -64,51 +61,22 @@ class MealRepository(private val mealDao: MealDao) {
         }
 
     /**
-     * Emits the current start-of-day, and re-emits whenever it changes.
+     * Emits the current start-of-day, then re-emits at every midnight.
      *
      * The cutoff must not be captured once when the flow is built: these flows are
-     * collected for the lifetime of the ViewModel, so a fixed cutoff keeps
-     * reporting yesterday's totals after the day rolls over.
-     *
-     * Sleeping straight through to the next midnight looks tidier but is wrong in
-     * three ways that all show the user stale totals:
-     *
-     * - `delay` is driven by `CLOCK_MONOTONIC`, which does not advance while the
-     *   device is in deep sleep. A phone asleep across midnight wakes up still
-     *   reporting yesterday, until whatever remains of a several-hour timer runs
-     *   out.
-     * - Travelling across a timezone moves midnight, but a timer already armed for
-     *   the old one does not care.
-     * - The same applies to the user setting the clock, and to a DST transition.
-     *
-     * Waking at most every [BOUNDARY_CHECK_INTERVAL_MS] and recomputing costs a
-     * few comparisons an hour and is correct under all of them.
-     * [distinctUntilChanged] means a re-check that finds the same boundary emits
-     * nothing, so downstream queries are not re-run for a tick that changed
-     * nothing.
+     * collected for the lifetime of the ViewModel and of the long-running
+     * surveillance service, so a fixed cutoff keeps reporting yesterday's totals
+     * after the day rolls over.
      */
     private fun dayBoundaries(): Flow<Long> = flow {
         while (true) {
-            val today = startOfTodayCalendar()
-            emit(today.timeInMillis)
-
-            // Adding a day via Calendar rather than 24h of millis keeps this
-            // correct across DST transitions, where a day is 23 or 25 hours.
-            val nextMidnight = (today.clone() as Calendar)
-                .apply { add(Calendar.DAY_OF_YEAR, 1) }
-                .timeInMillis
-
-            val untilMidnight = nextMidnight - System.currentTimeMillis()
-            delay(untilMidnight.coerceIn(1L, BOUNDARY_CHECK_INTERVAL_MS))
+            val now = java.time.ZonedDateTime.now()
+            val date = now.toLocalDate()
+            emit(date.atStartOfDay(now.zone).toInstant().toEpochMilli())
+            val next = date.plusDays(1).atStartOfDay(now.zone).toInstant().toEpochMilli()
+            delay((next - now.toInstant().toEpochMilli()).coerceIn(1L, 60_000L))
         }
     }.distinctUntilChanged()
-
-    private fun startOfTodayCalendar(): Calendar = Calendar.getInstance().apply {
-        set(Calendar.HOUR_OF_DAY, 0)
-        set(Calendar.MINUTE, 0)
-        set(Calendar.SECOND, 0)
-        set(Calendar.MILLISECOND, 0)
-    }
 
     private fun weekStartFrom(startOfToday: Long): Long =
         Calendar.getInstance().apply {
@@ -133,7 +101,21 @@ class MealRepository(private val mealDao: MealDao) {
         mealDao.deleteById(id)
     }
 
+    suspend fun getMealById(id: String): MealEntry? {
+        return mealDao.getMealById(id)?.toDomain()
+    }
+
+    fun observeMeal(id: String): Flow<MealEntry?> = mealDao.observeMeal(id).map { it?.toDomain() }
+
+    suspend fun getAllMealsAsList(): List<MealEntry> {
+        // For CSV export, we might need all
+        return mealDao.getAllMealsList().map { it.toDomain() }
+    }
+
     suspend fun getLatestMeal(): MealEntry? = mealDao.getLatestMeal()?.toDomain()
+
+    suspend fun getPhotoReferences() = mealDao.getPhotoReferences()
+
 
     suspend fun deleteAllMeals() {
         mealDao.deleteAll()

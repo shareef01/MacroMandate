@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 7,
-    "identityHash": "ed5399b3d1461132ea58c4fa276d7f67",
+    "identityHash": "760eb363f077ac5cbdc47cd39c4f4ee8",
     "entities": [
       {
         "tableName": "meal_entries",
@@ -147,24 +147,14 @@
             "id"
           ]
         },
-        "indices": [
-          {
-            "name": "index_audit_log_timestamp",
-            "unique": false,
-            "columnNames": [
-              "timestamp"
-            ],
-            "orders": [],
-            "createSql": "CREATE INDEX IF NOT EXISTS `index_audit_log_timestamp` ON `${TABLE_NAME}` (`timestamp`)"
-          }
-        ],
+        "indices": [],
         "foreignKeys": []
       }
     ],
     "views": [],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'ed5399b3d1461132ea58c4fa276d7f67')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '760eb363f077ac5cbdc47cd39c4f4ee8')"
     ]
   }
 }

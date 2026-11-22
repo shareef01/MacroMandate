@@ -1,56 +1,107 @@
-# MacroMandate release guide
+# MacroMandate — Release & Signing Guide
 
-GitHub Releases distributes MacroMandate as a signed APK with a SHA-256 checksum. The **Signed Android Release** workflow builds the APK with the existing release key, verifies its signature and certificate, then checks both uploaded asset digests before making the release available. The signed Android App Bundle is stored as a workflow artifact.
+MacroMandate is distributed through GitHub Releases. Users install the signed release APK from the release assets.
 
-## Prepare and publish
+---
 
-1. Update `versionName` and increment `versionCode` in [app/build.gradle.kts](app/build.gradle.kts). Merge the release commit into `master` and wait for [Android CI](https://github.com/shareef01/MacroMandate/actions/workflows/android.yml) to pass.
-2. Open [Signed Android Release](https://github.com/shareef01/MacroMandate/actions/workflows/release.yml), choose **Run workflow** on `master`, and select `draft`.
-3. Review the release notes and the two assets, `MacroMandate-<version>.apk` and `MacroMandate-<version>.apk.sha256`. Install the draft APK over the previous release on a test device for changes that affect upgrades, storage, or signing.
-4. Publish the draft from [GitHub Releases](https://github.com/shareef01/MacroMandate/releases). Use `publish` at dispatch to create and publish a new release in one run. The workflow refuses to replace an existing tag or release, so publish an existing draft from its release page.
+## 1. Release Keystore Setup
 
-The workflow derives the `v<version>` tag from the signed APK and targets the exact build commit. Use `rehearse` to verify signing and uploads in a temporary draft that the workflow removes after checking both assets.
-
-## Signing credentials
-
-The workflow reads these GitHub Actions secrets from the `release-signing` environment, which is restricted to `master`.
-
-| Secret | Value |
-| --- | --- |
-| `RELEASE_KEYSTORE_BASE64` | Base64-encoded production PKCS12 keystore |
-| `RELEASE_STORE_PASSWORD` | Keystore password |
-| `RELEASE_KEY_ALIAS` | Alias of the existing release key |
-| `RELEASE_KEY_PASSWORD` | Signing-key password |
-| `RELEASE_CERT_SHA256` | SHA-256 fingerprint of the expected production certificate |
-
-Keep a secure backup of the existing keystore and passwords. Android checks the signing identity when installing an update over a GitHub release. Keep signing secrets and keystores out of version control and out of project Gradle properties.
-
-For local production builds, provide `RELEASE_STORE_FILE`, `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_ALIAS`, and `RELEASE_KEY_PASSWORD` through environment variables or user-level Gradle properties.
+Use the existing signing key if you have already distributed an APK. For the first distribution, create a PKCS12 keystore with Java's `keytool`.
 
 ```bash
-./gradlew assembleRelease bundleRelease -PproductionRelease=true
+keytool -genkey -v -keystore macromandate-release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias macromandate-key
 ```
 
-The APK is written to `app/build/outputs/apk/release/app-release.apk`. Normal CI can compile unsigned release builds. For distribution, use the production signing guard and leave `HUGGINGFACE_API_KEY` unset in `local.properties`; the release build rejects embedded API credentials by default.
+Keep a secure backup of the keystore outside the repository. Use the same signing key and application ID for future APKs, and increase `versionCode` for updates.
 
-## Verify a downloaded APK
+The 1.0.4 candidate uses version code 5 and Room schema 8. The migration accepts both version-7 schemas, including the one shipped in v1.0.3, and preserves meal and activity records.
 
-Download the APK and its checksum into the same folder. Run the following with the actual release version in the filename.
+---
 
-```bash
-sha256sum --check MacroMandate-1.0.3.apk.sha256
+## 2. Signing Configuration
+
+MacroMandate dynamically resolves release signing credentials from multiple sources in priority order:
+
+1. **Environment Variables** (Recommended for CI/CD)
+2. **`local.properties`** (Recommended for local developer machines)
+3. **`gradle.properties`**
+
+### Option A: Local Configuration (`local.properties`)
+Add the following keys to your root `local.properties`:
+
+```properties
+RELEASE_STORE_FILE=C:/path/to/macromandate-release.jks
+RELEASE_STORE_PASSWORD=your_keystore_password
+RELEASE_KEY_ALIAS=macromandate-key
+RELEASE_KEY_PASSWORD=your_key_password
 ```
 
-On Windows PowerShell:
+### Windows-generated release key
+
+If the release key was generated in the Windows signing setup, the PKCS12 file and its DPAPI-protected password are under `%LOCALAPPDATA%/MacroMandate/release-signing`. Use the `macromandate-release` alias. The encrypted password file can be opened by the Windows account that created it. Keep a recoverable backup of the key and its password before relying on a different computer or Windows account.
+
+To build from that setup, start a fresh PowerShell 7 session and run the following. The password is passed to Gradle through the child process environment.
 
 ```powershell
-$apk = 'MacroMandate-1.0.3.apk'
-$expected = (Get-Content "$apk.sha256" -Raw).Trim() -split '\s+' | Select-Object -First 1
-(Get-FileHash $apk -Algorithm SHA256).Hash -eq $expected
+$signingDir = Join-Path $env:LOCALAPPDATA 'MacroMandate/release-signing'
+$encryptedPassword = Join-Path $signingDir 'keystore-password.dpapi'
+$securePassword = Get-Content -Raw -LiteralPath $encryptedPassword | ConvertTo-SecureString
+try {
+    $env:RELEASE_STORE_FILE = Join-Path $signingDir 'macromandate-release.p12'
+    $env:RELEASE_KEY_ALIAS = 'macromandate-release'
+    $env:RELEASE_STORE_PASSWORD = ConvertFrom-SecureString $securePassword -AsPlainText
+    $env:RELEASE_KEY_PASSWORD = $env:RELEASE_STORE_PASSWORD
+    .\gradlew.bat --no-daemon --no-configuration-cache :app:assembleRelease
+} finally {
+    Remove-Item Env:RELEASE_STORE_FILE, Env:RELEASE_KEY_ALIAS, Env:RELEASE_STORE_PASSWORD, Env:RELEASE_KEY_PASSWORD -ErrorAction SilentlyContinue
+}
 ```
 
-PowerShell returns `True` when the hashes match.
+### Option B: CI/CD Environment Variables
+Set the following environment variables in your CI workflow:
 
-## Database compatibility
+- `RELEASE_STORE_FILE`
+- `RELEASE_STORE_PASSWORD`
+- `RELEASE_KEY_ALIAS`
+- `RELEASE_KEY_PASSWORD`
 
-Room schema exports start at version 6. Fresh installs use schema 7 and the instrumented tests verify the 6-to-7 migration. Upgrades from unsupported pre-v6 builds can fail to open the database. Future schema changes need an explicit migration and an instrumented migration test.
+Check that signing is configured before preparing release assets. Without a keystore, Gradle produces `app-release-unsigned.apk` for build verification.
+
+---
+
+## 3. Production Build Commands
+
+
+On Windows, build the signed, minified release and verify its signature and package alignment.
+
+```powershell
+.\gradlew.bat :app:assembleRelease
+& "$env:ANDROID_HOME/build-tools/36.0.0/apksigner.bat" verify --print-certs app/build/outputs/apk/release/app-release.apk
+& "$env:ANDROID_HOME/build-tools/36.0.0/zipalign.exe" -c -P 16 4 app/build/outputs/apk/release/app-release.apk
+Get-FileHash app/build/outputs/apk/release/app-release.apk -Algorithm SHA256
+```
+
+After preflight, draft a [GitHub release](https://github.com/shareef01/MacroMandate/releases) for the tested commit. Attach the signed APK and include its SHA-256 hash in the release notes. [GitHub release instructions](https://docs.github.com/en/repositories/releasing-projects-on-github/managing-releases-in-a-repository)
+
+---
+
+## 4. R8 & ProGuard Verification
+
+MacroMandate uses full code shrinking and resource optimization (`isMinifyEnabled = true`, `isShrinkResources = true`). Rules are specified in `app/proguard-rules.pro`:
+
+- Room entities, DAOs, and Migrations preserved.
+- Network models and Gson serialization tokens preserved.
+- Retrofit & OkHttp interface reflection preserved.
+
+---
+
+## 5. Release preflight
+
+Run the checklist against the exact candidate version. See the [production audit](docs/PRODUCTION_AUDIT.md) for the current verdict and findings.
+
+- [ ] Build debug and release from a clean checkout. Run host tests, Android lint, and instrumentation on a dedicated Android test device.
+- [ ] Verify the signed APK, including the signer, version code, R8 behavior, and 16 KiB native and APK alignment.
+- [ ] Test old-database upgrades, photo and metadata backup restore, rollback, permission denial, and storage-provider failure.
+- [ ] Test authenticated photo analysis with OpenRouter's `openrouter/free` in the minified app, including free-tier errors. Check barcode lookup separately.
+- [ ] Validate the notification and location behavior on supported Android versions and the disclosure for transmitting photos and optional coordinates.
+- [ ] Check the [Android developer verification timeline](https://developer.android.com/developer-verification/guides/faq) for direct sideloading before each public release.

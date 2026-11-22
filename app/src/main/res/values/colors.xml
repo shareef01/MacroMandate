@@ -1,7 +1,3 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-    Colour lives in ui/theme/Color.kt, where it is expressed as terminal themes
-    with semantic roles. The seven Android Studio template colours that used to
-    sit here (purple_200, teal_700, …) were referenced by nothing.
--->
-<resources />
+<resources>
+</resources>

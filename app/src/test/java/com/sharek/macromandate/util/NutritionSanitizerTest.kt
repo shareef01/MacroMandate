@@ -2,8 +2,8 @@ package com.sharek.macromandate.util
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class NutritionSanitizerTest {
@@ -37,7 +37,6 @@ class NutritionSanitizerTest {
         val json = """
             {
                 "foodName": "Protein Shake",
-                "calories": 0,
                 "proteinGrams": 30.0,
                 "carbsGrams": 10.0,
                 "fatGrams": 2.0,
@@ -76,7 +75,7 @@ class NutritionSanitizerTest {
     }
 
     @Test
-    fun parseNegativeValuesCoercedToZero() {
+    fun rejectsNegativeOnlyEstimates() {
         val json = """
             {
                 "foodName": "Glitch Meal",
@@ -87,28 +86,99 @@ class NutritionSanitizerTest {
             }
         """.trimIndent()
 
-        val parsed = NutritionSanitizer.parseAndSanitize(json)
-        assertEquals("Glitch Meal", parsed.foodName)
-        assertEquals(0, parsed.calories)
-        assertEquals(0f, parsed.proteinGrams, 0.01f)
-        assertEquals(0f, parsed.carbsGrams, 0.01f)
-        assertEquals(0f, parsed.fatGrams, 0.01f)
+        assertThrows(IllegalArgumentException::class.java) {
+            NutritionSanitizer.parseAndSanitize(json)
+        }
     }
 
     @Test
-    fun parseEmptyFieldsFallbackGracefully() {
-        val json = "{}"
+    fun rejectsEmptyUnrelatedAndWrongTypeResponses() {
+        listOf(
+            "{}",
+            """{"status":"unavailable"}""",
+            """{"foodName":"Soup","calories":0} {"foodName":"Extra","calories":1}""",
+            """{"foodName":"Soup","calories":0,"extra":${"[".repeat(40)}0${"]".repeat(40)}}""",
+            """{"foodName":"Soup","calories":true,"proteinGrams":[]}""",
+            """{"foodName":{},"calories":0}"""
+        ).forEach { json ->
+            assertThrows(IllegalArgumentException::class.java) {
+                NutritionSanitizer.parseAndSanitize(json)
+            }
+        }
+    }
+
+    @Test
+    fun preservesExplicitZeroAndBoundsExtremeValues() {
+        val water = NutritionSanitizer.parseAndSanitize("""{"foodName":"Water","calories":0}""")
+        val estimate = NutritionSanitizer.parseAndSanitize(
+            """{"foodName":"Shake","calories":9999999,"protein":1e100}"""
+        )
+        assertEquals(0, water.calories)
+        assertEquals(20_000, estimate.calories)
+        assertEquals(1_000f, estimate.proteinGrams, 0.01f)
+    }
+
+    @Test
+    fun parseWithNanAndInfinityFallsBackSafely() {
+        val json = """
+            {
+                "foodName": "Anomalous Food",
+                "calories": "NaN",
+                "proteinGrams": "Infinity",
+                "carbsGrams": 20.0,
+                "fatGrams": "-Infinity"
+            }
+        """.trimIndent()
 
         val parsed = NutritionSanitizer.parseAndSanitize(json)
-        assertEquals("Unidentified item", parsed.foodName)
-        assertEquals(0, parsed.calories)
+        assertEquals("Anomalous Food", parsed.foodName)
+        assertEquals(20f, parsed.carbsGrams, 0.01f)
         assertEquals(0f, parsed.proteinGrams, 0.01f)
-        assertEquals(0f, parsed.carbsGrams, 0.01f)
         assertEquals(0f, parsed.fatGrams, 0.01f)
-        assertFalse(parsed.isLiquid)
-        // A model that supplies no assessment gets no assessment. The parser
-        // used to invent "NOMINAL REFUELING REGISTERED." and store it on the
-        // record, which reads as a judgement the model never made.
-        assertNull(parsed.assessment)
+        assertEquals(80, parsed.calories) // 20g carbs * 4 = 80 kcal fallback
+    }
+
+    @Test
+    fun parseAlternativeKeyNames() {
+        val json = """
+            {
+                "item": "Keto Avocado Bowl",
+                "energy": "450 kcal",
+                "protein": "8.5g",
+                "carbohydrates": "4.2g",
+                "fat": "38.0g",
+                "beverage": "true",
+                "confidence": "HIGH_CONFIDENCE"
+            }
+        """.trimIndent()
+
+        val parsed = NutritionSanitizer.parseAndSanitize(json)
+        assertEquals("Keto Avocado Bowl", parsed.foodName)
+        assertEquals(450, parsed.calories)
+        assertEquals(8.5f, parsed.proteinGrams, 0.01f)
+        assertEquals(4.2f, parsed.carbsGrams, 0.01f)
+        assertEquals(38f, parsed.fatGrams, 0.01f)
+        assertTrue(parsed.isLiquid)
+        assertEquals("HIGH_CONFIDENCE", parsed.confidence)
+    }
+
+    @Test
+    fun parseExtremeValuesAndDecimals() {
+        val json = """
+            {
+                "name": "Heavy Shake",
+                "calories": 1500,
+                "protein": " 75.25 G ",
+                "carbs": " 120.50 g ",
+                "fat": " 45.75 g "
+            }
+        """.trimIndent()
+
+        val parsed = NutritionSanitizer.parseAndSanitize(json)
+        assertEquals("Heavy Shake", parsed.foodName)
+        assertEquals(1500, parsed.calories)
+        assertEquals(75.25f, parsed.proteinGrams, 0.01f)
+        assertEquals(120.50f, parsed.carbsGrams, 0.01f)
+        assertEquals(45.75f, parsed.fatGrams, 0.01f)
     }
 }

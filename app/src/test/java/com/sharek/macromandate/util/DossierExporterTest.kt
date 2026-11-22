@@ -8,11 +8,8 @@ import org.junit.Test
 
 class DossierExporterTest {
 
-    // Distinct ids. Every fixture meal previously shared id "abc123", so the
-    // round-trip test asserted that two records survived a restore while Room's
-    // REPLACE conflict strategy would in fact have collapsed them into one.
-    private fun meal(foodName: String, calories: Int = 100, id: String = foodName.filter { it.isLetterOrDigit() }) = MealEntry(
-        id = id,
+    private fun meal(foodName: String, calories: Int = 100) = MealEntry(
+        id = "abc123",
         timestamp = 1_700_000_000_000L,
         imageUri = null,
         foodName = foodName,
@@ -26,8 +23,7 @@ class DossierExporterTest {
     @Test
     fun csvHasHeaderRow() = runBlocking {
         val csv = DossierExporter.generateCsv(emptyList())
-        // Leading UTF-8 BOM so Excel on Windows does not mangle non-ASCII names.
-        assertTrue(csv.startsWith("﻿ID,Timestamp,FoodName,Calories,ProteinGrams,CarbsGrams,FatGrams,IsLiquid"))
+        assertTrue(csv.startsWith("ID,Timestamp,FoodName,Calories,Protein,Carbs,Fat,IsLiquid"))
     }
 
     @Test
@@ -103,6 +99,7 @@ class DossierExporterTest {
                 isNightRefueling = false
             ),
             meal("Midnight Snack", 420).copy(
+                id = "midnight-2",
                 isLiquid = false,
                 isRestricted = true,
                 isNightRefueling = true
@@ -110,9 +107,10 @@ class DossierExporterTest {
         )
 
         val json = DossierExporter.generateJson(originalMeals)
-        val parsedMeals = DossierExporter.parseJsonBackup(json).getOrThrow()
+        val parsedMeals = DossierExporter.parseJsonBackup(json)
 
-        assertEquals(2, parsedMeals.size)
+        org.junit.Assert.assertNotNull(parsedMeals)
+        assertEquals(2, parsedMeals!!.size)
 
         val first = parsedMeals[0]
         assertEquals("Oatmeal", first.foodName)
@@ -128,14 +126,49 @@ class DossierExporterTest {
     }
 
     @Test
-    fun parseJsonBackupRejectsMalformedInput() = runBlocking {
+    fun parseJsonBackupReturnsNullOnMalformedInput() = runBlocking {
         val result = DossierExporter.parseJsonBackup("INVALID JSON NOT A STRING")
-        assertTrue(result.isFailure)
+        org.junit.Assert.assertNull(result)
     }
 
     @Test
-    fun parseJsonBackupRejectsMissingVersion() = runBlocking {
+    fun parseJsonBackupReturnsNullOnMissingVersion() = runBlocking {
         val result = DossierExporter.parseJsonBackup("{\"meals\":[]}")
-        assertTrue(result.isFailure)
+        org.junit.Assert.assertNull(result)
+    }
+
+    @Test
+    fun csvNeutralizesWhitespacePrefixedFormulaTriggers() {
+        val triggers = listOf(" =SUM(A1:A2)", "  +cmd", "\t\t@calc", "   -100", "\r\n=4", "\u00a0+1", "\u2003\uff1d1", "\ufeff@lookup")
+        triggers.forEach { field ->
+            val escaped = DossierExporter.escapeCsvField(field)
+            assertTrue(
+                "expected '$field' to be neutralized with leading apostrophe, got '$escaped'",
+                escaped.startsWith("'")
+            )
+        }
+    }
+
+    @Test
+    fun duplicateOrUnsafeIdsAreRejected() = runBlocking {
+        val duplicate = DossierExporter.generateJson(listOf(meal("First"), meal("Second")))
+        val unsafe = DossierExporter.generateJson(listOf(meal("First").copy(id = "../photo")))
+        org.junit.Assert.assertNull(DossierExporter.parseJsonBackup(duplicate))
+        org.junit.Assert.assertNull(DossierExporter.parseJsonBackup(unsafe))
+    }
+
+    @Test
+    fun jsonBackupHandlesUnicodeAndEmojiCorrectly() = runBlocking {
+        val meals = listOf(
+            meal("Avocado 🥑 Toast & Salmon 🍣", 450).copy(
+                assessment = "EXEMPLARY BIO-FUEL ✨"
+            )
+        )
+        val json = DossierExporter.generateJson(meals)
+        val parsed = DossierExporter.parseJsonBackup(json)
+
+        org.junit.Assert.assertNotNull(parsed)
+        assertEquals("Avocado 🥑 Toast & Salmon 🍣", parsed!![0].foodName)
+        assertEquals("EXEMPLARY BIO-FUEL ✨", parsed[0].assessment)
     }
 }

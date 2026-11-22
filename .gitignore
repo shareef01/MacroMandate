@@ -1,5 +1,6 @@
 *.iml
 .gradle
+/local.properties
 .idea/
 .reasonix/
 .DS_Store
@@ -8,11 +9,5 @@
 .externalNativeBuild
 .cxx
 local.properties
-*.jks
-*.keystore
-*.p12
-*.pfx
-/keystore/
-
-# Kotlin incremental-compilation session files
 .kotlin/
+.artifacts/

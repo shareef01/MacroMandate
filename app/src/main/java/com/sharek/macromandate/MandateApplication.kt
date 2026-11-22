@@ -8,7 +8,7 @@ import com.sharek.macromandate.worker.MidnightWidgetRefreshWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 class MandateApplication : Application() {
@@ -16,22 +16,19 @@ class MandateApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        // Initialize notification channels before any system module posts notifications
+        // Ensure absolute surveillance channels are established before any system module starts
         NotificationManagerHelper.createNotificationChannel(this)
-
-        // Schedule midnight glance widget refresh
         MidnightWidgetRefreshWorker.schedule(this)
-
         // Schedule the periodic enforcement check (persists across reboots via WorkManager),
         // but respect a user who explicitly disabled enforcement — otherwise re-scheduling
         // here would undo their choice on every launch.
         appScope.launch {
-            val enforcementEnabled = MandatePreferences(this@MandateApplication).enforcementEnabledFlow.first()
-            if (enforcementEnabled) {
-                EnforcementScheduler.schedule(this@MandateApplication)
-            } else {
-                EnforcementScheduler.cancel(this@MandateApplication)
-            }
+            MandatePreferences(this@MandateApplication).enforcementEnabledFlow
+                .distinctUntilChanged()
+                .collect { enabled ->
+                    if (enabled) EnforcementScheduler.schedule(this@MandateApplication)
+                    else EnforcementScheduler.cancel(this@MandateApplication)
+                }
         }
     }
 }
