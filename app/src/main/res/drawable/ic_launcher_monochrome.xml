@@ -4,13 +4,27 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <group android:pivotX="54" android:pivotY="54" android:scaleX="0.8" android:scaleY="0.8">
-        <path
-            android:fillColor="@android:color/transparent"
-            android:strokeColor="@android:color/white"
-            android:strokeWidth="6"
-            android:strokeLineCap="round"
-            android:strokeLineJoin="round"
-            android:pathData="M24,73 C33,73 38,61 38,49 C38,41 34,35 28,35 C21,35 17,41 17,48 C17,55 22,60 28,60 M54,73 C54,61 38,56 38,48 C38,41 45,35 54,35 C63,35 70,41 70,48 C70,56 54,61 54,73 M84,73 C75,73 70,61 70,49 C70,41 74,35 80,35 C87,35 91,41 91,48 C91,55 86,60 80,60" />
-    </group>
+
+    <!-- HUD reticle corner brackets -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="square"
+        android:strokeLineJoin="miter"
+        android:pathData="M26,34 L26,26 L34,26 M74,26 L82,26 L82,34 M26,74 L26,82 L34,82 M74,82 L82,82 L82,74" />
+
+    <!-- Primary cyber-terminal 'M' monogram -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="5.4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M35,64 L35,38 L54,55 L73,38 L73,64" />
+
+    <!-- Macronutrient telemetry bars -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M33,72 L45,72 L45,75.5 L33,75.5 Z M48,72 L60,72 L60,75.5 L48,75.5 Z M63,72 L75,72 L75,75.5 L63,75.5 Z" />
 </vector>

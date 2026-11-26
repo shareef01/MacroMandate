@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Outer HUD reticle corner brackets (inside 66dp safe zone: 24..84) -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#304038"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="square"
+        android:strokeLineJoin="miter"
+        android:pathData="M26,35 L26,26 L35,26 M73,26 L82,26 L82,35 M26,73 L26,82 L35,82 M73,82 L82,82 L82,73" />
+
+    <!-- Active phosphor accent corner ticks -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#79EFA9"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="square"
+        android:strokeLineJoin="miter"
+        android:pathData="M26,31 L26,26 L31,26 M77,26 L82,26 L82,31 M26,77 L26,82 L31,82 M77,82 L82,82 L82,77" />
+
+    <!-- Soft phosphor glow behind the 'M' monogram -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#2679EFA9"
+        android:strokeWidth="9.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M35,64 L35,38 L54,55 L73,38 L73,64" />
+
+    <!-- Primary crisp cyber-terminal 'M' monogram -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#79EFA9"
+        android:strokeWidth="5.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M35,64 L35,38 L54,55 L73,38 L73,64" />
+
+    <!-- Center vertex core highlight -->
+    <path
+        android:fillColor="#E7F1EA"
+        android:pathData="M54,52.2 A2.8,2.8 0 1,1 53.99,52.2 Z" />
+
+    <!-- Macronutrient telemetry bars at base of HUD (Protein / Carbs / Fat) -->
+    <!-- Protein bar (Emerald #79EFA9) -->
+    <path
+        android:fillColor="#79EFA9"
+        android:pathData="M33,72 L45,72 L45,75.5 L33,75.5 Z" />
+
+    <!-- Carbs bar (Cyan #5CD6FF) -->
+    <path
+        android:fillColor="#5CD6FF"
+        android:pathData="M48,72 L60,72 L60,75.5 L48,75.5 Z" />
+
+    <!-- Fat bar (Amber #F3B95F) -->
+    <path
+        android:fillColor="#F3B95F"
+        android:pathData="M63,72 L75,72 L75,75.5 L63,75.5 Z" />
+</vector>
