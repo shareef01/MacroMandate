@@ -123,6 +123,23 @@ class MealRepositoryTest {
         repository.deleteAllMeals()
         assertEquals(0, repository.getAllMealsAsList().size)
     }
+
+    @Test
+    fun clearAllCoordinatesStripsLocationWithoutDeletingMeals() = runBlocking {
+        val meal1 = createMeal("geo1", calories = 500, foodName = "Geotagged Lunch")
+        val meal2 = createMeal("nogeo2", calories = 300, foodName = "Plain Breakfast").copy(
+            latitude = null,
+            longitude = null
+        )
+        repository.insertMeals(listOf(meal1, meal2))
+
+        val clearedCount = repository.clearAllCoordinates()
+        assertEquals(1, clearedCount)
+
+        val all = repository.getAllMealsAsList()
+        assertEquals(2, all.size)
+        assertTrue(all.all { it.latitude == null && it.longitude == null })
+    }
 }
 
 class FakeMealDao : MealDao {
@@ -165,10 +182,30 @@ class FakeMealDao : MealDao {
         }
     }
 
+    override fun getMealsInWindow(startInclusive: Long, endExclusive: Long): Flow<List<MealEntity>> {
+        return entries.map { map ->
+            map.values.filter { it.timestamp in startInclusive until endExclusive }.sortedByDescending { it.timestamp }
+        }
+    }
+
     override fun getMealsForLastWeek(sevenDaysAgoTimestamp: Long): Flow<List<MealEntity>> {
         return entries.map { map ->
             map.values.filter { it.timestamp >= sevenDaysAgoTimestamp }.sortedBy { it.timestamp }
         }
+    }
+
+    override suspend fun clearAllCoordinates(): Int {
+        var count = 0
+        val updated = entries.value.mapValues { (_, entity) ->
+            if (entity.latitude != null || entity.longitude != null) {
+                count++
+                entity.copy(latitude = null, longitude = null)
+            } else {
+                entity
+            }
+        }
+        entries.value = updated
+        return count
     }
 
     override suspend fun deleteById(id: String) {

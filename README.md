@@ -59,14 +59,14 @@
 └─────────────────────────────────────────────────────────────┘
 ```
 
-- **UI Framework**: Declarative Jetpack Compose with Material 3, custom CRT shaders, and tactical HUD framing modifiers.
-- **Architecture**: Clean MVVM + Repository pattern with Kotlin Coroutines & StateFlow.
-- **Security**: `AndroidKeyStore` AES-256 GCM encryption for newly saved credentials.
-- **Persistence**: Room database schema 8 and DataStore Preferences.
-- **Networking**: Retrofit 3 and OkHttp 5 with bounded retry delays for rate limits and temporary service failures.
-- **Camera & Barcode**: CameraX with downsampled bitmap decoding and ML Kit Barcode Scanning.
-- **Background Tasks**: WorkManager for periodic compliance surveillance and reminder scheduling.
-- **Widgets**: Jetpack Glance tactical home-screen widget.
+- **UI Framework**: Declarative Jetpack Compose with Material 3, centralized `TerminalDesign` semantic token system, subtle optional CRT shader effects, and 4 top-level destinations (**Today**, **History**, **Trends**, **Settings**).
+- **Architecture**: Clean MVVM + Repository pattern with Kotlin Coroutines & lifecycle-aware StateFlow collection.
+- **Security**: `AndroidKeyStore` AES-256 GCM encryption for saved credentials, with provider connection verification and two-step key clearing.
+- **Persistence**: Room database schema 8 (with Room Paging for searchable/filterable History and non-destructive 1→6→7→8 migrations) and DataStore Preferences.
+- **Networking**: Retrofit 3 and OkHttp 5 with bounded retry delays, explicit cancellation, and differentiated error recovery.
+- **Camera & Barcode**: CameraX with flash/torch control, permission recovery UI, downsampled upright EXIF bitmap decoding, and ML Kit Barcode Scanning with serving multipliers.
+- **Background Tasks**: WorkManager for periodic reminder checks and midnight widget rollover scheduling.
+- **Widgets**: Jetpack Glance tactical home-screen widget displaying daily calories, macros (P/C/F), and one-tap meal logging.
 
 ---
 

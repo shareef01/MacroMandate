@@ -9,10 +9,13 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.sharek.macromandate.viewmodel.ComplianceStatus
 
+/**
+ * Subtle tactical corner brackets for key terminal cards and viewfinders.
+ */
 fun Modifier.hudFraming(
     color: Color,
-    length: Dp = 20.dp,
-    thickness: Dp = 2.dp
+    length: Dp = 14.dp,
+    thickness: Dp = 1.5.dp
 ): Modifier = this.drawBehind {
     val len = length.toPx()
     val thick = thickness.toPx()
@@ -36,38 +39,10 @@ fun Modifier.hudFraming(
     drawRect(color, topLeft = Offset(width - thick, height - len), size = Size(thick, len))
 }
 
-fun Modifier.terminalOverlay(status: ComplianceStatus): Modifier = this.drawBehind {
-    val scanlineColor = when (status) {
-        ComplianceStatus.CRISIS, ComplianceStatus.LOCKED -> Color.Red.copy(alpha = 0.3f)
-        ComplianceStatus.SUBVERSIVE -> Color.Red.copy(alpha = 0.15f)
-        else -> Color.White.copy(alpha = 0.05f)
-    }
-    
-    val lineHeight = 2.dp.toPx()
-    val spacing = 4.dp.toPx()
-    var y = 0f
-    while (y < size.height) {
-        drawRect(
-            color = scanlineColor,
-            topLeft = Offset(0f, y),
-            size = Size(size.width, lineHeight)
-        )
-        y += spacing
-    }
-    
-    if (status == ComplianceStatus.SUBVERSIVE) {
-        drawRect(
-            color = Color.Red.copy(alpha = 0.05f),
-            topLeft = Offset(0f, 0f),
-            size = size
-        )
-    }
-
-    if (status == ComplianceStatus.CRISIS || status == ComplianceStatus.LOCKED) {
-        drawRect(
-            color = Color.Red.copy(alpha = 0.2f),
-            topLeft = Offset(0f, 0f),
-            size = size
-        )
-    }
-}
+/**
+ * Legacy terminal overlay modifier retained for call-site compatibility.
+ * Scanline rendering is consolidated in [com.sharek.macromandate.ui.theme.crtFilter]
+ * so disabling CRT effects disables all overlays cleanly and never washes the UI in red.
+ */
+@Suppress("UnusedReceiverParameter", "UNUSED_PARAMETER")
+fun Modifier.terminalOverlay(status: ComplianceStatus): Modifier = this

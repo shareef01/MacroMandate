@@ -1,38 +1,46 @@
 package com.sharek.macromandate.ui
 
+import android.net.Uri
+import androidx.core.net.toUri
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.LocalDrink
+import androidx.compose.material.icons.filled.LocationOff
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import kotlinx.coroutines.flow.catch
-import com.sharek.macromandate.viewmodel.UiState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.sharek.macromandate.model.MealEntry
+import com.sharek.macromandate.ui.components.*
 import com.sharek.macromandate.ui.theme.NutritionColors
-import com.sharek.macromandate.viewmodel.ComplianceStatus
+import com.sharek.macromandate.ui.theme.TerminalDesign
+import com.sharek.macromandate.util.EvidenceStore
+import com.sharek.macromandate.util.NutritionFormat
 import com.sharek.macromandate.viewmodel.MainViewModel
-import java.text.SimpleDateFormat
-import java.util.*
+import com.sharek.macromandate.viewmodel.UiState
+import kotlinx.coroutines.flow.catch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -42,226 +50,401 @@ fun MealDetailScreen(
     onBack: () -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
-    val complianceStatus by viewModel.complianceStatus.collectAsState()
+    val context = LocalContext.current
+    val tokens = TerminalDesign.tokens
+
     val loadedMeal by produceState<Result<MealEntry?>?>(initialValue = null, mealId) {
         value = null
         viewModel.observeMeal(mealId)
             .catch { value = Result.failure(it) }
             .collect { value = Result.success(it) }
     }
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
+
     LaunchedEffect(uiState) {
         val error = uiState as? UiState.Error ?: return@LaunchedEffect
         snackbar.showSnackbar(error.message)
         viewModel.resetUiState()
     }
-    val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm:ss 'UTC'", Locale.US) }
-    var showEditDialog by remember { mutableStateOf(false) }
-    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+
+    var showEditDialog by rememberSaveable { mutableStateOf(false) }
+    var showDeleteConfirmDialog by rememberSaveable { mutableStateOf(false) }
 
     val meal = loadedMeal?.getOrNull()
     if (meal == null) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            when {
-                loadedMeal == null -> CircularProgressIndicator()
-                loadedMeal?.isFailure == true -> Text("Could not load the meal.")
-                else -> Text("This meal is no longer available.")
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(tokens.background)
+        ) {
+            TerminalTopBar(title = "MEAL RECORD", onBack = onBack)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                when {
+                    loadedMeal == null -> CircularProgressIndicator(color = tokens.primaryAccent)
+                    loadedMeal?.isFailure == true -> TerminalEmptyState(
+                        title = "COULD NOT LOAD MEAL",
+                        message = "An error occurred while reading this meal record.",
+                        actionLabel = "RETURN",
+                        onAction = onBack
+                    )
+                    else -> TerminalEmptyState(
+                        title = "MEAL NO LONGER AVAILABLE",
+                        message = "This meal record has been deleted.",
+                        actionLabel = "RETURN",
+                        onAction = onBack
+                    )
+                }
             }
         }
         return
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                // Edge-to-edge: the app bar would otherwise sit under the status bar.
-                .statusBarsPadding()
-        ) {
-            TopAppBar(
-                title = { Text("Meal", fontWeight = FontWeight.Black) },
-                navigationIcon = {
-                    IconButton(onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onBack()
-                    }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+    val verifiedImageUri = remember(meal.imageUri) {
+        meal.imageUri?.takeIf { raw ->
+            runCatching { EvidenceStore.ownedFile(context, raw.toUri())?.isFile == true }
+                .getOrDefault(false)
+        }
+    }
+
+    val pCal = meal.proteinGrams * 4f
+    val cCal = meal.carbsGrams * 4f
+    val fCal = meal.fatGrams * 9f
+    val totalMacroCal = pCal + cCal + fCal
+    val pShare = if (totalMacroCal > 0f) ((pCal / totalMacroCal) * 100).toInt() else 0
+    val cShare = if (totalMacroCal > 0f) ((cCal / totalMacroCal) * 100).toInt() else 0
+    val fShare = if (totalMacroCal > 0f) ((fCal / totalMacroCal) * 100).toInt() else 0
+
+    val provenanceLabel = remember(meal.imageUri, meal.assessment) {
+        when {
+            meal.imageUri != null -> "Optical AI Estimate"
+            meal.assessment?.contains("BARCODE", ignoreCase = true) == true -> "Barcode Lookup (OpenFoodFacts)"
+            else -> "Manual Entry"
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(tokens.background)
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            TerminalTopBar(
+                title = "MEAL DOSSIER",
+                subtitle = "ID: ${meal.id.take(8).uppercase()}",
+                onBack = onBack,
+                actions = {
+                    IconButton(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                            showEditDialog = true
+                        },
+                        modifier = Modifier.size(tokens.minTouchTarget)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Edit meal",
+                            tint = tokens.primaryAccent
+                        )
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Black,
-                    titleContentColor = Color.White,
-                    navigationIconContentColor = Color.White
-                )
+                    IconButton(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                            showDeleteConfirmDialog = true
+                        },
+                        modifier = Modifier.size(tokens.minTouchTarget)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Delete meal",
+                            tint = tokens.error
+                        )
+                    }
+                }
             )
 
-            // Visual Evidence
             Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(300.dp)
-                    .padding(16.dp)
-                    .hudFraming(if (meal.isRestricted) Color.Red else MaterialTheme.colorScheme.primary, length = 40.dp, thickness = 4.dp)
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.TopCenter
             ) {
-                AsyncImage(
-                    model = meal.imageUri,
-                    contentDescription = "Visual Evidence",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-                
-                if (meal.isRestricted) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Red.copy(alpha = 0.3f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            "Restricted zone",
-                            color = Color.White,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Black,
-                            modifier = Modifier.background(Color.Red).padding(4.dp)
-                        )
+                Column(
+                    modifier = Modifier
+                        .widthIn(max = tokens.maxContentWidth)
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .navigationBarsPadding()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    // Photograph section: collapsed completely when meal has no photograph
+                    if (verifiedImageUri != null) {
+                        TerminalCard(
+                            withHudCorners = true,
+                            contentPadding = PaddingValues(8.dp)
+                        ) {
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                                AsyncImage(
+                                    model = verifiedImageUri,
+                                    contentDescription = "Photograph of ${meal.foodName}",
+                                    contentScale = ContentScale.Fit,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 180.dp, max = 320.dp)
+                                        .clip(tokens.controlShape)
+                                        .background(tokens.background)
+                                )
+                                Row(
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    if (meal.isRestricted) {
+                                        DetailBadge(text = "RESTRICTED", background = tokens.error)
+                                    }
+                                    if (meal.isNightRefueling) {
+                                        DetailBadge(text = "LATE REFUELING", background = tokens.warning)
+                                    }
+                                }
+                            }
+                        }
                     }
-                }
-                
-                if (meal.isNightRefueling) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Yellow.copy(alpha = 0.2f)),
-                        contentAlignment = Alignment.TopCenter
-                    ) {
-                        Text(
-                            "Late-night meal",
-                            color = Color.Black,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Black,
-                            modifier = Modifier.background(Color.Yellow).padding(4.dp)
-                        )
-                    }
-                }
-            }
 
-            Column(modifier = Modifier.padding(16.dp)) {
-                meal.assessment?.let {
-                    Surface(
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RectangleShape,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Text(
-                                "Assessment", 
-                                color = MaterialTheme.colorScheme.primary, 
-                                style = MaterialTheme.typography.labelSmall, 
-                                fontWeight = FontWeight.Black
+                    // Header Summary Card
+                    TerminalCard(withHudCorners = verifiedImageUri == null) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = meal.foodName,
+                                    style = MaterialTheme.typography.headlineSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = tokens.primaryText
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = NutritionFormat.formatLocalTimestamp(meal.timestamp),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = tokens.secondaryText
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Surface(
+                                color = tokens.elevatedSurface,
+                                shape = tokens.controlShape,
+                                border = BorderStroke(1.dp, tokens.border)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = if (meal.isLiquid) Icons.Default.LocalDrink else Icons.Default.Restaurant,
+                                        contentDescription = null,
+                                        tint = tokens.primaryAccent,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = if (meal.isLiquid) "LIQUID" else "SOLID",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = tokens.primaryText,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+                        HorizontalDivider(color = tokens.divider)
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Prominent Calorie Readout
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.Bottom,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column {
+                                Text(
+                                    text = "ENERGY INTAKE",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = tokens.secondaryText
+                                )
+                                Row(verticalAlignment = Alignment.Bottom) {
+                                    Text(
+                                        text = "${meal.calories}",
+                                        style = MaterialTheme.typography.displayMedium,
+                                        color = tokens.primaryAccent,
+                                        fontWeight = FontWeight.Black
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "kcal",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = tokens.secondaryText,
+                                        modifier = Modifier.padding(bottom = 6.dp)
+                                    )
+                                }
+                            }
+                            if (meal.isNightRefueling && verifiedImageUri == null) {
+                                DetailBadge(text = "LATE-NIGHT ENTRY", background = tokens.elevatedSurface, textColor = tokens.warning)
+                            }
+                        }
+                    }
+
+                    // Macronutrient Breakdown Card
+                    TerminalCard {
+                        TerminalSectionHeader(title = "Macronutrient Breakdown")
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            MacroDetailTile(
+                                label = "PROTEIN",
+                                grams = NutritionFormat.formatGrams(meal.proteinGrams),
+                                shareText = "$pShare% cal",
+                                accent = NutritionColors.Protein,
+                                modifier = Modifier.weight(1f)
                             )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                it, 
-                                color = MaterialTheme.colorScheme.onPrimaryContainer, 
-                                style = MaterialTheme.typography.bodyMedium, 
-                                fontWeight = FontWeight.Bold
+                            MacroDetailTile(
+                                label = "CARBS",
+                                grams = NutritionFormat.formatGrams(meal.carbsGrams),
+                                shareText = "$cShare% cal",
+                                accent = NutritionColors.Carbs,
+                                modifier = Modifier.weight(1f)
+                            )
+                            MacroDetailTile(
+                                label = "FAT",
+                                grams = NutritionFormat.formatGrams(meal.fatGrams),
+                                shareText = "$fShare% cal",
+                                accent = NutritionColors.Fat,
+                                modifier = Modifier.weight(1f)
                             )
                         }
                     }
+
+                    // Notes & Provenance Card
+                    TerminalCard {
+                        TerminalSectionHeader(title = "Notes & Provenance")
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        DetailRow(label = "Source", value = provenanceLabel, valueColor = tokens.primaryText)
+                        DetailRow(
+                            label = "Category",
+                            value = if (meal.isLiquid) "Liquid / Beverage" else "Solid Food",
+                            valueColor = tokens.primaryText
+                        )
+
+                        if (!meal.assessment.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Surface(
+                                color = tokens.elevatedSurface,
+                                shape = tokens.controlShape,
+                                border = BorderStroke(1.dp, tokens.border),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Text(
+                                        text = "ASSESSMENT / NOTES",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = tokens.primaryAccent,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = meal.assessment,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = tokens.primaryText
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Geospatial Metadata Card
+                    TerminalCard {
+                        TerminalSectionHeader(title = "Location Metadata")
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        val locale = LocalConfiguration.current.locales[0]
+                        val hasCoords = meal.latitude != null && meal.longitude != null
+                        val coordText = if (hasCoords) {
+                            String.format(locale, "%.5f, %.5f", meal.latitude, meal.longitude)
+                        } else {
+                            "Not recorded"
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = if (hasCoords) Icons.Default.LocationOn else Icons.Default.LocationOff,
+                                    contentDescription = null,
+                                    tint = if (hasCoords) tokens.primaryAccent else tokens.secondaryText,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = coordText,
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                                    color = if (hasCoords) tokens.primaryText else tokens.secondaryText
+                                )
+                            }
+                            if (hasCoords) {
+                                TextButton(
+                                    onClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                                        viewModel.updateMealEntry(meal.copy(latitude = null, longitude = null))
+                                    }
+                                ) {
+                                    Text("Remove tag", color = tokens.warning, style = MaterialTheme.typography.labelMedium)
+                                }
+                            }
+                        }
+                    }
+
+                    // Action Buttons
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        TerminalPrimaryButton(
+                            text = "EDIT MEAL",
+                            icon = Icons.Default.Edit,
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                                showEditDialog = true
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                        TerminalSecondaryButton(
+                            text = "DELETE",
+                            icon = Icons.Default.Delete,
+                            accentColor = tokens.error,
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                                showDeleteConfirmDialog = true
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
                     Spacer(modifier = Modifier.height(24.dp))
                 }
-
-                Text(
-                    text = meal.foodName.uppercase(),
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Black,
-                    color = Color.White
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "ID: ${meal.id.take(8)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.Gray,
-                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
-                )
-                Text(
-                    text = dateFormat.format(Date(meal.timestamp)),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.Gray,
-                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
-                )
-
-                Spacer(modifier = Modifier.height(24.dp))
-                HorizontalDivider(thickness = 2.dp, color = Color.White.copy(alpha = 0.2f))
-                Spacer(modifier = Modifier.height(24.dp))
-
-                // Macro Interrogation
-                Text("Nutrition", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Black)
-                Spacer(modifier = Modifier.height(16.dp))
-                
-                DetailRow("Calories", "${meal.calories} kcal", MaterialTheme.colorScheme.primary)
-                DetailRow("Protein", "${meal.proteinGrams.toInt()} g", NutritionColors.Protein)
-                DetailRow("Carbs", "${meal.carbsGrams.toInt()} g", NutritionColors.Carbs)
-                DetailRow("Fat", "${meal.fatGrams.toInt()} g", NutritionColors.Fat)
-                DetailRow("Type", if (meal.isLiquid) "Liquid Intake" else "Solid Food")
-
-                Spacer(modifier = Modifier.height(24.dp))
-                HorizontalDivider(thickness = 2.dp, color = Color.White.copy(alpha = 0.2f))
-                Spacer(modifier = Modifier.height(24.dp))
-
-                // Geospatial Intelligence
-                Text("Location", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Black)
-                Spacer(modifier = Modifier.height(16.dp))
-                
-                val coordText = if (meal.latitude != null && meal.longitude != null) {
-                    "${"%.6f".format(meal.latitude)}, ${"%.6f".format(meal.longitude)} [GEOTAGGED]"
-                } else {
-                    "NO COORDINATES RECORDED"
-                }
-                DetailRow("Coordinates", coordText)
-
-                Spacer(modifier = Modifier.height(40.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Button(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            showEditDialog = true
-                        },
-                        modifier = Modifier.weight(1f),
-                        shape = RectangleShape,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary
-                        )
-                    ) {
-                        Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Edit meal", fontWeight = FontWeight.Black)
-                    }
-
-                    OutlinedButton(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            showDeleteConfirmDialog = true
-                        },
-                        modifier = Modifier.weight(1f),
-                        shape = RectangleShape,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error)
-                    ) {
-                        Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Delete", fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.error)
-                    }
-                }
-                
-                Spacer(modifier = Modifier.height(32.dp))
             }
         }
 
@@ -281,63 +464,112 @@ fun MealDetailScreen(
                 onDismissRequest = { showDeleteConfirmDialog = false },
                 title = {
                     Text(
-                        "DELETE DOSSIER RECORD?",
-                        fontWeight = FontWeight.Black,
-                        color = MaterialTheme.colorScheme.error
+                        text = "DELETE MEAL RECORD?",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = tokens.error
                     )
                 },
                 text = {
                     Text(
-                        "This meal entry and its telemetry will be permanently expunged from the surveillance archive.",
-                        color = Color.White
+                        text = "Delete '${meal.foodName}' (${meal.calories} kcal)? This permanently removes the meal and any stored photo, and updates your daily and weekly totals.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = tokens.primaryText
                     )
                 },
                 confirmButton = {
-                    Button(
+                    TerminalPrimaryButton(
+                        text = "DELETE",
+                        isDestructive = true,
                         onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             showDeleteConfirmDialog = false
                             viewModel.deleteMealEntry(meal.id, onBack)
-                        },
-                        shape = RectangleShape,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.error,
-                            contentColor = MaterialTheme.colorScheme.onError
-                        )
-                    ) {
-                        Text("EXPUNGE RECORD", fontWeight = FontWeight.Black)
-                    }
+                        }
+                    )
                 },
                 dismissButton = {
-                    OutlinedButton(
-                        onClick = { showDeleteConfirmDialog = false },
-                        shape = RectangleShape
-                    ) {
-                        Text("CANCEL", color = Color.Gray)
-                    }
+                    TerminalSecondaryButton(
+                        text = "CANCEL",
+                        onClick = { showDeleteConfirmDialog = false }
+                    )
                 },
-                shape = RectangleShape,
-                containerColor = Color(0xFF181818)
+                shape = tokens.cardShape,
+                containerColor = tokens.surface
             )
         }
 
-        if (complianceStatus == ComplianceStatus.SUBVERSIVE) {
-            Surface(
-                modifier = Modifier.fillMaxSize(),
-                color = Color.Red.copy(alpha = 0.6f),
-                shape = RectangleShape
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = "Meal details are locked while you’re well off target.",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Black,
-                        color = Color.White,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                    )
-                }
-            }
+        SnackbarHost(
+            hostState = snackbar,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(16.dp)
+        )
+    }
+}
+
+@Composable
+private fun MacroDetailTile(
+    label: String,
+    grams: String,
+    shareText: String,
+    accent: Color,
+    modifier: Modifier = Modifier
+) {
+    val tokens = TerminalDesign.tokens
+    Surface(
+        color = tokens.elevatedSurface,
+        shape = tokens.controlShape,
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.4f)),
+        modifier = modifier
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            horizontalAlignment = Alignment.Start
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = accent,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = grams,
+                style = MaterialTheme.typography.titleLarge,
+                color = tokens.primaryText,
+                fontWeight = FontWeight.Black
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = shareText,
+                style = MaterialTheme.typography.labelSmall,
+                color = tokens.secondaryText
+            )
         }
-        SnackbarHost(hostState = snackbar, modifier = Modifier.align(Alignment.BottomCenter))
+    }
+}
+
+@Composable
+private fun DetailBadge(
+    text: String,
+    background: Color,
+    textColor: Color = Color.Black
+) {
+    val tokens = TerminalDesign.tokens
+    Surface(
+        color = background,
+        shape = tokens.controlShape,
+        border = BorderStroke(1.dp, tokens.border)
+    ) {
+        Text(
+            text = text,
+            color = textColor,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+        )
     }
 }
 
@@ -347,149 +579,113 @@ fun EditMealDialog(
     onDismiss: () -> Unit,
     onSave: (MealEntry) -> Unit
 ) {
-    var foodName by remember { mutableStateOf(meal.foodName) }
-    var caloriesStr by remember { mutableStateOf(meal.calories.toString()) }
-    var proteinStr by remember { mutableStateOf(meal.proteinGrams.toString()) }
-    var carbsStr by remember { mutableStateOf(meal.carbsGrams.toString()) }
-    var fatStr by remember { mutableStateOf(meal.fatGrams.toString()) }
-    var isLiquid by remember { mutableStateOf(meal.isLiquid) }
-
+    val tokens = TerminalDesign.tokens
     val haptic = LocalHapticFeedback.current
+
+    var foodName by rememberSaveable(meal.id) { mutableStateOf(meal.foodName) }
+    var caloriesStr by rememberSaveable(meal.id) { mutableStateOf(meal.calories.toString()) }
+    var proteinStr by rememberSaveable(meal.id) { mutableStateOf(NutritionFormat.formatGramsValue(meal.proteinGrams)) }
+    var carbsStr by rememberSaveable(meal.id) { mutableStateOf(NutritionFormat.formatGramsValue(meal.carbsGrams)) }
+    var fatStr by rememberSaveable(meal.id) { mutableStateOf(NutritionFormat.formatGramsValue(meal.fatGrams)) }
+    var isLiquid by rememberSaveable(meal.id) { mutableStateOf(meal.isLiquid) }
+    var notes by rememberSaveable(meal.id) { mutableStateOf(meal.assessment.orEmpty()) }
+
+    val isValid = NutritionFormat.isMealFormValid(foodName, caloriesStr, proteinStr, carbsStr, fatStr)
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "CORRECT DOSSIER ENTRY",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Black,
-                color = MaterialTheme.colorScheme.primary
+                text = "EDIT MEAL RECORD",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = tokens.primaryAccent
             )
         },
         text = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                    .verticalScroll(rememberScrollState())
             ) {
-                OutlinedTextField(
-                    value = foodName,
-                    onValueChange = { foodName = it },
-                    label = { Text("Item Name") },
-                    singleLine = true,
-                    shape = RectangleShape,
-                    modifier = Modifier.fillMaxWidth()
+                SharedMealFormFields(
+                    foodName = foodName,
+                    onFoodNameChange = { foodName = it },
+                    caloriesStr = caloriesStr,
+                    onCaloriesChange = { caloriesStr = it },
+                    proteinStr = proteinStr,
+                    onProteinChange = { proteinStr = it },
+                    carbsStr = carbsStr,
+                    onCarbsChange = { carbsStr = it },
+                    fatStr = fatStr,
+                    onFatChange = { fatStr = it },
+                    isLiquid = isLiquid,
+                    onLiquidChange = { isLiquid = it },
+                    notes = notes,
+                    onNotesChange = { notes = it }
                 )
-                OutlinedTextField(
-                    value = caloriesStr,
-                    onValueChange = { caloriesStr = it.filter { ch -> ch.isDigit() } },
-                    label = { Text("Calories (kcal)") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    shape = RectangleShape,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedTextField(
-                        value = proteinStr,
-                        onValueChange = { proteinStr = it.filter { ch -> ch.isDigit() || ch == '.' } },
-                        label = { Text("P (g)") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                        shape = RectangleShape,
-                        modifier = Modifier.weight(1f)
-                    )
-                    OutlinedTextField(
-                        value = carbsStr,
-                        onValueChange = { carbsStr = it.filter { ch -> ch.isDigit() || ch == '.' } },
-                        label = { Text("C (g)") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                        shape = RectangleShape,
-                        modifier = Modifier.weight(1f)
-                    )
-                    OutlinedTextField(
-                        value = fatStr,
-                        onValueChange = { fatStr = it.filter { ch -> ch.isDigit() || ch == '.' } },
-                        label = { Text("F (g)") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                        shape = RectangleShape,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { isLiquid = !isLiquid }
-                        .padding(vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Checkbox(
-                        checked = isLiquid,
-                        onCheckedChange = { isLiquid = it },
-                        colors = CheckboxDefaults.colors(
-                            checkedColor = MaterialTheme.colorScheme.primary
-                        )
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Liquid consumption",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.White
-                    )
-                }
             }
         },
         confirmButton = {
-            Button(
+            TerminalPrimaryButton(
+                text = "SAVE CHANGES",
+                enabled = isValid,
                 onClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    val cal = caloriesStr.toIntOrNull() ?: meal.calories
-                    val p = proteinStr.toFloatOrNull() ?: meal.proteinGrams
-                    val c = carbsStr.toFloatOrNull() ?: meal.carbsGrams
-                    val f = fatStr.toFloatOrNull() ?: meal.fatGrams
+                    val cal = NutritionFormat.parseCaloriesOrNull(caloriesStr) ?: meal.calories
+                    val p = NutritionFormat.parseGramsOrNull(proteinStr) ?: meal.proteinGrams
+                    val c = NutritionFormat.parseGramsOrNull(carbsStr) ?: meal.carbsGrams
+                    val f = NutritionFormat.parseGramsOrNull(fatStr) ?: meal.fatGrams
                     onSave(
                         meal.copy(
-                            foodName = foodName.ifBlank { meal.foodName },
-                            calories = cal.coerceAtLeast(0),
-                            proteinGrams = p.coerceAtLeast(0f),
-                            carbsGrams = c.coerceAtLeast(0f),
-                            fatGrams = f.coerceAtLeast(0f),
-                            isLiquid = isLiquid
+                            foodName = foodName.trim().take(120).ifBlank { meal.foodName },
+                            calories = cal.coerceIn(0, NutritionFormat.MAX_MEAL_CALORIES),
+                            proteinGrams = p.coerceIn(0f, NutritionFormat.MAX_MEAL_MACRO_GRAMS),
+                            carbsGrams = c.coerceIn(0f, NutritionFormat.MAX_MEAL_MACRO_GRAMS),
+                            fatGrams = f.coerceIn(0f, NutritionFormat.MAX_MEAL_MACRO_GRAMS),
+                            isLiquid = isLiquid,
+                            assessment = notes.trim().take(500).ifBlank { null }
                         )
                     )
-                },
-                shape = RectangleShape,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                )
-            ) {
-                Text("SAVE CORRECTIONS", fontWeight = FontWeight.Black)
-            }
+                }
+            )
         },
         dismissButton = {
-            OutlinedButton(onClick = onDismiss, shape = RectangleShape) {
-                Text("CANCEL", color = Color.Gray)
-            }
+            TerminalSecondaryButton(
+                text = "CANCEL",
+                onClick = onDismiss
+            )
         },
-        shape = RectangleShape,
-        containerColor = Color(0xFF141414)
+        shape = tokens.cardShape,
+        containerColor = tokens.surface
     )
 }
 
 @Composable
-fun DetailRow(label: String, value: String, valueColor: Color = Color.White) {
+fun DetailRow(
+    label: String,
+    value: String,
+    valueColor: Color = Color.Unspecified
+) {
+    val tokens = TerminalDesign.tokens
+    val resolvedColor = if (valueColor == Color.Unspecified) tokens.primaryText else valueColor
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(label, color = Color.Gray, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-        Text(value, color = valueColor, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Black)
+        Text(
+            text = label,
+            color = tokens.secondaryText,
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Text(
+            text = value,
+            color = resolvedColor,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold
+        )
     }
 }

@@ -18,7 +18,10 @@ data class ParsedNutrition(
     val fatGrams: Float,
     val isLiquid: Boolean,
     val assessment: String,
-    val confidence: String? = null
+    val confidence: String? = null,
+    val isCaloriesDerived: Boolean = false,
+    val hasMacroCalorieMismatch: Boolean = false,
+    val wasClamped: Boolean = false
 )
 
 object NutritionSanitizer {
@@ -54,8 +57,17 @@ object NutritionSanitizer {
         val protein = (rawProtein ?: 0.0).coerceAtMost(1_000.0).toFloat()
         val carbs = (rawCarbs ?: 0.0).coerceAtMost(1_000.0).toFloat()
         val fat = (rawFat ?: 0.0).coerceAtMost(1_000.0).toFloat()
-        val calories = (rawCalories ?: (protein * 4.0 + carbs * 4.0 + fat * 9.0))
-            .coerceAtMost(20_000.0).roundToInt()
+        val macroCalories = protein * 4.0 + carbs * 4.0 + fat * 9.0
+        val unClampedCalories = rawCalories ?: macroCalories
+        val calories = unClampedCalories.coerceAtMost(20_000.0).roundToInt()
+
+        val wasClamped = (rawProtein != null && rawProtein > 1_000.0) ||
+            (rawCarbs != null && rawCarbs > 1_000.0) ||
+            (rawFat != null && rawFat > 1_000.0) ||
+            (unClampedCalories > 20_000.0)
+        val isCaloriesDerived = rawCalories == null
+        val hasMacroCalorieMismatch = rawCalories != null && macroCalories > 0.0 &&
+            kotlin.math.abs(calories - macroCalories) > maxOf(80.0, macroCalories * 0.30)
 
         val isLiquid = sequenceOf("isLiquid", "beverage").any {
             val value = jsonObject.get(it)
@@ -74,7 +86,10 @@ object NutritionSanitizer {
             fatGrams = fat,
             isLiquid = isLiquid,
             assessment = assessment,
-            confidence = confidence
+            confidence = confidence,
+            isCaloriesDerived = isCaloriesDerived,
+            hasMacroCalorieMismatch = hasMacroCalorieMismatch,
+            wasClamped = wasClamped
         )
     }
 

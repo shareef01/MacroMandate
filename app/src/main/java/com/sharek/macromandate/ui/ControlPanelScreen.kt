@@ -11,46 +11,72 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.LocationOff
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.NetworkCheck
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.TrackChanges
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.*
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.sharek.macromandate.BuildConfig
 import com.sharek.macromandate.data.local.AuditEntity
 import com.sharek.macromandate.network.ApiConfig
+import com.sharek.macromandate.ui.components.*
+import com.sharek.macromandate.ui.theme.TerminalDesign
 import com.sharek.macromandate.ui.theme.TerminalTheme
-import androidx.core.content.ContextCompat
+import com.sharek.macromandate.util.NutritionFormat
 import com.sharek.macromandate.viewmodel.MainViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun ControlPanelScreen(viewModel: MainViewModel) {
@@ -58,25 +84,51 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
     val haptic = LocalHapticFeedback.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val tokens = TerminalDesign.tokens
 
-    val calorieTarget by viewModel.calorieTarget.collectAsState()
-    val enforcementEnabled by viewModel.enforcementEnabled.collectAsState()
-    val locationTrackingEnabled by viewModel.locationTrackingEnabled.collectAsState()
-    val shareLocationWithAnalysis by viewModel.shareLocationWithAnalysis.collectAsState()
-    val recentAudits by viewModel.recentAudits.collectAsState()
-    val apiKeyHint by viewModel.apiKeyHint.collectAsState()
-    val terminalTheme by viewModel.terminalTheme.collectAsState()
-    val crtEffectsEnabled by viewModel.crtEffectsEnabled.collectAsState()
+    val calorieTarget by viewModel.calorieTarget.collectAsStateWithLifecycle()
+    val enforcementEnabled by viewModel.enforcementEnabled.collectAsStateWithLifecycle()
+    val locationTrackingEnabled by viewModel.locationTrackingEnabled.collectAsStateWithLifecycle()
+    val shareLocationWithAnalysis by viewModel.shareLocationWithAnalysis.collectAsStateWithLifecycle()
+    val recentAudits by viewModel.recentAudits.collectAsStateWithLifecycle()
+    val apiKeyHint by viewModel.apiKeyHint.collectAsStateWithLifecycle()
+    val terminalTheme by viewModel.terminalTheme.collectAsStateWithLifecycle()
+    val crtEffectsEnabled by viewModel.crtEffectsEnabled.collectAsStateWithLifecycle()
+
+    var notificationsBlocked by remember { mutableStateOf(!canPostNotifications(context)) }
+    var locationPermissionGranted by remember { mutableStateOf(hasLocationPermission(context)) }
+    var pendingRestoreUri by remember { mutableStateOf<Uri?>(null) }
+    var showEraseConfirm by rememberSaveable { mutableStateOf(false) }
+    var showClearLocationsConfirm by rememberSaveable { mutableStateOf(false) }
+    var isTestingConnection by remember { mutableStateOf(false) }
+    var connectionTestMessage by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
 
     val reminderPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        notificationsBlocked = !canPostNotifications(context)
         if (granted) {
             viewModel.toggleEnforcement(true)
         } else {
-            scope.launch { snackbarHostState.showSnackbar("Notifications are off for MacroMandate.") }
+            scope.launch { snackbarHostState.showSnackbar("Notifications are turned off for MacroMandate.") }
         }
     }
 
-    var pendingRestoreUri by remember { mutableStateOf<Uri?>(null) }
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        locationPermissionGranted = hasLocationPermission(context)
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                notificationsBlocked = !canPostNotifications(context)
+                locationPermissionGranted = hasLocationPermission(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     val createCsvLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/csv"),
@@ -111,9 +163,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
     val openZipLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
         onResult = { uri ->
-            uri?.let {
-                pendingRestoreUri = it
-            }
+            uri?.let { pendingRestoreUri = it }
         }
     )
 
@@ -122,20 +172,24 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
             onDismissRequest = { pendingRestoreUri = null },
             title = {
                 Text(
-                    text = "RESTORE DOSSIER FROM ARCHIVE?",
-                    fontWeight = FontWeight.Black,
-                    style = MaterialTheme.typography.titleMedium
+                    text = "RESTORE BACKUP ARCHIVE?",
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = tokens.primaryAccent
                 )
             },
             text = {
                 Text(
-                    "Imports meal records and any included photos. A conflicting meal ID stops the restore. Older JSON backups contain meal records only.",
-                    style = MaterialTheme.typography.bodyMedium
+                    text = "Imports meal records and any included photos. If an archive contains a meal ID that already exists in your log, the restore stops without overwriting your existing records. Older JSON backups restore meal records only.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = tokens.primaryText
                 )
             },
             confirmButton = {
-                TextButton(
+                TerminalPrimaryButton(
+                    text = "RESTORE",
                     onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         val uri = pendingRestoreUri
                         pendingRestoreUri = null
                         if (uri != null) {
@@ -143,7 +197,7 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                                 scope.launch {
                                     result.fold(
                                         onSuccess = { count ->
-                                            snackbarHostState.showSnackbar("Restored $count records.")
+                                            snackbarHostState.showSnackbar("Restored $count meal record(s).")
                                         },
                                         onFailure = { error ->
                                             snackbarHostState.showSnackbar("Restore failed: ${error.message}")
@@ -153,324 +207,443 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
                             }
                         }
                     }
-                ) {
-                    Text("RESTORE", fontWeight = FontWeight.Black)
-                }
+                )
             },
             dismissButton = {
-                OutlinedButton(
-                    onClick = { pendingRestoreUri = null },
-                    shape = RectangleShape
-                ) {
-                    Text("CANCEL", color = Color.Gray)
-                }
+                TerminalSecondaryButton(
+                    text = "CANCEL",
+                    onClick = { pendingRestoreUri = null }
+                )
             },
-            shape = RectangleShape,
-            containerColor = Color(0xFF141414)
+            shape = tokens.cardShape,
+            containerColor = tokens.surface
         )
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            // Pinned Tactical Top Bar (Prevents content scrolling under status bar)
-            Surface(
-                color = MaterialTheme.colorScheme.background,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Settings",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Black,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                }
-            }
-            HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
-
-            // Scrollable Content
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp)
-                    .padding(top = 16.dp)
-            ) {
-                ApiKeyCard(
-                    keyHint = apiKeyHint,
-                    onSave = { key ->
-                        viewModel.updateApiKey(key) { saved ->
+    if (showClearLocationsConfirm) {
+        AlertDialog(
+            onDismissRequest = { showClearLocationsConfirm = false },
+            title = {
+                Text(
+                    text = "REMOVE STORED LOCATION COORDINATES?",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = tokens.warning
+                )
+            },
+            text = {
+                Text(
+                    text = "Removes saved GPS coordinates from all existing meal records on this device. Your meals, nutrition values, and photos will be kept.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = tokens.primaryText
+                )
+            },
+            confirmButton = {
+                TerminalPrimaryButton(
+                    text = "REMOVE LOCATIONS",
+                    isDestructive = true,
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        showClearLocationsConfirm = false
+                        viewModel.clearStoredLocations { count ->
                             scope.launch {
-                                val message = when {
-                                    !saved -> "Could not save the API key."
-                                    key.isBlank() -> "API key cleared."
-                                    else -> "API key saved."
+                                val msg = if (count >= 0) {
+                                    "Removed coordinates from $count meal record(s)."
+                                } else {
+                                    "Could not clear stored location coordinates."
                                 }
-                                snackbarHostState.showSnackbar(message)
+                                snackbarHostState.showSnackbar(msg)
                             }
                         }
                     }
                 )
+            },
+            dismissButton = {
+                TerminalSecondaryButton(
+                    text = "CANCEL",
+                    onClick = { showClearLocationsConfirm = false }
+                )
+            },
+            shape = tokens.cardShape,
+            containerColor = tokens.surface
+        )
+    }
 
-            Spacer(modifier = Modifier.height(32.dp))
+    if (showEraseConfirm) {
+        AlertDialog(
+            onDismissRequest = { showEraseConfirm = false },
+            title = {
+                Text(
+                    text = "ERASE ALL MEAL DATA?",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = tokens.error
+                )
+            },
+            text = {
+                Text(
+                    text = "Permanently deletes every meal record, saved photograph, and activity log entry from this device. Your settings and API key are preserved. This cannot be undone.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = tokens.primaryText
+                )
+            },
+            confirmButton = {
+                TerminalPrimaryButton(
+                    text = "DELETE EVERYTHING",
+                    isDestructive = true,
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        showEraseConfirm = false
+                        viewModel.deleteAllData { succeeded ->
+                            scope.launch {
+                                snackbarHostState.showSnackbar(
+                                    if (succeeded) "All meal records and photos deleted."
+                                    else "Records cleared, though some files could not be removed."
+                                )
+                            }
+                        }
+                    }
+                )
+            },
+            dismissButton = {
+                TerminalSecondaryButton(
+                    text = "CANCEL",
+                    onClick = { showEraseConfirm = false }
+                )
+            },
+            shape = tokens.cardShape,
+            containerColor = tokens.surface
+        )
+    }
 
-            TerminalThemeCard(
-                currentTheme = terminalTheme,
-                onSelectTheme = { viewModel.updateTerminalTheme(it) }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(tokens.background)
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            TerminalTopBar(
+                title = "SETTINGS",
+                subtitle = "SYSTEM CONFIGURATION & DATA SOVEREIGNTY"
             )
 
-            Spacer(modifier = Modifier.height(32.dp))
-            
-            SettingsCard(title = "Visual Distortion (CRT Effects)", icon = Icons.Default.Palette) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth()
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.TopCenter
+            ) {
+                Column(
+                    modifier = Modifier
+                        .widthIn(max = tokens.maxContentWidth)
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(20.dp)
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Simulated Cathode Tube", fontWeight = FontWeight.Bold, color = Color.White)
-                        Text("Enables scanlines, edge vignette, and phosphor bloom.", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                    // 1. NUTRITION GOALS
+                    TerminalSectionHeader(title = "1. Nutrition Goals", badge = "$calorieTarget KCAL")
+                    SettingsCard(title = "Daily Calorie Target", icon = Icons.Default.TrackChanges) {
+                        CalorieTargetControl(
+                            target = calorieTarget,
+                            onTargetChange = { viewModel.updateCalorieTarget(it) }
+                        )
                     }
-                    Switch(
-                        checked = crtEffectsEnabled,
-                        onCheckedChange = { viewModel.updateCrtEffectsEnabled(it) },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                            checkedTrackColor = MaterialTheme.colorScheme.primary
+
+                    // 2. APPEARANCE & ACCESSIBILITY
+                    TerminalSectionHeader(title = "2. Appearance & Accessibility", badge = terminalTheme.displayName)
+                    TerminalThemeCard(
+                        currentTheme = terminalTheme,
+                        onSelectTheme = { viewModel.updateTerminalTheme(it) }
+                    )
+                    SettingsCard(title = "CRT Display Effects", icon = Icons.Default.Palette) {
+                        SettingRow(
+                            label = "Enable CRT scanlines & vignette",
+                            description = "Applies subtle retro scanlines and screen vignette. Turn off for maximum text contrast and reduced visual noise.",
+                            checked = crtEffectsEnabled,
+                            onCheckedChange = {
+                                haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                                viewModel.updateCrtEffectsEnabled(it)
+                            }
                         )
+                    }
+
+                    // 3. AI ANALYSIS
+                    TerminalSectionHeader(
+                        title = "3. AI Analysis",
+                        badge = if (apiKeyHint.isNotBlank()) "KEY SAVED" else "LOCAL ONLY"
                     )
-                }
-            }
-
-
-            Spacer(modifier = Modifier.height(32.dp))
-
-            SettingsCard(title = "Daily calorie target", icon = Icons.Default.Settings) {
-                Column {
-                    // Local value mirrors the persisted target; commit only when the
-                    // user releases the slider to avoid DataStore/audit/widget spam.
-                    var sliderValue by remember { mutableFloatStateOf(calorieTarget.toFloat()) }
-                    LaunchedEffect(calorieTarget) { sliderValue = calorieTarget.toFloat() }
-                    Text(
-                        text = "${sliderValue.toInt()} kcal",
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Black
-                    )
-                    Slider(
-                        value = sliderValue,
-                        onValueChange = { 
-                            sliderValue = it
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    ApiKeyCard(
+                        keyHint = apiKeyHint,
+                        isTestingConnection = isTestingConnection,
+                        connectionTestMessage = connectionTestMessage,
+                        onSave = { key ->
+                            connectionTestMessage = null
+                            viewModel.updateApiKey(key) { saved ->
+                                scope.launch {
+                                    val message = when {
+                                        !saved -> "Could not save the API key."
+                                        key.isBlank() -> "API key cleared."
+                                        else -> "API key encrypted and saved."
+                                    }
+                                    snackbarHostState.showSnackbar(message)
+                                }
+                            }
                         },
-                        onValueChangeFinished = {
-                            viewModel.updateCalorieTarget(sliderValue.toInt())
-                        },
-                        valueRange = 1200f..4000f,
-                        steps = 55,
-                        modifier = Modifier.semantics {
-                            contentDescription = "Calorie target slider. Current target is ${sliderValue.toInt()} calories."
-                        },
-                        colors = SliderDefaults.colors(
-                            thumbColor = MaterialTheme.colorScheme.primary,
-                            activeTrackColor = MaterialTheme.colorScheme.primary
-                        )
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(32.dp))
-
-            SettingsCard(title = "Reminders", icon = Icons.Default.Notifications) {
-                Column {
-                    SettingRow(
-                        label = "Remind me when a meal is overdue",
-                        checked = enforcementEnabled,
-                        onCheckedChange = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            if (it && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
-                                PackageManager.PERMISSION_GRANTED
-                            ) {
-                                reminderPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-                            } else {
-                                viewModel.toggleEnforcement(it)
+                        onTestConnection = {
+                            isTestingConnection = true
+                            connectionTestMessage = null
+                            viewModel.testApiConnection { result ->
+                                isTestingConnection = false
+                                connectionTestMessage = result.fold(
+                                    onSuccess = { true to it },
+                                    onFailure = { false to (it.message ?: "Connection test failed.") }
+                                )
                             }
                         }
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Checks every 6 hours during the day and notifies you if " +
-                            "nothing has been logged for a while.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.Gray
+
+                    // 4. NOTIFICATIONS & REMINDERS
+                    TerminalSectionHeader(
+                        title = "4. Notifications & Reminders",
+                        badge = if (enforcementEnabled && !notificationsBlocked) "ON" else "OFF"
                     )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(32.dp))
-
-            SettingsCard(title = "Location", icon = Icons.Default.LocationOn) {
-                Column {
-                    SettingRow(
-                        label = "Tag meals with location",
-                        checked = locationTrackingEnabled,
-                        onCheckedChange = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            viewModel.toggleLocationTracking(it)
+                    SettingsCard(title = "Meal Logging Reminders", icon = Icons.Default.Notifications) {
+                        Column {
+                            SettingRow(
+                                label = "Remind me when a meal is overdue",
+                                description = "Checks every 6 hours between 08:00 and 22:00 and posts a reminder if no meal has been logged recently.",
+                                checked = enforcementEnabled,
+                                onCheckedChange = { enabled ->
+                                    haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                                    if (enabled && needsNotificationPermission(context)) {
+                                        reminderPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                    } else {
+                                        viewModel.toggleEnforcement(enabled)
+                                    }
+                                }
+                            )
+                            if (enforcementEnabled && notificationsBlocked) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Surface(
+                                    color = tokens.error.copy(alpha = 0.14f),
+                                    border = BorderStroke(1.dp, tokens.error),
+                                    shape = tokens.controlShape,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        text = "Notifications are disabled for MacroMandate in Android system settings, so reminders cannot be shown.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = tokens.error,
+                                        modifier = Modifier.padding(10.dp)
+                                    )
+                                }
+                            }
                         }
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Save the device's location with meals captured in the camera. " +
-                            "Location is included in JSON and ZIP backups.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.Gray
-                    )
-                    if (locationTrackingEnabled) {
-                        SettingRow(
-                            label = "Send location with photo analysis",
-                            checked = shareLocationWithAnalysis,
-                            onCheckedChange = viewModel::toggleShareLocationWithAnalysis
-                        )
-                    }
-                    Text(
-                        text = "If you enable sharing, coordinates are printed onto the photo " +
-                            "sent to the analysis service. Sharing is off by default.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.Gray
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(32.dp))
-
-            Text(
-                text = "Your data",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Black
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-
-            SettingsCard(title = "Data portability & backup", icon = Icons.Default.Storage) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        text = "Export structured JSON archives for full database restoration, or CSV dossiers for external spreadsheet analysis.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.Gray
-                    )
-
-                    // Export JSON Button
-                    Button(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            createZipLauncher.launch("MacroMandate_Backup_${System.currentTimeMillis()}.zip")
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RectangleShape,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary,
-                            disabledContainerColor = Color(0xFF1A1A1A)
-                        )
-                    ) {
-                        Icon(Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Export ZIP Backup",
-                            fontWeight = FontWeight.Black
-                        )
                     }
 
-                    // Restore Backup Button
-                    OutlinedButton(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            openZipLauncher.launch(arrayOf("application/zip", "application/x-zip-compressed", "*/*"))
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RectangleShape,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = MaterialTheme.colorScheme.primary,
-                            disabledContentColor = Color.DarkGray
-                        )
-                    ) {
-                        Icon(Icons.Default.FileUpload, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Restore Backup",
-                            fontWeight = FontWeight.Black
-                        )
+                    // 5. PRIVACY & PERMISSIONS
+                    TerminalSectionHeader(
+                        title = "5. Privacy & Permissions",
+                        badge = if (locationTrackingEnabled) "GEOTAG ON" else "GEOTAG OFF"
+                    )
+                    SettingsCard(title = "Location Metadata", icon = Icons.Default.LocationOn) {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            SettingRow(
+                                label = "Tag camera meals with location",
+                                description = "Attaches GPS coordinates locally to meals captured with the camera. Turning this off stops future collection without deleting existing history.",
+                                checked = locationTrackingEnabled,
+                                onCheckedChange = { enabled ->
+                                    haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                                    viewModel.toggleLocationTracking(enabled)
+                                    if (enabled && !locationPermissionGranted) {
+                                        locationPermissionLauncher.launch(
+                                            arrayOf(
+                                                Manifest.permission.ACCESS_FINE_LOCATION,
+                                                Manifest.permission.ACCESS_COARSE_LOCATION
+                                            )
+                                        )
+                                    }
+                                }
+                            )
+
+                            if (locationTrackingEnabled && !locationPermissionGranted) {
+                                Surface(
+                                    color = tokens.warning.copy(alpha = 0.14f),
+                                    border = BorderStroke(1.dp, tokens.warning),
+                                    shape = tokens.controlShape,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(10.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "Android location permission is not granted.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = tokens.primaryText,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        TextButton(
+                                            onClick = {
+                                                locationPermissionLauncher.launch(
+                                                    arrayOf(
+                                                        Manifest.permission.ACCESS_FINE_LOCATION,
+                                                        Manifest.permission.ACCESS_COARSE_LOCATION
+                                                    )
+                                                )
+                                            }
+                                        ) {
+                                            Text("GRANT", color = tokens.primaryAccent, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (locationTrackingEnabled) {
+                                HorizontalDivider(color = tokens.divider)
+                                SettingRow(
+                                    label = "Include coordinates in AI analysis image",
+                                    description = "When enabled, prints coordinates onto the image copy sent to ${ApiConfig.providerName}. Off by default.",
+                                    checked = shareLocationWithAnalysis,
+                                    onCheckedChange = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                                        viewModel.toggleShareLocationWithAnalysis(it)
+                                    }
+                                )
+                            }
+
+                            HorizontalDivider(color = tokens.divider)
+
+                            TerminalSecondaryButton(
+                                text = "REMOVE STORED LOCATION DATA",
+                                icon = Icons.Default.LocationOff,
+                                accentColor = tokens.warning,
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                                    showClearLocationsConfirm = true
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
                     }
 
-                    // Export CSV Button
-                    OutlinedButton(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            createCsvLauncher.launch("MacroMandate_Export_${System.currentTimeMillis()}.csv")
-                        },
+                    // 6. BACKUP, RESTORATION & EXPORTS
+                    TerminalSectionHeader(title = "6. Backup, Restoration & Exports")
+                    SettingsCard(title = "Data Portability", icon = Icons.Default.Storage) {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text(
+                                text = "Export a complete ZIP archive (meal records + photos), restore from a ZIP or legacy JSON backup, or export a spreadsheet-safe CSV.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = tokens.secondaryText
+                            )
+
+                            val stamp = remember { SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date()) }
+
+                            TerminalPrimaryButton(
+                                text = "EXPORT ZIP BACKUP (MEALS + PHOTOS)",
+                                icon = Icons.Default.FileDownload,
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    createZipLauncher.launch("MacroMandate_Backup_$stamp.zip")
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+
+                            TerminalSecondaryButton(
+                                text = "RESTORE FROM BACKUP (ZIP / JSON)",
+                                icon = Icons.Default.FileUpload,
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                                    openZipLauncher.launch(
+                                        arrayOf("application/zip", "application/x-zip-compressed", "application/json", "*/*")
+                                    )
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+
+                            TerminalSecondaryButton(
+                                text = "EXPORT CSV SPREADSHEET",
+                                icon = Icons.Default.Description,
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    createCsvLauncher.launch("MacroMandate_Export_$stamp.csv")
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+
+                    SettingsCard(title = "Destructive Reset", icon = Icons.Default.DeleteForever) {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text(
+                                text = "Permanently deletes all logged meals, stored meal photos, and activity logs from this device. Export a backup first if you want to keep your records.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = tokens.secondaryText
+                            )
+                            TerminalSecondaryButton(
+                                text = "ERASE ALL MEAL DATA",
+                                icon = Icons.Default.DeleteForever,
+                                accentColor = tokens.error,
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                                    showEraseConfirm = true
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+
+                    // 7. ABOUT & APPLICATION INFORMATION
+                    TerminalSectionHeader(
+                        title = "7. About & System Telemetry",
+                        badge = "v${BuildConfig.VERSION_NAME}"
+                    )
+                    SettingsCard(title = "Application Information", icon = Icons.Default.Info) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            DetailRow(label = "Version", value = "${BuildConfig.VERSION_NAME} (Code ${BuildConfig.VERSION_CODE})")
+                            DetailRow(label = "Storage Engine", value = "Local Room SQLite v8 + KeyStore AES-256-GCM")
+                            DetailRow(label = "AI Endpoint", value = "${ApiConfig.providerName} (${ApiConfig.model})")
+                            DetailRow(label = "Telemetry & Cloud Sync", value = "None (100% Local-First)")
+                        }
+                    }
+
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RectangleShape,
-                        border = BorderStroke(1.dp, Color.Gray),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = Color.White,
-                            disabledContentColor = Color.DarkGray
-                        )
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Default.Description, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Export CSV Spreadsheet",
+                            text = "LOCAL ACTIVITY LOG",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = tokens.primaryAccent,
                             fontWeight = FontWeight.Bold
                         )
+                        if (recentAudits.isNotEmpty()) {
+                            TextButton(
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    viewModel.clearActivityLog()
+                                },
+                                modifier = Modifier.defaultMinSize(minHeight = tokens.minTouchTarget)
+                            ) {
+                                Text(
+                                    text = "CLEAR LOG",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = tokens.secondaryText
+                                )
+                            }
+                        }
                     }
+
+                    AuditBufferHud(recentAudits)
+
+                    Spacer(modifier = Modifier.height(80.dp))
                 }
             }
-
-            Spacer(modifier = Modifier.height(32.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Activity log",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Black
-                )
-                if (recentAudits.isNotEmpty()) {
-                    TextButton(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            viewModel.clearActivityLog()
-                        },
-                        modifier = Modifier.defaultMinSize(minHeight = 44.dp)
-                    ) {
-                        Text(
-                            "CLEAR LOG",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Black,
-                            color = Color.Gray
-                        )
-                    }
-                }
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-
-            AuditBufferHud(recentAudits)
-
-            // Clears the bottom navigation bar so the last card is fully reachable.
-            Spacer(modifier = Modifier.height(96.dp))
         }
-    }
 
         SnackbarHost(
             hostState = snackbarHostState,
@@ -486,26 +659,175 @@ fun ControlPanelScreen(viewModel: MainViewModel) {
 private fun SettingRow(
     label: String,
     checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
+    onCheckedChange: (Boolean) -> Unit,
+    description: String? = null
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+    val tokens = TerminalDesign.tokens
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .defaultMinSize(minHeight = tokens.minTouchTarget)
+                .clickable(
+                    role = Role.Switch,
+                    onClick = { onCheckedChange(!checked) }
+                ),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = tokens.primaryText,
+                modifier = Modifier.weight(1f)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Switch(
+                checked = checked,
+                onCheckedChange = null,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = tokens.background,
+                    checkedTrackColor = tokens.primaryAccent,
+                    uncheckedThumbColor = tokens.secondaryText,
+                    uncheckedTrackColor = tokens.elevatedSurface
+                )
+            )
+        }
+        if (!description.isNullOrBlank()) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = tokens.secondaryText
+            )
+        }
+    }
+}
+
+@Composable
+private fun CalorieTargetControl(
+    target: Int,
+    onTargetChange: (Int) -> Unit
+) {
+    val tokens = TerminalDesign.tokens
+    val haptic = LocalHapticFeedback.current
+    val focusManager = LocalFocusManager.current
+
+    var draft by remember(target) { mutableIntStateOf(target) }
+    var typed by remember(target) { mutableStateOf(target.toString()) }
+
+    fun commit(value: Int) {
+        val clamped = value.coerceIn(
+            NutritionFormat.MIN_CALORIE_TARGET,
+            NutritionFormat.MAX_CALORIE_TARGET
+        )
+        draft = clamped
+        typed = clamped.toString()
+        if (clamped != target) {
+            onTargetChange(clamped)
+        }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedTextField(
+                value = typed,
+                onValueChange = { input ->
+                    val digits = input.filter { it.isDigit() }.take(5)
+                    typed = digits
+                    digits.toIntOrNull()?.let { draft = it }
+                },
+                modifier = Modifier
+                    .weight(1f)
+                    .onFocusChanged { focus ->
+                        if (!focus.isFocused) commit(typed.toIntOrNull() ?: target)
+                    },
+                label = { Text("Daily Target") },
+                suffix = { Text("kcal", style = MaterialTheme.typography.labelSmall) },
+                singleLine = true,
+                shape = tokens.controlShape,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Number,
+                    imeAction = ImeAction.Done
+                ),
+                keyboardActions = KeyboardActions(
+                    onDone = {
+                        commit(typed.toIntOrNull() ?: target)
+                        focusManager.clearFocus()
+                    }
+                ),
+                textStyle = MaterialTheme.typography.titleLarge.copy(fontFamily = FontFamily.Monospace)
+            )
+
+            TargetStepperButton(
+                description = "Decrease target by 50 calories",
+                glyph = "−50",
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                    commit(draft - 50)
+                }
+            )
+            TargetStepperButton(
+                description = "Increase target by 50 calories",
+                glyph = "+50",
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                    commit(draft + 50)
+                }
+            )
+        }
+
+        Slider(
+            value = draft.coerceIn(1200, 4500).toFloat(),
+            onValueChange = { value ->
+                draft = (value.toInt() / 25) * 25
+                typed = draft.toString()
+            },
+            onValueChangeFinished = { commit(draft) },
+            valueRange = 1200f..4500f,
+            modifier = Modifier.semantics {
+                contentDescription = "Calorie target slider. Current target is $draft calories."
+            },
+            colors = SliderDefaults.colors(
+                thumbColor = tokens.primaryAccent,
+                activeTrackColor = tokens.primaryAccent,
+                inactiveTrackColor = tokens.elevatedSurface
+            )
+        )
+
+        Text(
+            text = "Slider adjusts between 1,200 and 4,500 kcal. Type directly above for any target from ${NutritionFormat.MIN_CALORIE_TARGET} to ${NutritionFormat.MAX_CALORIE_TARGET} kcal.",
+            style = MaterialTheme.typography.bodySmall,
+            color = tokens.secondaryText
+        )
+    }
+}
+
+@Composable
+private fun TargetStepperButton(
+    description: String,
+    glyph: String,
+    onClick: () -> Unit
+) {
+    val tokens = TerminalDesign.tokens
+    OutlinedButton(
+        onClick = onClick,
+        modifier = Modifier
+            .defaultMinSize(minWidth = 52.dp, minHeight = tokens.minTouchTarget)
+            .semantics { contentDescription = description },
+        shape = tokens.controlShape,
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+        border = BorderStroke(1.dp, tokens.primaryAccent)
     ) {
         Text(
-            text = label,
-            fontWeight = FontWeight.Bold,
-            // Without a weight the switch is pushed off-screen by a long label.
-            modifier = Modifier.weight(1f)
-        )
-        Spacer(modifier = Modifier.width(12.dp))
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = MaterialTheme.colorScheme.primary
-            )
+            text = glyph,
+            style = MaterialTheme.typography.labelMedium,
+            color = tokens.primaryAccent,
+            fontWeight = FontWeight.Bold
         )
     }
 }
@@ -513,39 +835,52 @@ private fun SettingRow(
 @Composable
 private fun ApiKeyCard(
     keyHint: String,
-    onSave: (String) -> Unit
+    isTestingConnection: Boolean,
+    connectionTestMessage: Pair<Boolean, String>?,
+    onSave: (String) -> Unit,
+    onTestConnection: () -> Unit
 ) {
-    var draft by remember { mutableStateOf("") }
-    var revealed by remember { mutableStateOf(false) }
+    val tokens = TerminalDesign.tokens
+    val haptic = LocalHapticFeedback.current
+
+    var draft by rememberSaveable { mutableStateOf("") }
+    var revealed by rememberSaveable { mutableStateOf(false) }
     val hasKey = keyHint.isNotBlank()
     val provider = ApiConfig.providerName
     val wrongProvider = draft.isNotBlank() && !ApiConfig.acceptsKey(draft)
 
-    SettingsCard(title = "$provider API key", icon = Icons.Default.Key) {
-        Column {
+    var confirmingClear by remember { mutableStateOf(false) }
+    LaunchedEffect(confirmingClear) {
+        if (confirmingClear) {
+            delay(3500)
+            confirmingClear = false
+        }
+    }
+
+    SettingsCard(title = "$provider Vision & Summary Key", icon = Icons.Default.Key) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(
                 text = if (hasKey) {
-                    "A key is saved ($keyHint). Enter a new one to replace it."
+                    "A credential is encrypted in Android KeyStore ($keyHint). Enter a new key below to replace it."
                 } else {
-                    "Enter an API key from $provider. The app stores it on this device."
+                    "Optional: Enter an API key from $provider (model: ${ApiConfig.model}) to enable AI photo analysis and daily summaries. Manual logging and barcode lookup work without a key."
                 },
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.Gray
+                style = MaterialTheme.typography.bodySmall,
+                color = tokens.secondaryText
             )
-
-            Spacer(modifier = Modifier.height(12.dp))
 
             OutlinedTextField(
                 value = draft,
                 onValueChange = { draft = it },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("API key") },
+                label = { Text("$provider API Key") },
+                placeholder = { Text(if (provider == "OpenRouter") "sk-or-v1-…" else "Enter API key…") },
                 isError = wrongProvider,
                 supportingText = if (wrongProvider) {
-                    { Text("Enter an OpenRouter key beginning with sk-or-.") }
+                    { Text("Enter a valid $provider key beginning with 'sk-or-' (no spaces).") }
                 } else null,
                 singleLine = true,
-                shape = RectangleShape,
+                shape = tokens.controlShape,
                 visualTransformation = if (revealed) {
                     VisualTransformation.None
                 } else {
@@ -556,50 +891,79 @@ private fun ApiKeyCard(
                     autoCorrectEnabled = false
                 ),
                 trailingIcon = {
-                    IconButton(onClick = { revealed = !revealed }) {
+                    IconButton(
+                        onClick = { revealed = !revealed },
+                        modifier = Modifier.size(tokens.minTouchTarget)
+                    ) {
                         Icon(
-                            imageVector = if (revealed) {
-                                Icons.Default.VisibilityOff
-                            } else {
-                                Icons.Default.Visibility
-                            },
-                            contentDescription = if (revealed) "Hide key" else "Show key"
+                            imageVector = if (revealed) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                            contentDescription = if (revealed) "Hide API key" else "Show API key"
                         )
                     }
-                },
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White
-                )
+                }
             )
 
-            Spacer(modifier = Modifier.height(12.dp))
-
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
+                TerminalPrimaryButton(
+                    text = "SAVE KEY",
+                    enabled = draft.isNotBlank() && !wrongProvider,
                     onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onSave(draft)
                         draft = ""
                         revealed = false
                     },
-                    enabled = draft.isNotBlank() && !wrongProvider,
-                    modifier = Modifier.weight(1f),
-                    shape = RectangleShape
-                ) {
-                    Text("Save key", fontWeight = FontWeight.Bold)
-                }
+                    modifier = Modifier.weight(1f)
+                )
+
                 if (hasKey) {
-                    OutlinedButton(
+                    TerminalSecondaryButton(
+                        text = if (confirmingClear) "CONFIRM CLEAR?" else "CLEAR KEY",
+                        accentColor = if (confirmingClear) tokens.error else tokens.secondaryText,
                         onClick = {
-                            onSave("")
-                            draft = ""
-                            revealed = false
+                            if (confirmingClear) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onSave("")
+                                draft = ""
+                                revealed = false
+                                confirmingClear = false
+                            } else {
+                                haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                                confirmingClear = true
+                            }
                         },
-                        modifier = Modifier.weight(1f),
-                        shape = RectangleShape
-                    ) {
-                        Text("Clear", fontWeight = FontWeight.Bold)
-                    }
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+
+            if (hasKey) {
+                TerminalSecondaryButton(
+                    text = if (isTestingConnection) "TESTING CONNECTION…" else "TEST PROVIDER CONNECTION",
+                    icon = Icons.Default.NetworkCheck,
+                    enabled = !isTestingConnection,
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                        onTestConnection()
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            connectionTestMessage?.let { (ok, msg) ->
+                val accent = if (ok) tokens.primaryAccent else tokens.error
+                Surface(
+                    color = accent.copy(alpha = 0.12f),
+                    border = BorderStroke(1.dp, accent),
+                    shape = tokens.controlShape,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = msg,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = tokens.primaryText,
+                        modifier = Modifier.padding(10.dp)
+                    )
                 }
             }
         }
@@ -609,69 +973,67 @@ private fun ApiKeyCard(
 @Composable
 fun SettingsCard(
     title: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     content: @Composable () -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RectangleShape,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        ),
-        border = BorderStroke(1.dp, Color.DarkGray)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Black
-                )
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-            content()
+    val tokens = TerminalDesign.tokens
+    TerminalCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = tokens.primaryAccent,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = tokens.primaryText
+            )
         }
+        Spacer(modifier = Modifier.height(14.dp))
+        content()
     }
 }
 
 @Composable
 fun AuditBufferHud(audits: List<AuditEntity>) {
+    val tokens = TerminalDesign.tokens
     val dateFormat = remember { SimpleDateFormat("HH:mm:ss", Locale.US) }
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 120.dp, max = 220.dp),
-        shape = RectangleShape,
-        colors = CardDefaults.cardColors(containerColor = Color.Black),
-        border = BorderStroke(1.dp, Color.Gray.copy(alpha = 0.3f))
+        shape = tokens.cardShape,
+        colors = CardDefaults.cardColors(containerColor = tokens.surface),
+        border = BorderStroke(1.dp, tokens.border)
     ) {
         if (audits.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
-                    text = "No activity yet",
-                    color = Color.Gray,
+                    text = "No activity recorded yet",
+                    color = tokens.secondaryText,
                     style = MaterialTheme.typography.bodySmall
                 )
             }
         } else {
-            androidx.compose.foundation.lazy.LazyColumn(
-                modifier = Modifier.padding(8.dp),
-                reverseLayout = true
+            LazyColumn(
+                modifier = Modifier.padding(10.dp),
+                reverseLayout = true,
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                items(audits.size) { index ->
+                items(audits.size, key = { index -> audits[index].id }) { index ->
                     val audit = audits[index]
                     Text(
                         text = "[${dateFormat.format(Date(audit.timestamp))}] ${audit.message}",
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontSize = 11.sp
-                        ),
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
                         color = when (audit.category) {
-                            "SECURITY", "SECURITY_JUDGMENT" -> Color.Red
-                            "MANDATE_SHIFT", "CONFIG", "PRIVACY" -> Color.Cyan
-                            else -> Color.Gray
+                            "SECURITY", "SECURITY_JUDGMENT" -> tokens.error
+                            "MANDATE_SHIFT", "CONFIG", "PRIVACY" -> tokens.primaryAccent
+                            else -> tokens.secondaryText
                         }
                     )
                 }
@@ -686,15 +1048,16 @@ private fun TerminalThemeCard(
     onSelectTheme: (TerminalTheme) -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
+    val tokens = TerminalDesign.tokens
 
-    SettingsCard(title = "Terminal theme", icon = Icons.Default.Palette) {
+    SettingsCard(title = "Terminal Color Palette", icon = Icons.Default.Palette) {
         Column {
             Text(
-                text = "Select tactical phosphor rendering and interface palette.",
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.Gray
+                text = "Select phosphor rendering and semantic interface palette.",
+                style = MaterialTheme.typography.bodySmall,
+                color = tokens.secondaryText
             )
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 TerminalTheme.entries.forEach { theme ->
@@ -702,17 +1065,22 @@ private fun TerminalThemeCard(
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .defaultMinSize(minHeight = tokens.minTouchTarget)
+                            .semantics {
+                                role = Role.RadioButton
+                                selected = isSelected
+                            }
                             .clickable {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
                                 onSelectTheme(theme)
                             },
-                        shape = RectangleShape,
+                        shape = tokens.controlShape,
                         colors = CardDefaults.cardColors(
-                            containerColor = if (isSelected) theme.surfaceColor else Color.Black
+                            containerColor = if (isSelected) theme.elevatedSurfaceColor else theme.surfaceColor
                         ),
                         border = BorderStroke(
                             width = if (isSelected) 2.dp else 1.dp,
-                            color = if (isSelected) theme.primaryColor else Color.DarkGray
+                            color = if (isSelected) theme.primaryColor else tokens.border
                         )
                     ) {
                         Row(
@@ -724,27 +1092,27 @@ private fun TerminalThemeCard(
                             Box(
                                 modifier = Modifier
                                     .size(22.dp)
-                                    .background(theme.primaryColor, RectangleShape)
-                                    .border(1.dp, Color.Black, RectangleShape)
+                                    .background(theme.primaryColor, tokens.controlShape)
+                                    .border(1.dp, Color.Black, tokens.controlShape)
                             )
                             Spacer(modifier = Modifier.width(12.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = theme.displayName,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Black,
-                                    color = if (isSelected) theme.primaryColor else Color.White
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelected) theme.primaryColor else theme.textPrimaryColor
                                 )
                                 Text(
                                     text = theme.tagline,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = Color.Gray
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = theme.textSecondaryColor
                                 )
                             }
                             if (isSelected) {
                                 Icon(
                                     imageVector = Icons.Default.Check,
-                                    contentDescription = "Active",
+                                    contentDescription = "Selected theme",
                                     tint = theme.primaryColor,
                                     modifier = Modifier.size(20.dp)
                                 )
@@ -756,3 +1124,23 @@ private fun TerminalThemeCard(
         }
     }
 }
+
+private fun needsNotificationPermission(context: android.content.Context): Boolean =
+    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+        ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.POST_NOTIFICATIONS
+        ) != PackageManager.PERMISSION_GRANTED
+
+private fun canPostNotifications(context: android.content.Context): Boolean =
+    !needsNotificationPermission(context) &&
+        NotificationManagerCompat.from(context).areNotificationsEnabled()
+
+private fun hasLocationPermission(context: android.content.Context): Boolean =
+    ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.ACCESS_FINE_LOCATION
+    ) == PackageManager.PERMISSION_GRANTED || ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.ACCESS_COARSE_LOCATION
+    ) == PackageManager.PERMISSION_GRANTED

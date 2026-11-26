@@ -30,10 +30,20 @@ object DossierReportGenerator {
         val totalFat = meals.sumOf { it.fatGrams.toDouble() }
         val liquidMealsCount = meals.count { it.isLiquid }
 
-        val avgDailyCalories = (totalCalories / 7.0).roundToInt()
-        val avgDailyProtein = (totalProtein / 7.0).roundToInt()
-        val avgDailyCarbs = (totalCarbs / 7.0).roundToInt()
-        val avgDailyFat = (totalFat / 7.0).roundToInt()
+        val recordedDays = meals
+            .map { meal ->
+                Calendar.getInstance().apply { timeInMillis = meal.timestamp }.let {
+                    it.get(Calendar.YEAR) * 1000 + it.get(Calendar.DAY_OF_YEAR)
+                }
+            }
+            .distinct()
+            .size
+        val activeDivisor = recordedDays.coerceAtLeast(1).toDouble()
+
+        val avgDailyCalories = (totalCalories / activeDivisor).roundToInt()
+        val avgDailyProtein = (totalProtein / activeDivisor).roundToInt()
+        val avgDailyCarbs = (totalCarbs / activeDivisor).roundToInt()
+        val avgDailyFat = (totalFat / activeDivisor).roundToInt()
 
         val deviation = avgDailyCalories - calorieTarget
         val deviationPercent = if (calorieTarget > 0) ((abs(deviation).toDouble() / calorieTarget) * 100).roundToInt() else 0
@@ -62,6 +72,7 @@ object DossierReportGenerator {
 
         sb.append("--- [1] COMPLIANCE & METABOLIC TARGETS ---\n")
         sb.append("DAILY CALORIE TARGET : $calorieTarget kcal\n")
+        sb.append("RECORDED DAYS        : $recordedDays / 7 days\n")
         sb.append("AVG DAILY CONSUMED   : $avgDailyCalories kcal (")
         if (deviation >= 0) sb.append("+$deviation kcal, ") else sb.append("$deviation kcal, ")
         sb.append("$deviationPercent% deviation)\n")
@@ -85,7 +96,8 @@ object DossierReportGenerator {
                     if (violation.isRestricted) add("RESTRICTED ZONE")
                     if (violation.isNightRefueling) add("NIGHT REFUELING")
                 }.joinToString(", ")
-                sb.append(" - [${dateFormat.format(Date(violation.timestamp))}] ${violation.foodName} (${violation.calories} kcal) => $tags\n")
+                val safeName = violation.foodName.replace("\r", " ").replace("\n", " ")
+                sb.append(" - [${dateFormat.format(Date(violation.timestamp))}] $safeName (${violation.calories} kcal) => $tags\n")
             }
             sb.append("\n")
         }

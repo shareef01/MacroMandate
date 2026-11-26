@@ -95,6 +95,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val filterType = MutableStateFlow(0)
     val sortOrder = MutableStateFlow(0)
 
+    private val _selectedDate = MutableStateFlow(java.time.LocalDate.now())
+    val selectedDate: StateFlow<java.time.LocalDate> = _selectedDate.asStateFlow()
+
+    fun selectPreviousDay() {
+        _selectedDate.update { it.minusDays(1) }
+    }
+
+    fun selectNextDay() {
+        val today = java.time.LocalDate.now()
+        _selectedDate.update { current ->
+            val next = current.plusDays(1)
+            if (next.isAfter(today)) today else next
+        }
+    }
+
+    fun selectToday() {
+        _selectedDate.value = java.time.LocalDate.now()
+    }
+
+    fun setSelectedDate(date: java.time.LocalDate) {
+        val today = java.time.LocalDate.now()
+        _selectedDate.value = if (date.isAfter(today)) today else date
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val selectedDayMeals: StateFlow<List<MealEntry>> = _selectedDate
+        .flatMapLatest { date -> repository.getMealsForDate(date) }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val mealEntries: Flow<PagingData<MealEntry>> = combine(searchQuery, filterType, sortOrder) { q, f, s ->
         Triple(q, f, s)
@@ -113,6 +146,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
 
     val weeklyMeals: StateFlow<List<MealEntry>> = repository.getWeeklyMeals()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    val monthlyMeals: StateFlow<List<MealEntry>> = repository.getMonthlyMeals()
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
@@ -154,7 +194,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Masked for display so the panel can confirm a key exists without revealing it. */
     val apiKeyHint: StateFlow<String> = preferences.apiKeyFlow
-        .map { key -> if (key.isBlank()) "" else "â€¢".repeat(8) + key.takeLast(4) }
+        .map { key -> if (key.isBlank()) "" else "\u2022".repeat(8) + key.takeLast(4) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
     val terminalTheme: StateFlow<TerminalTheme> = preferences.terminalThemeFlow
@@ -255,11 +295,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _dailyBriefing = MutableStateFlow<String?>(null)
     val dailyBriefing: StateFlow<String?> = _dailyBriefing.asStateFlow()
 
+    private var briefingJob: kotlinx.coroutines.Job? = null
+    private var analysisJob: kotlinx.coroutines.Job? = null
+    private var barcodeJob: kotlinx.coroutines.Job? = null
+
+    fun cancelDailyBriefing() {
+        briefingJob?.cancel()
+        briefingJob = null
+        if (_uiState.value is UiState.Loading) {
+            _uiState.value = UiState.Idle
+        }
+    }
+
+    fun cancelAnalysis() {
+        analysisJob?.cancel()
+        analysisJob = null
+        barcodeJob?.cancel()
+        barcodeJob = null
+        if (_uiState.value is UiState.Loading) {
+            _uiState.value = UiState.Idle
+        }
+    }
+
     fun generateDailyBriefing() {
-        viewModelScope.launch {
+        briefingJob?.cancel()
+        briefingJob = viewModelScope.launch {
             val meals = todayMeals.value
             if (meals.isEmpty()) {
-                _uiState.value = UiState.Error("NO DATA AVAILABLE FOR SYNTHESIS.")
+                _uiState.value = UiState.Error("Nothing logged today to summarize.")
                 return@launch
             }
             val apiKey = resolveApiKey()
@@ -270,20 +333,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             _uiState.value = UiState.Loading
             try {
-                val totals = "Total: ${meals.sumOf { it.calories }} kcal, " +
-                        "${meals.sumOf { it.proteinGrams.toDouble() }.toInt()}P, " +
-                        "${meals.sumOf { it.carbsGrams.toDouble() }.toInt()}C, " +
-                        "${meals.sumOf { it.fatGrams.toDouble() }.toInt()}F."
+                val totals = "Total: ${meals.sumOf { it.calories }} kcal (Target: ${calorieTarget.value} kcal), " +
+                        "${com.sharek.macromandate.util.NutritionFormat.formatGramsSum(meals.map { it.proteinGrams })}g P, " +
+                        "${com.sharek.macromandate.util.NutritionFormat.formatGramsSum(meals.map { it.carbsGrams })}g C, " +
+                        "${com.sharek.macromandate.util.NutritionFormat.formatGramsSum(meals.map { it.fatGrams })}g F."
                 val mealNames = meals.joinToString(", ") { it.foodName }
                 
-                val tone = when (complianceStatus.value) {
-                    ComplianceStatus.SUBVERSIVE -> "EXTREME CORRECTION REQUIRED. AGGRESSIVE TONE."
-                    ComplianceStatus.CRISIS -> "TERMINAL WARNING. ABSOLUTE CONDEMNATION."
-                    else -> "COLD AND AUTHORITATIVE."
-                }
-                
-                val prompt = "Synthesize these refueling events into a single $tone State Intelligence Briefing. " +
-                        "Data: $totals. Items: $mealNames. Judge the subject's biological efficiency and mandate compliance for the day. " +
+                val prompt = "Synthesize today's logged meals into a concise, objective tactical nutrition briefing. " +
+                        "Data: $totals. Items: $mealNames. Summarize macro balance and progress toward the daily target without moral judgment. " +
                         "Return only the briefing text. No conversational filler."
 
                 val response = api.chatCompletion(
@@ -299,16 +356,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     _dailyBriefing.value = briefing.take(1_000)
                     logAudit("INTEL_SYNTHESIS", "DAILY BRIEFING GENERATED.")
-                    // Only the success path returns to Idle. A `finally` here would
-                    // overwrite the Error below before any collector could observe it
-                    // â€” StateFlow conflates, and there is no suspension point between.
                     _uiState.value = UiState.Idle
                 } else {
-                    _uiState.value = UiState.Error("UPLINK FAILURE: ${response.code()}")
+                    response.errorBody()?.close()
+                    _uiState.value = UiState.Error(describeHttpError(response.code(), "Daily summary"))
                 }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                _uiState.value = UiState.Error("SYNTHESIS ERROR: ${e.localizedMessage?.uppercase()}")
+                _uiState.value = UiState.Error(describeNetworkError(e, "Daily summary"))
             }
         }
     }
@@ -601,7 +656,11 @@ sealed interface ImageSource {
     }
 }
 
-    class PhotoReview internal constructor(val source: ImageSource, val meal: MealEntry)
+    class PhotoReview internal constructor(
+        val source: ImageSource,
+        val meal: MealEntry,
+        val parsed: com.sharek.macromandate.util.ParsedNutrition? = null
+    )
 
     private val _photoReview = MutableStateFlow<PhotoReview?>(null)
     val photoReview = _photoReview.asStateFlow()
@@ -619,7 +678,8 @@ sealed interface ImageSource {
         }
         analyzingSource = source
         val uri = source.uri
-        viewModelScope.launch {
+        analysisJob?.cancel()
+        analysisJob = viewModelScope.launch {
             _uiState.value = UiState.Loading
             try {
                 val apiKey = resolveApiKey()
@@ -633,8 +693,6 @@ sealed interface ImageSource {
                         try {
                             val client = LocationServices.getFusedLocationProviderClient(context)
                             try {
-                                // Bounded: an unqualified await blocks this IO thread
-                                // indefinitely if Play Services never settles the task.
                                 Tasks.await(client.lastLocation, 5, TimeUnit.SECONDS)
                             } catch (_: SecurityException) {
                                 null
@@ -668,22 +726,18 @@ sealed interface ImageSource {
                     try {
                         uriToScaledBase64(watermarkedUri ?: uri, context)
                     } finally {
-                        // The watermarked file is a transient analysis artifact; the
-                        // persisted record keeps the original URI. Delete it so the
-                        // cache does not grow unboundedly with each capture.
                         watermarkedUri?.path?.let { path -> File(path).delete() }
                     }
                 }
 
                 if (base64Image == null) {
-                    _uiState.value = UiState.Error("Could not process image")
+                    _uiState.value = UiState.Error("That image could not be read. Try another photo or log manually.")
                     return@launch
                 }
 
                 val prompt = "Analyze this image of food or drink. " +
                         "Return ONLY a valid JSON object with the following keys: 'foodName' (String), 'calories' (Int), 'proteinGrams' (Float), 'carbsGrams' (Float), 'fatGrams' (Float), 'isLiquid' (Boolean), 'assessment' (String). " +
-                        "The 'assessment' field must be a brief, cold, and authoritative state judgment on the nutritional compliance. " +
-                        (if (isNightRefueling) "This is an UNAUTHORIZED NIGHT REFUELING. Mention CIRCADIAN DISCIPLINE BREACH in the assessment." else "") +
+                        "The 'assessment' field must be a brief, objective nutrition summary (1-2 sentences, e.g. estimated portions and primary macro sources). " +
                         "Do not include markdown, code blocks, or conversational text. Just raw JSON."
                 
                 val response = api.chatCompletion(
@@ -704,18 +758,11 @@ sealed interface ImageSource {
                         val parsed = try {
                             NutritionSanitizer.parseAndSanitize(cleanJson)
                         } catch (_: IllegalArgumentException) {
-                            _uiState.value = UiState.Error("The provider returned no usable nutrition estimate.")
+                            _uiState.value = UiState.Error("The provider returned no usable nutrition estimate. You can log this meal manually.")
                             return@launch
                         }
                         
                         val isRestricted = if (location != null) checkForbiddenSectors(location.latitude, location.longitude) else false
-                        
-                        if (isRestricted) {
-                            logAudit("SECURITY", "MANDATE VIOLATION: RESTRICTED ZONE INTAKE DETECTED.")
-                        }
-                        if (isNightRefueling) {
-                            logAudit("SECURITY", "MANDATE VIOLATION: CIRCADIAN DISCIPLINE BREACH.")
-                        }
 
                         val newEntry = MealEntry(
                             id = mealId,
@@ -734,7 +781,7 @@ sealed interface ImageSource {
                             isNightRefueling = isNightRefueling
                         )
 
-                        _photoReview.value = PhotoReview(source, newEntry)
+                        _photoReview.value = PhotoReview(source, newEntry, parsed)
                         _uiState.value = UiState.Idle
                     } else {
                         val choices = response.body()?.choices.orEmpty()
@@ -747,26 +794,20 @@ sealed interface ImageSource {
                         }
                         Log.w("MainViewModel", "No nutrition JSON: choices=${choices.size}, finish=$finish, chars=${responseText.length}")
                         val errorMsg = if (finish == "length") {
-                            "The provider stopped before returning an estimate. Try the photo again."
+                            "The provider stopped before returning an estimate. Try again or log manually."
                         } else {
-                            "The provider returned no usable nutrition estimate."
+                            "The provider returned no usable nutrition estimate. You can log this meal manually."
                         }
                         _uiState.value = UiState.Error(errorMsg)
                     }
                 } else {
                     response.errorBody()?.close()
-                    val errorMsg = when (response.code()) {
-                        401, 403 -> "Check your ${ApiConfig.providerName} API key and permissions in Settings."
-                        402 -> "${ApiConfig.providerName} rejected the request because of account credit or spending limits."
-                        429 -> "${ApiConfig.providerName} is rate limiting requests. Try again later."
-                        else -> "Photo analysis failed (HTTP ${response.code()})."
-                    }
-                    _uiState.value = UiState.Error(errorMsg)
+                    _uiState.value = UiState.Error(describeHttpError(response.code(), "Photo analysis"))
                 }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.w("MainViewModel", "Photo analysis or meal save failed")
-                _uiState.value = UiState.Error("Could not analyze or save the photo meal.")
+                _uiState.value = UiState.Error(describeNetworkError(e, "Photo analysis"))
             } finally {
                 analyzingSource = null
                 if (_photoReview.value?.source !== source) {
@@ -786,12 +827,24 @@ sealed interface ImageSource {
         name: String, calories: Int, protein: Float, carbs: Float, fat: Float,
         isLiquid: Boolean, onResult: (Boolean) -> Unit
     ) {
+        savePhotoReviewWithNotes(name, calories, protein, carbs, fat, isLiquid, null, onResult)
+    }
+
+    fun savePhotoReviewWithNotes(
+        name: String, calories: Int, protein: Float, carbs: Float, fat: Float,
+        isLiquid: Boolean, notes: String? = null, onResult: (Boolean) -> Unit
+    ) {
         val review = _photoReview.value ?: return
         if (!_isSavingPhoto.compareAndSet(false, true)) return
+        val updatedAssessment = notes?.trim()?.take(500)?.ifBlank { review.meal.assessment } ?: review.meal.assessment
         val edited = review.meal.copy(
-            foodName = name.trim().take(120), calories = calories.coerceIn(0, 20_000),
-            proteinGrams = protein.coerceIn(0f, 1_000f), carbsGrams = carbs.coerceIn(0f, 1_000f),
-            fatGrams = fat.coerceIn(0f, 1_000f), isLiquid = isLiquid
+            foodName = name.trim().take(120),
+            calories = calories.coerceIn(0, com.sharek.macromandate.util.NutritionFormat.MAX_MEAL_CALORIES),
+            proteinGrams = protein.coerceIn(0f, com.sharek.macromandate.util.NutritionFormat.MAX_MEAL_MACRO_GRAMS),
+            carbsGrams = carbs.coerceIn(0f, com.sharek.macromandate.util.NutritionFormat.MAX_MEAL_MACRO_GRAMS),
+            fatGrams = fat.coerceIn(0f, com.sharek.macromandate.util.NutritionFormat.MAX_MEAL_MACRO_GRAMS),
+            isLiquid = isLiquid,
+            assessment = updatedAssessment
         )
         viewModelScope.launch {
             try {
@@ -839,7 +892,6 @@ sealed interface ImageSource {
         (_photoReview.value?.source as? ImageSource.LiveCamera)?.let {
             EvidenceStore.releaseStaging(it.uri)
         }
-        super.onCleared()
     }
 
     private fun uriToScaledBase64(uri: Uri, context: android.content.Context): String? =
@@ -910,26 +962,40 @@ sealed interface ImageSource {
         carbs: Float,
         fat: Float,
         isLiquid: Boolean,
+        notes: String? = null,
+        timestampMillis: Long? = null,
         onSaved: (Boolean) -> Unit
     ) {
         viewModelScope.launch {
             val mealId = UUID.randomUUID().toString()
-            val currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-            val isNightRefueling = currentHour in 23..23 || currentHour in 0..4
+            val resolvedTimestamp = timestampMillis ?: run {
+                val activeDate = _selectedDate.value
+                val today = java.time.LocalDate.now()
+                if (activeDate == today) {
+                    System.currentTimeMillis()
+                } else {
+                    val nowTime = java.time.LocalTime.now()
+                    activeDate.atTime(nowTime).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+                }
+            }
+            val cal = Calendar.getInstance().apply { timeInMillis = resolvedTimestamp }
+            val hour = cal.get(Calendar.HOUR_OF_DAY)
+            val isNightRefueling = hour == 23 || hour in 0..4
+            val cleanNotes = notes?.trim()?.take(500)?.ifBlank { null }
 
             val entry = MealEntry(
                 id = mealId,
-                timestamp = System.currentTimeMillis(),
+                timestamp = resolvedTimestamp,
                 imageUri = null,
-                foodName = foodName.ifBlank { "MANUAL REFUELING" },
-                calories = calories.coerceAtLeast(0),
-                proteinGrams = protein.coerceAtLeast(0f),
-                carbsGrams = carbs.coerceAtLeast(0f),
-                fatGrams = fat.coerceAtLeast(0f),
+                foodName = foodName.trim().take(120).ifBlank { "Manual Entry" },
+                calories = calories.coerceIn(0, com.sharek.macromandate.util.NutritionFormat.MAX_MEAL_CALORIES),
+                proteinGrams = protein.coerceIn(0f, com.sharek.macromandate.util.NutritionFormat.MAX_MEAL_MACRO_GRAMS),
+                carbsGrams = carbs.coerceIn(0f, com.sharek.macromandate.util.NutritionFormat.MAX_MEAL_MACRO_GRAMS),
+                fatGrams = fat.coerceIn(0f, com.sharek.macromandate.util.NutritionFormat.MAX_MEAL_MACRO_GRAMS),
                 isLiquid = isLiquid,
                 latitude = null,
                 longitude = null,
-                assessment = if (isNightRefueling) "MANUAL LOG: CIRCADIAN DISCIPLINE BREACH." else "MANUAL TELEMETRY LOGGED.",
+                assessment = cleanNotes ?: "MANUAL TELEMETRY LOGGED.",
                 isRestricted = false,
                 isNightRefueling = isNightRefueling
             )
@@ -943,6 +1009,96 @@ sealed interface ImageSource {
             updateWidget()
             _uiState.value = UiState.Success(entry.foodName)
         }
+    }
+
+    fun deleteAllData(onResult: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            val succeeded = try {
+                val cleanup = mealMutations.withLock {
+                    withContext(NonCancellable + Dispatchers.IO) {
+                        EvidenceStore.markAllForDeletion(getApplication())
+                        repository.deleteAllMeals()
+                        auditRepository.clearAllAudits()
+                        reconcileEvidence()
+                    }
+                }
+                updateWidget()
+                cleanup.isSuccess
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                false
+            }
+            onResult(succeeded)
+        }
+    }
+
+    fun clearStoredLocations(onResult: (Int) -> Unit) {
+        viewModelScope.launch {
+            val cleared = try {
+                mealMutations.withLock {
+                    withContext(Dispatchers.IO) {
+                        repository.clearAllCoordinates()
+                    }
+                }
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                -1
+            }
+            if (cleared >= 0) {
+                logAudit("PRIVACY", "CLEARED STORED LOCATION DATA FROM $cleared RECORDS.")
+            }
+            onResult(cleared)
+        }
+    }
+
+    fun testApiConnection(onResult: (Result<String>) -> Unit) {
+        viewModelScope.launch {
+            val apiKey = resolveApiKey()
+            if (apiKey.isBlank()) {
+                onResult(Result.failure(IllegalStateException(ApiConfig.NOT_CONFIGURED_MESSAGE)))
+                return@launch
+            }
+            val result = withContext(Dispatchers.IO) {
+                try {
+                    val req = ChatRequest(
+                        model = ApiConfig.model,
+                        messages = listOf(ChatMessage(role = "user", content = listOf(ContentPart.text("Reply with {\"ok\":true}")))),
+                        maxTokens = 32,
+                        responseFormat = mapOf("type" to "json_object")
+                    )
+                    val response = api.chatCompletion(ApiConfig.authHeader(apiKey), req)
+                    if (response.isSuccessful) {
+                        Result.success("Connected to ${ApiConfig.providerName} (${ApiConfig.model}).")
+                    } else {
+                        response.errorBody()?.close()
+                        Result.failure(IllegalStateException(describeHttpError(response.code(), "Connection test")))
+                    }
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    Result.failure(IllegalStateException(describeNetworkError(e, "Connection test")))
+                }
+            }
+            onResult(result)
+        }
+    }
+
+    private fun describeHttpError(code: Int, operation: String): String = when (code) {
+        401, 403 -> "${ApiConfig.providerName} rejected the API key. Check your key and permissions in Settings."
+        402 -> "${ApiConfig.providerName} requires available credits or a billing plan (HTTP 402)."
+        404, 400 -> "${ApiConfig.providerName} could not run model '${ApiConfig.model}' (HTTP $code)."
+        429 -> "${ApiConfig.providerName} is rate-limiting requests. Wait a moment and try again, or log manually."
+        in 500..599 -> "${ApiConfig.providerName} is temporarily unavailable (HTTP $code). You can still log meals manually."
+        else -> "$operation failed (HTTP $code). You can still log meals manually."
+    }
+
+    private fun describeNetworkError(e: Exception, operation: String): String = when (e) {
+        is java.net.UnknownHostException, is java.net.ConnectException ->
+            "No internet connection. Local manual logging remains available offline."
+        is java.net.SocketTimeoutException, is java.io.InterruptedIOException ->
+            "$operation timed out. Try again or log the meal manually."
+        is javax.net.ssl.SSLException ->
+            "Could not establish a secure HTTPS connection to ${ApiConfig.providerName}."
+        else -> "$operation failed. You can still log meals manually."
     }
 
     private suspend fun saveMeal(entry: MealEntry): Boolean {
@@ -1045,7 +1201,13 @@ sealed interface ImageSource {
     }
 
     private val offApi: OpenFoodFactsApi by lazy {
-        val client = OkHttpClient()
+        val client = OkHttpClient.Builder()
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .callTimeout(20, TimeUnit.SECONDS)
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .build()
         Retrofit.Builder()
             .baseUrl("https://world.openfoodfacts.org/")
             .addConverterFactory(GsonConverterFactory.create())
@@ -1062,7 +1224,8 @@ sealed interface ImageSource {
     }
 
     fun lookupBarcode(barcode: String, context: android.content.Context) {
-        viewModelScope.launch(Dispatchers.IO) {
+        barcodeJob?.cancel()
+        barcodeJob = viewModelScope.launch(Dispatchers.IO) {
             _uiState.value = UiState.Loading
             try {
                 val response = offApi.getProduct(barcode)
@@ -1072,35 +1235,35 @@ sealed interface ImageSource {
                         val product = body.product
                         val n = product.nutriments
                         
-                        val kcal = n?.caloriesServing ?: n?.calories100g ?: 0.0
-                        val p = n?.proteinServing ?: n?.protein100g ?: 0.0
-                        val c = n?.carbsServing ?: n?.carbs100g ?: 0.0
-                        val f = n?.fatServing ?: n?.fat100g ?: 0.0
+                        val kcal = (n?.caloriesServing ?: n?.calories100g ?: 0.0).takeIf { it.isFinite() && it >= 0.0 } ?: 0.0
+                        val p = (n?.proteinServing ?: n?.protein100g ?: 0.0).takeIf { it.isFinite() && it >= 0.0 } ?: 0.0
+                        val c = (n?.carbsServing ?: n?.carbs100g ?: 0.0).takeIf { it.isFinite() && it >= 0.0 } ?: 0.0
+                        val f = (n?.fatServing ?: n?.fat100g ?: 0.0).takeIf { it.isFinite() && it >= 0.0 } ?: 0.0
                         
                         val entry = MealEntry(
                             id = UUID.randomUUID().toString(),
                             timestamp = System.currentTimeMillis(),
-                            foodName = product.productName ?: "Scanned Product",
-                            calories = kcal.toInt(),
-                            proteinGrams = p.toFloat(),
-                            carbsGrams = c.toFloat(),
-                            fatGrams = f.toFloat(),
+                            foodName = product.productName?.trim()?.takeIf { it.isNotEmpty() } ?: "Scanned Product ($barcode)",
+                            calories = kcal.toInt().coerceIn(0, com.sharek.macromandate.util.NutritionFormat.MAX_MEAL_CALORIES),
+                            proteinGrams = p.toFloat().coerceIn(0f, com.sharek.macromandate.util.NutritionFormat.MAX_MEAL_MACRO_GRAMS),
+                            carbsGrams = c.toFloat().coerceIn(0f, com.sharek.macromandate.util.NutritionFormat.MAX_MEAL_MACRO_GRAMS),
+                            fatGrams = f.toFloat().coerceIn(0f, com.sharek.macromandate.util.NutritionFormat.MAX_MEAL_MACRO_GRAMS),
                             imageUri = null,
                             isLiquid = false,
-                            assessment = "Barcode Match",
+                            assessment = "BARCODE MATCH ($barcode) // OPENFOODFACTS",
                             isRestricted = false
                         )
                         _barcodeResult.value = entry
-                        _uiState.value = UiState.Success(entry.foodName)
+                        _uiState.value = UiState.Idle
                     } else {
-                        _uiState.value = UiState.Error("Product not found in OpenFoodFacts.")
+                        _uiState.value = UiState.Error("Product ($barcode) not found in OpenFoodFacts. You can log it manually.")
                     }
                 } else {
-                    _uiState.value = UiState.Error("Failed to lookup barcode.")
+                    _uiState.value = UiState.Error("Barcode lookup failed (HTTP ${response.code()}). You can log it manually.")
                 }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                _uiState.value = UiState.Error("Barcode lookup failed.")
+                _uiState.value = UiState.Error(describeNetworkError(e, "Barcode lookup"))
             }
         }
     }

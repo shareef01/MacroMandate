@@ -28,6 +28,7 @@ class MealRepository(private val mealDao: MealDao) {
          * oldest day moved the score without ever being shown.
          */
         const val WEEK_LENGTH_DAYS = 7
+        const val MONTH_LENGTH_DAYS = 30
     }
 
     fun getPagedMeals(query: String, filterType: Int, sortOrder: Int): Flow<PagingData<MealEntry>> =
@@ -53,9 +54,24 @@ class MealRepository(private val mealDao: MealDao) {
             }
         }
 
+    fun getMealsForDate(date: java.time.LocalDate, zoneId: java.time.ZoneId = java.time.ZoneId.systemDefault()): Flow<List<MealEntry>> {
+        val start = date.atStartOfDay(zoneId).toInstant().toEpochMilli()
+        val end = date.plusDays(1).atStartOfDay(zoneId).toInstant().toEpochMilli()
+        return mealDao.getMealsInWindow(start, end).map { entities ->
+            entities.map { it.toDomain() }
+        }
+    }
+
     fun getWeeklyMeals(): Flow<List<MealEntry>> =
         dayBoundaries().flatMapLatest { startOfToday ->
-            mealDao.getMealsForLastWeek(weekStartFrom(startOfToday)).map { entities ->
+            mealDao.getMealsForLastWeek(windowStartFrom(startOfToday, WEEK_LENGTH_DAYS)).map { entities ->
+                entities.map { it.toDomain() }
+            }
+        }
+
+    fun getMonthlyMeals(): Flow<List<MealEntry>> =
+        dayBoundaries().flatMapLatest { startOfToday ->
+            mealDao.getMealsForLastWeek(windowStartFrom(startOfToday, MONTH_LENGTH_DAYS)).map { entities ->
                 entities.map { it.toDomain() }
             }
         }
@@ -78,12 +94,14 @@ class MealRepository(private val mealDao: MealDao) {
         }
     }.distinctUntilChanged()
 
-    private fun weekStartFrom(startOfToday: Long): Long =
+    private fun windowStartFrom(startOfToday: Long, days: Int): Long =
         Calendar.getInstance().apply {
             timeInMillis = startOfToday
-            // -(WEEK_LENGTH_DAYS - 1): the window is inclusive of today.
-            add(Calendar.DAY_OF_YEAR, -(WEEK_LENGTH_DAYS - 1))
+            // -(days - 1): the window is inclusive of today.
+            add(Calendar.DAY_OF_YEAR, -(days - 1))
         }.timeInMillis
+
+    suspend fun clearAllCoordinates(): Int = mealDao.clearAllCoordinates()
 
     suspend fun insertMeal(meal: MealEntry) {
         mealDao.insertMeal(meal.toEntity())

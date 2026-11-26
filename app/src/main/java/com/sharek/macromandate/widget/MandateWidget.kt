@@ -11,16 +11,18 @@ import androidx.glance.*
 import androidx.glance.action.ActionParameters
 import androidx.glance.action.actionParametersOf
 import androidx.glance.action.actionStartActivity
+import androidx.glance.action.clickable
 import androidx.glance.appwidget.*
 import androidx.glance.layout.*
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
-import androidx.glance.unit.ColorProvider
 import com.sharek.macromandate.MainActivity
 import com.sharek.macromandate.data.local.AppDatabase
 import com.sharek.macromandate.data.pref.MandatePreferences
 import com.sharek.macromandate.data.repository.MealRepository
+import com.sharek.macromandate.model.MealEntry
+import com.sharek.macromandate.util.NutritionFormat
 import kotlinx.coroutines.flow.first
 
 const val EXTRA_OPEN_MANUAL_ENTRY = "open_manual_entry"
@@ -41,49 +43,67 @@ class MandateWidget : GlanceAppWidget() {
         provideContent {
             val meals by todayMeals.collectAsState(initialMeals)
             val target by calorieTarget.collectAsState(initialTarget)
-            MandateWidgetContent(meals.sumOf { it.calories }, target)
+            MandateWidgetContent(meals = meals, target = target)
         }
     }
 
     @Composable
-    private fun MandateWidgetContent(current: Int, target: Int) {
-        val progress = if (target > 0) (current.toFloat() / target).coerceIn(0f, 1f) else 0f
+    private fun MandateWidgetContent(meals: List<MealEntry>, target: Int) {
+        val current = meals.sumOf { it.calories }
+        val protein = NutritionFormat.formatGramsSum(meals.map { it.proteinGrams })
+        val carbs = NutritionFormat.formatGramsSum(meals.map { it.carbsGrams })
+        val fat = NutritionFormat.formatGramsSum(meals.map { it.fatGrams })
+        val safeTarget = target.coerceAtLeast(0)
+        val progress = if (safeTarget > 0) (current.toFloat() / safeTarget).coerceIn(0f, 1f) else 0f
         val context = LocalContext.current
-        
+
         Column(
             modifier = GlanceModifier
                 .fillMaxSize()
-                .padding(12.dp),
+                .padding(12.dp)
+                .clickable(
+                    actionStartActivity(ComponentName(context, MainActivity::class.java))
+                ),
             verticalAlignment = Alignment.CenterVertically,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = "MACROMANDATE",
+                text = "MACROMANDATE // TODAY",
                 style = TextStyle(
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold
                 )
             )
-            
-            Spacer(modifier = GlanceModifier.height(8.dp))
-            
+
+            Spacer(modifier = GlanceModifier.height(4.dp))
+
             Text(
-                text = "$current / $target kcal",
+                text = if (safeTarget > 0) "$current / $safeTarget kcal" else "$current kcal",
                 style = TextStyle(
                     fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            )
+
+            Spacer(modifier = GlanceModifier.height(2.dp))
+
+            Text(
+                text = "P: ${protein}g · C: ${carbs}g · F: ${fat}g",
+                style = TextStyle(
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.Medium
                 )
             )
-            
+
             Spacer(modifier = GlanceModifier.height(8.dp))
-            
+
             LinearProgressIndicator(
                 progress = progress,
-                modifier = GlanceModifier.fillMaxWidth().height(10.dp)
+                modifier = GlanceModifier.fillMaxWidth().height(8.dp)
             )
-            
-            Spacer(modifier = GlanceModifier.height(12.dp))
-            
+
+            Spacer(modifier = GlanceModifier.height(10.dp))
+
             Button(
                 text = "Log a meal",
                 onClick = actionStartActivity(

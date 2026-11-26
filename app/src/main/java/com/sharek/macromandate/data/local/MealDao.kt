@@ -42,8 +42,14 @@ interface MealDao {
     @Query("SELECT * FROM meal_entries WHERE timestamp >= :startOfDay ORDER BY timestamp DESC")
     fun getTodayMeals(startOfDay: Long): Flow<List<MealEntity>>
 
+    @Query("SELECT * FROM meal_entries WHERE timestamp >= :startInclusive AND timestamp < :endExclusive ORDER BY timestamp DESC")
+    fun getMealsInWindow(startInclusive: Long, endExclusive: Long): Flow<List<MealEntity>>
+
     @Query("SELECT * FROM meal_entries WHERE timestamp >= :sevenDaysAgoTimestamp ORDER BY timestamp ASC")
     fun getMealsForLastWeek(sevenDaysAgoTimestamp: Long): Flow<List<MealEntity>>
+
+    @Query("UPDATE meal_entries SET latitude = NULL, longitude = NULL WHERE latitude IS NOT NULL OR longitude IS NOT NULL")
+    suspend fun clearAllCoordinates(): Int
     
     @Query("DELETE FROM meal_entries WHERE id = :id")
     suspend fun deleteById(id: String)

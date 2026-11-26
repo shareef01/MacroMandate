@@ -2,47 +2,47 @@ package com.sharek.macromandate
 
 import android.content.Intent
 import android.os.Bundle
-import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import com.sharek.macromandate.ui.theme.crtFilter
 import androidx.activity.viewModels
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.sharek.macromandate.ui.AnalyticsScreen
 import com.sharek.macromandate.ui.ControlPanelScreen
+import com.sharek.macromandate.ui.HistoryScreen
 import com.sharek.macromandate.ui.MainScreen
 import com.sharek.macromandate.ui.MealDetailScreen
-import com.sharek.macromandate.ui.terminalOverlay
 import com.sharek.macromandate.ui.theme.MacroMandateTheme
+import com.sharek.macromandate.ui.theme.TerminalDesign
+import com.sharek.macromandate.ui.theme.crtFilter
 import com.sharek.macromandate.viewmodel.MainViewModel
 import com.sharek.macromandate.widget.EXTRA_OPEN_MANUAL_ENTRY
-import androidx.fragment.app.FragmentActivity
-import androidx.compose.runtime.collectAsState
-import androidx.navigation.NavType
-import androidx.navigation.navArgument
 
 class MainActivity : FragmentActivity() {
     private val viewModel: MainViewModel by viewModels()
@@ -55,7 +55,7 @@ class MainActivity : FragmentActivity() {
         enableEdgeToEdge()
         handleWidgetIntent(intent)
         setContent {
-            val terminalTheme by viewModel.terminalTheme.collectAsState()
+            val terminalTheme by viewModel.terminalTheme.collectAsStateWithLifecycle()
             MacroMandateTheme(terminalTheme = terminalTheme) {
                 MacroMandateApp(
                     viewModel = viewModel,
@@ -65,6 +65,7 @@ class MainActivity : FragmentActivity() {
             }
         }
     }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -79,13 +80,12 @@ class MainActivity : FragmentActivity() {
     }
 }
 
-// Nav labels are single words: three long labels overflowed their items and ran
-// into the screen edges on a 1080px display.
 sealed class Screen(val route: String, val title: String, val icon: ImageVector) {
     object Dashboard : Screen("dashboard", "Today", Icons.Default.Dashboard)
+    object History : Screen("history", "History", Icons.Default.History)
     object Analytics : Screen("analytics", "Trends", Icons.Default.Analytics)
     object ControlPanel : Screen("control_panel", "Settings", Icons.Default.Settings)
-    object MealDetail : Screen("meal_detail/{mealId}", "Meal", Icons.Default.Settings) // Icon is placeholder
+    object MealDetail : Screen("meal_detail/{mealId}", "Meal", Icons.Default.Settings)
 }
 
 @Composable
@@ -94,66 +94,97 @@ fun MacroMandateApp(
     manualEntryRequested: Boolean,
     onManualEntryOpened: () -> Unit
 ) {
-    val crtEffectsEnabled by viewModel.crtEffectsEnabled.collectAsState()
+    val crtEffectsEnabled by viewModel.crtEffectsEnabled.collectAsStateWithLifecycle()
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
-    val complianceStatus by viewModel.complianceStatus.collectAsState()
-    
+    val tokens = TerminalDesign.tokens
+    val haptic = LocalHapticFeedback.current
+
     LaunchedEffect(manualEntryRequested, currentRoute) {
         if (manualEntryRequested && currentRoute != null && currentRoute != Screen.Dashboard.route) {
-            navController.popBackStack(Screen.Dashboard.route, inclusive = false)
+            navController.navigate(Screen.Dashboard.route) {
+                popUpTo(navController.graph.startDestinationId) {
+                    saveState = true
+                }
+                launchSingleTop = true
+                restoreState = true
+            }
         }
     }
 
-    val items = remember { listOf(Screen.Dashboard, Screen.Analytics, Screen.ControlPanel) }
+    val topLevelScreens = remember {
+        listOf(Screen.Dashboard, Screen.History, Screen.Analytics, Screen.ControlPanel)
+    }
+    val showBottomBar = topLevelScreens.any { it.route == currentRoute }
 
     Scaffold(
-        modifier = Modifier.terminalOverlay(complianceStatus).crtFilter(crtEffectsEnabled),
-        contentWindowInsets = WindowInsets(0.dp), // Handle insets manually in screens
+        modifier = Modifier
+            .fillMaxSize()
+            .crtFilter(crtEffectsEnabled),
+        containerColor = tokens.background,
+        contentColor = tokens.primaryText,
+        contentWindowInsets = WindowInsets(0.dp),
         bottomBar = {
-            if (currentRoute != Screen.Dashboard.route && currentRoute != Screen.Analytics.route && currentRoute != Screen.ControlPanel.route) {
-                // Hide bottom bar on detail screen
-            } else {
-                NavigationBar(
-                    containerColor = MaterialTheme.colorScheme.background,
-                    tonalElevation = 0.dp,
-                    modifier = Modifier,
-                    windowInsets = WindowInsets.navigationBars
-                ) {
-                    items.forEach { screen ->
-                        NavigationBarItem(
-                            icon = { Icon(screen.icon, contentDescription = screen.title) },
-                            label = {
-                                Text(
-                                    screen.title,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    maxLines = 1
-                                )
-                            },
-                            selected = currentRoute == screen.route,
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = MaterialTheme.colorScheme.primary,
-                                selectedTextColor = MaterialTheme.colorScheme.primary,
-                                unselectedIconColor = Color.Gray,
-                                unselectedTextColor = Color.Gray,
-                                indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                            ),
-                            onClick = {
-                                navController.navigate(screen.route) {
-                                    popUpTo(navController.graph.startDestinationId) {
-                                        saveState = true
+            if (showBottomBar) {
+                Column {
+                    HorizontalDivider(thickness = 1.dp, color = tokens.border)
+                    NavigationBar(
+                        containerColor = tokens.surface,
+                        tonalElevation = 0.dp,
+                        windowInsets = WindowInsets.navigationBars
+                    ) {
+                        topLevelScreens.forEach { screen ->
+                            val isSelected = currentRoute == screen.route
+                            NavigationBarItem(
+                                icon = {
+                                    // Null contentDescription avoids double announcement with label below
+                                    Icon(screen.icon, contentDescription = null)
+                                },
+                                label = {
+                                    Text(
+                                        text = screen.title,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        maxLines = 1
+                                    )
+                                },
+                                selected = isSelected,
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = tokens.primaryAccent,
+                                    selectedTextColor = tokens.primaryAccent,
+                                    unselectedIconColor = tokens.secondaryText,
+                                    unselectedTextColor = tokens.secondaryText,
+                                    indicatorColor = tokens.primaryAccent.copy(alpha = 0.16f)
+                                ),
+                                onClick = {
+                                    if (!isSelected) {
+                                        haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                                        navController.navigate(screen.route) {
+                                            popUpTo(navController.graph.startDestinationId) {
+                                                saveState = true
+                                            }
+                                            launchSingleTop = true
+                                            restoreState = true
+                                        }
                                     }
-                                    launchSingleTop = true
-                                    restoreState = true
                                 }
-                            }
-                        )
+                            )
+                        }
                     }
                 }
             }
         }
     ) { innerPadding ->
+        val navigateToDetail: (String) -> Unit = { mealId ->
+            if (mealId.isNotBlank() &&
+                navBackStackEntry?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) != false
+            ) {
+                navController.navigate("meal_detail/" + android.net.Uri.encode(mealId)) {
+                    launchSingleTop = true
+                }
+            }
+        }
+
         NavHost(
             navController = navController,
             startDestination = Screen.Dashboard.route,
@@ -162,11 +193,24 @@ fun MacroMandateApp(
             composable(Screen.Dashboard.route) {
                 MainScreen(
                     viewModel = viewModel,
-                    onNavigateToDetail = { mealId ->
-                        navController.navigate("meal_detail/" + android.net.Uri.encode(mealId))
+                    onNavigateToDetail = navigateToDetail,
+                    onNavigateToHistory = {
+                        navController.navigate(Screen.History.route) {
+                            popUpTo(navController.graph.startDestinationId) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
                     },
                     manualEntryRequested = manualEntryRequested,
                     onManualEntryOpened = onManualEntryOpened
+                )
+            }
+            composable(Screen.History.route) {
+                HistoryScreen(
+                    viewModel = viewModel,
+                    onNavigateToDetail = navigateToDetail
                 )
             }
             composable(Screen.Analytics.route) {
@@ -179,11 +223,15 @@ fun MacroMandateApp(
                 route = Screen.MealDetail.route,
                 arguments = listOf(navArgument("mealId") { type = NavType.StringType })
             ) { backStackEntry ->
-                val mealId = backStackEntry.arguments?.getString("mealId") ?: ""
+                val mealId = backStackEntry.arguments?.getString("mealId").orEmpty()
                 MealDetailScreen(
                     viewModel = viewModel,
                     mealId = mealId,
-                    onBack = { navController.popBackStack() }
+                    onBack = {
+                        if (navController.previousBackStackEntry != null) {
+                            navController.popBackStack()
+                        }
+                    }
                 )
             }
         }

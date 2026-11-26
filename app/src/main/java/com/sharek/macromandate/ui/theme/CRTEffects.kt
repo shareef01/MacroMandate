@@ -8,40 +8,39 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
+/**
+ * Subtle, optional CRT terminal filter.
+ *
+ * Kept intentionally low-intensity so it never obscures content, degrades WCAG AA
+ * text contrast, or interferes with accessibility. Can be disabled in Settings.
+ */
 fun Modifier.crtFilter(enabled: Boolean = true): Modifier = if (!enabled) this else this.drawWithCache {
-    val scanlineHeight = 2.dp.toPx()
-    val vignetteColors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f))
-    
+    val scanlineHeight = 1.5.dp.toPx()
+    val scanlineStep = 4.dp.toPx()
+    val vignetteColors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.22f))
+
     onDrawWithContent {
         drawContent()
-        
-        // Scanlines
+
         var y = 0f
         while (y < size.height) {
             drawLine(
-                color = Color.Black.copy(alpha = 0.15f),
+                color = Color.Black.copy(alpha = 0.05f),
                 start = Offset(0f, y),
                 end = Offset(size.width, y),
                 strokeWidth = scanlineHeight,
                 blendMode = BlendMode.Multiply
             )
-            y += scanlineHeight * 2.5f
+            y += scanlineStep
         }
-        
-        // Vignette
+
         drawRect(
             brush = Brush.radialGradient(
                 colors = vignetteColors,
                 center = Offset(size.width / 2f, size.height / 2f),
-                radius = size.width * 0.75f
+                radius = maxOf(size.width, size.height) * 0.7f
             ),
             blendMode = BlendMode.Multiply
-        )
-        
-        // Slight screen glare overlay
-        drawRect(
-            color = Color(0xFFFFFFFF).copy(alpha = 0.03f),
-            blendMode = BlendMode.Screen
         )
     }
 }
